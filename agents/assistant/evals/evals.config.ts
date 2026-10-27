@@ -10,6 +10,7 @@ import {
   seedEmailBusiness,
   seedEmptyBusiness,
   seedInvoices,
+  seedLandscapingBusiness,
   seedOneItemBusiness,
   seedPricedBusiness,
   seedScheduledBusiness,
@@ -62,6 +63,7 @@ export default defineEvalConfig({
         siteNote: seedSiteNote,
         duplicateCustomers: seedDuplicateCustomers,
         emailBusiness: seedEmailBusiness,
+        landscaping: seedLandscapingBusiness,
       },
     };
   },
