@@ -2,10 +2,10 @@
 // every stream event here, and each turn becomes one `turn_traces` row whose steps are appended as
 // the events arrive. The web chat's "Under the hood" reads a turn's model and tokens from it, and
 // `scripts/export-traces.ts` writes the rows out as JSONL.
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { turnTraces } from "../schema/schema";
 import type { TraceStep, TraceUsage } from "../schema/types";
-import { originOf, type StreamEvent, type TurnAuth } from "./conversation-events";
+import { originOf, RETENTION_DAYS, type StreamEvent, type TurnAuth } from "./conversation-events";
 import { db, newId } from "./db";
 import { resolveCaller } from "./members";
 import { attributionFor } from "./usage";
@@ -206,7 +206,9 @@ export async function recordTraceEvent(event: StreamEvent, session: { id: string
     // No row yet (the turn's start was missed), or the event was already applied: add the row and try once more.
     if (await ensureTrace(session, turnId, event.meta.at)) await apply(orgId, session.id, turnId, event.meta.id, change);
   } catch (error) {
-    console.error("turn traces: not recorded", { type: event.type, eveSessionId: session.id, error });
+    // The error's name and database code only: a failed query's message carries its parameters, the step's inputs and outputs.
+    const code = (error as { cause?: { code?: unknown }; code?: unknown } | null)?.cause?.code ?? (error as { code?: unknown } | null)?.code;
+    console.error("turn traces: not recorded", { type: event.type, eveSessionId: session.id, error: error instanceof Error ? error.name : "error", code });
   }
 }
 
@@ -235,4 +237,11 @@ export async function listTraces(orgId: string, opts: { conversationId?: string;
     )
     .orderBy(desc(turnTraces.startedAt), desc(turnTraces.id))
     .limit(limit);
+}
+
+/** Deletes traces older than the conversation events' retention window, across businesses (the hourly tick's sweep). */
+export async function pruneTurnTraces(now: Date = new Date()): Promise<number> {
+  const cutoff = new Date(now.getTime() - RETENTION_DAYS * 24 * 60 * 60_000);
+  const deleted = await db().delete(turnTraces).where(lt(turnTraces.startedAt, cutoff)).returning({ id: turnTraces.id });
+  return deleted.length;
 }

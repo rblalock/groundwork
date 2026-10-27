@@ -7,7 +7,7 @@ import { upsertThread } from "./conversations";
 import { db } from "./db";
 import { addPhone, createMember } from "./members";
 import { TEST_ORG, withTestDb } from "./test-db";
-import { capped, listTraces, recordTraceEvent, traceFor } from "./turn-traces";
+import { capped, listTraces, pruneTurnTraces, recordTraceEvent, traceFor } from "./turn-traces";
 
 let n = 0;
 const at = (ms: number) => new Date(Date.UTC(2026, 9, 18, 15, 0, 0) + ms).toISOString();
@@ -82,6 +82,11 @@ withTestDb("an eval's turn is traced with no conversation: model, steps in order
   assert.equal(trace?.id, row.id);
   assert.equal(await traceFor("org_other", "ses_eval", "t1"), null);
   assert.equal((await listTraces(TEST_ORG)).length, 1);
+
+  // Kept as long as conversation events, then dropped.
+  const day = 24 * 60 * 60_000;
+  assert.equal(await pruneTurnTraces(new Date(Date.parse(at(0)) + 179 * day)), 0);
+  assert.equal(await pruneTurnTraces(new Date(Date.parse(at(0)) + 181 * day)), 1);
 });
 
 withTestDb("a thread's turn is traced under its conversation, usage summed over steps; subagent sessions are skipped", async () => {
