@@ -2,7 +2,7 @@
 // quantity and price, and a legend of every line under it. Nothing here measures anything: quantities
 // and prices come from the quote. One per quote per source photo; making it again replaces it.
 import { existsSync } from "node:fs";
-import { rename, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, desc, eq, isNull } from "drizzle-orm";
@@ -200,26 +200,24 @@ const COPY: Record<Language, { notLocated: string; total: string }> = {
 
 // Labels are drawn with this font, so they look the same wherever the app runs, fonts installed or not:
 // Noto Sans Bold, Latin only (core/fonts/OFL.txt). Its bytes come in a module, since no bundle carries a
-// file beside the source, and are written to a temp file once per process for sharp to load.
+// file beside the source, and are written for sharp to load into a folder this process made for itself,
+// never to a shared path someone else could have put a file at. Written again if a temp cleaner took it.
 const FONT_FAMILY = "Noto Sans Bold";
 let fontFile: Promise<string> | null = null;
 
-function labelFont(): Promise<string> {
+async function labelFont(): Promise<string> {
   fontFile ??= (async () => {
-    const bytes = Buffer.from(NOTO_SANS_BOLD_BASE64, "base64");
-    const file = join(tmpdir(), `groundwork-noto-sans-bold-${bytes.byteLength}.ttf`);
-    if (!existsSync(file)) {
-      // Written beside it and renamed, so another process never loads half a font.
-      const partial = `${file}.${process.pid}`;
-      await writeFile(partial, bytes);
-      await rename(partial, file);
-    }
+    const file = join(await mkdtemp(join(tmpdir(), "groundwork-font-")), "NotoSans-Bold.ttf");
+    await writeFile(file, Buffer.from(NOTO_SANS_BOLD_BASE64, "base64"), { mode: 0o600 });
     return file;
-  })().catch((error: unknown) => {
+  })();
+  const file = await fontFile.catch((error: unknown) => {
     fontFile = null;
     throw error;
   });
-  return fontFile;
+  if (existsSync(file)) return file;
+  fontFile = null;
+  return labelFont();
 }
 
 const escapeMarkup = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
