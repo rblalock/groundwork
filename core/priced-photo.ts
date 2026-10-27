@@ -28,10 +28,12 @@ export type PricedPhotoSource = { kind: "quote_attachment" | "work_photo"; id: s
 
 export type PricedPhotoResult =
   | { pricedPhotoId: string; url: string; regions: PricedRegion[]; located: number; notLocated: string[] }
-  | { pricedPhotoId: null; reason: "no_photo" | "unreadable_photo" | "quote_not_found" | "no_lines" };
+  | { pricedPhotoId: null; reason: "no_photo" | "unreadable_photo" | "photo_too_small" | "quote_not_found" | "no_lines" };
 
 /** The photo is scaled down to this long side before SAM sees it and before drawing. */
 const MAX_SIDE = 1600;
+/** A photo narrower than this has no room for readable labels. */
+const MIN_WIDTH = 320;
 const PHOTO_TYPES = new Set(["image/jpeg", "image/png"]);
 const PHOTO_NAME = /\.(jpe?g|png)$/i;
 /** A render of the same quote revision and photo this recent is returned instead of made again. */
@@ -61,6 +63,7 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
   if (before && rerenderTooSoon(before, quote.revisionNumber, new Date())) return resultOf(before.id, before.url, before.regions);
   const photo = await preparePhoto(source.url);
   if (!photo) return { pricedPhotoId: null, reason: "unreadable_photo" };
+  if (photo.width < MIN_WIDTH) return { pricedPhotoId: null, reason: "photo_too_small" };
 
   const items = new Map((await listItems(orgId, { includeRetired: true })).map((item) => [item.id, item]));
   const lines: PhotoLine[] = quote.lines.map((line, index) => {
@@ -351,11 +354,17 @@ export async function renderOverlay(
   const texts: OverlayOptions[] = [];
   const dot = Math.round(px * 0.6);
   const maxText = width - pad * 4 - dot;
+  // A label that wraps takes a row per line: one line's height is measured, the rest counted from it.
+  const lineHeight = (await textImage("Ag", px, maxText)).height;
+  const rowSpan = (text: Text) => rowHeight + (Math.max(1, Math.round(text.height / lineHeight)) - 1) * lineHeight;
+  const rowTops = (spans: number[]) => spans.map((_, i) => spans.slice(0, i).reduce((sum, span) => sum + span, 0));
   for (const group of [...groups.values()].sort((a, b) => a.box.top - b.box.top || b.area - a.area)) {
     const rows = await Promise.all(group.regions.map((region) => textImage(lineLabel(region, language), px, maxText)));
+    const spans = rows.map(rowSpan);
+    const tops = rowTops(spans);
     const pill = {
       width: pad * 2 + dot + pad + Math.max(...rows.map((row) => row.width)),
-      height: pad * 2 + rows.length * rowHeight - (rowHeight - px) + Math.round(px * 0.2),
+      height: pad * 2 + spans.reduce((sum, span) => sum + span, 0) - (rowHeight - px) + Math.round(px * 0.2),
     };
     const rect: Rect = {
       x: Math.max(0, Math.min(width - pill.width, group.box.left + pad)),
@@ -369,36 +378,42 @@ export async function renderOverlay(
     placed.push(rect);
     shapes.push(`<rect x="${rect.x}" y="${rect.y}" width="${rect.width}" height="${rect.height}" rx="${Math.round(px * 0.6)}" fill="${PILL}" fill-opacity="0.85"/>`);
     rows.forEach((row, i) => {
-      const top = rect.y + pad + i * rowHeight;
-      const middle = top + Math.round(row.height / 2);
+      const top = rect.y + pad + tops[i];
+      const middle = top + Math.round(lineHeight / 2);
       shapes.push(`<circle cx="${rect.x + pad + dot / 2}" cy="${middle}" r="${dot / 2}" fill="${color(group.regions[i])}"/>`);
       texts.push({ input: row.input, left: rect.x + pad + dot + pad, top });
     });
   }
 
-  // Legend: every line, located or not, then the quote's total.
+  // Legend: every line, located or not, then the quote's total. A note that doesn't fit beside its
+  // line goes under it.
+  const swatch = Math.round(px * 0.8);
+  const textLeft = pad * 2 + swatch + pad;
   const legendRows = await Promise.all(
-    regions.map(async (region) => ({
-      region,
-      label: await textImage(lineLabel(region, language), px, maxText),
-      note: region.located ? null : await textImage(`(${copy.notLocated})`, px, maxText, "#a1a1aa"),
-    })),
+    regions.map(async (region) => {
+      const label = await textImage(lineLabel(region, language), px, maxText);
+      const note = region.located ? null : await textImage(`(${copy.notLocated})`, px, maxText, "#a1a1aa");
+      const beside = !note || textLeft + label.width + pad + note.width <= width - pad;
+      return { region, label, note, beside, span: rowSpan(label) + (beside || !note ? 0 : rowSpan(note) - (rowHeight - lineHeight)) };
+    }),
   );
+  const legendTops = rowTops(legendRows.map((row) => row.span));
+  const legendSpan = legendRows.reduce((sum, row) => sum + row.span, 0);
   const total = await textImage(`${copy.total} ${formatCents(totalCents, language)}`, Math.round(px * 1.1), maxText);
-  const legendHeight = pad * 2 + legendRows.length * rowHeight + Math.round(px * 0.5) + total.height + pad * 2;
+  const legendHeight = pad * 2 + legendSpan + Math.round(px * 0.5) + total.height + pad * 2;
   shapes.push(`<rect x="0" y="${height}" width="${width}" height="${legendHeight}" fill="${PILL}"/>`);
-  legendRows.forEach(({ region, label, note }, i) => {
-    const top = height + pad * 2 + i * rowHeight;
-    const middle = top + Math.round(label.height / 2);
-    const swatch = Math.round(px * 0.8);
+  legendRows.forEach(({ region, label, note, beside }, i) => {
+    const top = height + pad * 2 + legendTops[i];
+    const middle = top + Math.round(lineHeight / 2);
     const x = pad * 2;
     shapes.push(
       `<rect x="${x}" y="${middle - swatch / 2}" width="${swatch}" height="${swatch}" rx="3" fill="${color(region)}" fill-opacity="${region.located ? 1 : 0.35}"/>`,
     );
-    texts.push({ input: label.input, left: x + swatch + pad, top });
-    if (note) texts.push({ input: note.input, left: Math.min(width - note.width, x + swatch + pad + label.width + pad), top });
+    texts.push({ input: label.input, left: textLeft, top });
+    if (note && beside) texts.push({ input: note.input, left: textLeft + label.width + pad, top });
+    else if (note) texts.push({ input: note.input, left: textLeft, top: top + label.height });
   });
-  const totalTop = height + pad * 2 + legendRows.length * rowHeight + Math.round(px * 0.5);
+  const totalTop = height + pad * 2 + legendSpan + Math.round(px * 0.5);
   shapes.push(`<line x1="${pad * 2}" y1="${totalTop - Math.round(px * 0.35)}" x2="${width - pad * 2}" y2="${totalTop - Math.round(px * 0.35)}" stroke="#3f3f46" stroke-width="1"/>`);
   texts.push({ input: total.input, left: pad * 2, top: totalTop });
 
