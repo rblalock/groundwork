@@ -269,6 +269,17 @@ export function privilegedMembers(orgId: string): Promise<Member[]> {
     .orderBy(asc(members.createdAt), asc(members.id));
 }
 
+/**
+ * Marks a pending phone verified without a text: an admin vouched for it at provisioning. A stopped
+ * phone stays stopped.
+ */
+export async function verifyPhone(orgId: string, phoneId: string, at: Date): Promise<void> {
+  await db()
+    .update(memberPhones)
+    .set({ status: "verified", verifiedAt: at })
+    .where(and(eq(memberPhones.orgId, orgId), eq(memberPhones.id, phoneId), eq(memberPhones.status, "pending")));
+}
+
 export async function setPhoneStatus(orgId: string, phoneId: string, status: PhoneStatus): Promise<void> {
   await db()
     .update(memberPhones)
@@ -278,7 +289,7 @@ export async function setPhoneStatus(orgId: string, phoneId: string, status: Pho
 
 /**
  * Notes an inbound text: stamps the thread and last inbound time, and verifies a pending phone.
- * `verified` is true only for the one call that moved the phone from pending to verified, so two
+ * `verified` is true only for the one call that verified the phone or was its first text, so two
  * concurrent first texts cannot both count as first contact.
  */
 export async function recordInbound(
@@ -288,11 +299,18 @@ export async function recordInbound(
   at: Date,
   service?: "iMessage" | "SMS" | "RCS",
 ): Promise<{ verified: boolean }> {
-  // The WHERE re-checks after a concurrent update commits, so exactly one caller gets the row back.
+  // The WHERE re-checks after a concurrent update commits, so exactly one caller gets the row back. A
+  // phone provisioning already verified still has its first contact on its first text.
   const claimed = await db()
     .update(memberPhones)
-    .set({ status: "verified", verifiedAt: at })
-    .where(and(eq(memberPhones.orgId, orgId), eq(memberPhones.id, phoneId), eq(memberPhones.status, "pending")))
+    .set({ status: "verified", verifiedAt: sql`coalesce(${memberPhones.verifiedAt}, ${at.toISOString()}::timestamptz)`, lastInboundAt: at })
+    .where(
+      and(
+        eq(memberPhones.orgId, orgId),
+        eq(memberPhones.id, phoneId),
+        or(eq(memberPhones.status, "pending"), and(eq(memberPhones.status, "verified"), isNull(memberPhones.lastInboundAt))),
+      ),
+    )
     .returning({ id: memberPhones.id });
   await db()
     .update(memberPhones)

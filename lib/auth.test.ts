@@ -7,7 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { loginCodes, members, messages, session as sessions, user as users } from "../schema/schema";
 import { db } from "../core/db";
 import { setTransportForTests } from "../core/imessage";
-import { addPhone, createMember, recordInbound, removeMember, setPhoneStatus } from "../core/members";
+import { addPhone, createMember, recordInbound, removeMember, setPhoneStatus, verifyPhone } from "../core/members";
 import { createOrganization } from "../core/organizations";
 import { TEST_ORG, withTestDb } from "../core/test-db";
 import { auth, superAdminEmailAllowed } from "./auth";
@@ -86,10 +86,10 @@ async function rejects(promise: Promise<unknown>, status: number, code?: string)
   });
 }
 
-withTestDb("a code goes only to an active member whose phone has texted, in their language, and is stored hashed", async () => {
+withTestDb("a code goes only to an active member whose phone is verified, in their language, and is stored hashed", async () => {
   install();
   const { member: owner } = await member({ phone: "+15555550101", language: "es" });
-  await member({ name: "Never Texted", role: "member", phone: "+15555550102", texted: false });
+  await member({ name: "Never Verified", role: "member", phone: "+15555550102", texted: false });
   const stopped = await member({ name: "Stopped", role: "member", phone: "+15555550103" });
   await setPhoneStatus(TEST_ORG, stopped.phone.id, "stopped");
   const removed = await member({ name: "Removed", role: "member", phone: "+15555550104" });
@@ -120,6 +120,19 @@ withTestDb("a code goes only to an active member whose phone has texted, in thei
   assert.equal(logged.length, 1);
   assert.equal(logged[0].kind, "system");
   assert.ok(!logged[0].body.includes("123456"));
+});
+
+withTestDb("a provisioned phone that has never texted gets its code on a thread opened to its number", async () => {
+  // No test transport: the fake iMessage mode opens the thread and prints the post.
+  const { member: owner, phone } = await member({ phone: "+15555550101", texted: false });
+  await verifyPhone(TEST_ORG, phone.id, new Date());
+  const result = await requestLoginCode("+15555550101", { generate: () => "123456" });
+  assert.deepEqual(result, { sent: true, orgId: TEST_ORG, memberId: owner.id });
+  const logged = await db().select().from(messages).where(eq(messages.memberId, owner.id));
+  assert.equal(logged.length, 1);
+  assert.equal(logged[0].threadId, "fake-dm:+15555550101");
+  assert.ok(!logged[0].body.includes("123456"));
+  assert.equal((await verifyLoginCode("+15555550101", "123456")).ok, true);
 });
 
 withTestDb("a phone gets at most three codes in fifteen minutes, and a new code replaces the old", async () => {

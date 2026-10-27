@@ -5,11 +5,11 @@ import { db, newId } from "../core/db";
 import { isLanguage, type Language } from "../core/language";
 import { findMemberByPhone, normalizeE164, type Member, type MemberPhone } from "../core/members";
 import { isSuspended } from "../core/organizations";
-import { postToMember } from "../core/outbound";
+import { postToMember, postToPhone } from "../core/outbound";
 
 // Members sign in to the web app with a 6-digit code the assistant posts in their iMessage thread. Only
-// someone who has texted the line can get one, so nothing ever texts a stranger, and the reply to a
-// request is the same whether or not the phone is known.
+// a phone that is verified (it texted the line, or an admin vouched for it at provisioning) can get one,
+// so nothing ever texts a stranger, and the reply to a request is the same whether or not the phone is known.
 
 export const CODE_TTL_MINUTES = 10;
 /** Codes a phone can be sent in `SEND_WINDOW_MINUTES`. */
@@ -18,18 +18,25 @@ export const SEND_WINDOW_MINUTES = 15;
 /** Wrong guesses before a code stops working. */
 export const MAX_ATTEMPTS = 5;
 
-/** Texts the member. The real one posts in their thread as a `system` message, logged without the code. */
+/**
+ * Texts the member. The real one posts in their thread as a `system` message, logged without the code,
+ * or to `e164` directly when the member has not texted yet.
+ */
 export type CodePoster = (
   orgId: string,
   memberId: string,
   text: string,
   logText: string,
+  e164: string,
 ) => Promise<{ posted: boolean; reason?: string }>;
 
 export type LoginCodeDeps = { now?: Date; post?: CodePoster; generate?: () => string };
 
-const defaultPost: CodePoster = (orgId, memberId, text, logText) =>
-  postToMember(orgId, memberId, { text, logText }, "system");
+const defaultPost: CodePoster = async (orgId, memberId, text, logText, e164) => {
+  const result = await postToMember(orgId, memberId, { text, logText }, "system");
+  if (result.posted || result.reason !== "never_texted") return result;
+  return postToPhone(orgId, memberId, e164, { text, logText });
+};
 
 /**
  * What a code's text is logged with in its place: the `messages` log never holds a code. The web thread
@@ -64,15 +71,9 @@ function sameHash(a: string, b: string): boolean {
 const sixDigits = () => randomInt(0, 1_000_000).toString().padStart(6, "0");
 const minutes = (n: number) => n * 60 * 1000;
 
-/** An active member whose phone is verified and has texted the line: the only people a code goes to. */
+/** An active member whose phone is verified: the only people a code goes to. */
 function canSignIn(found: { member: Member; phone: MemberPhone } | null): found is { member: Member; phone: MemberPhone } {
-  return Boolean(
-    found &&
-      found.member.status === "active" &&
-      found.phone.status === "verified" &&
-      found.phone.threadId &&
-      found.phone.lastInboundAt,
-  );
+  return Boolean(found && found.member.status === "active" && found.phone.status === "verified");
 }
 
 export type RequestResult =
@@ -127,6 +128,7 @@ export async function requestLoginCode(phoneInput: string, deps: LoginCodeDeps =
     member.id,
     codeText(code, language),
     codeText(CODE_MASK, language),
+    e164,
   );
   if (!result.posted) {
     // A code nobody received shouldn't count against them or stay usable.

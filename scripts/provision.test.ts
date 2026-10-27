@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { memberPhones } from "../schema/schema";
 import { db } from "../core/db";
-import { findMemberByPhone, listMembers, setPhoneStatus } from "../core/members";
+import { findMemberByPhone, listMembers, recordInbound, setPhoneStatus } from "../core/members";
 import { listOrganizations } from "../core/organizations";
 import type { PhotonAdmin } from "../core/photon-admin";
 import { getProfile } from "../core/profile";
@@ -49,9 +49,14 @@ withTestDb("provision with only name, time zone, and owner creates the business,
   assert.equal(found.member.role, "owner");
   assert.equal(found.member.addedByMemberId, null);
   assert.equal(found.phone.orgId, org.id);
-  assert.equal(found.phone.status, "pending");
+  // The admin vouched for the phone, so the owner can sign in on the web before texting.
+  assert.equal(found.phone.status, "verified");
+  assert.ok(found.phone.verifiedAt);
   assert.equal(found.phone.photonUserId, "pu_+15555550142");
   assert.equal(found.phone.assignedLine, "+15555550100");
+  // Their first text is still first contact, and only that one.
+  assert.deepEqual(await recordInbound(org.id, found.phone.id, "thread:+15555550142", new Date(), "iMessage"), { verified: true });
+  assert.deepEqual(await recordInbound(org.id, found.phone.id, "thread:+15555550142", new Date(), "iMessage"), { verified: false });
 });
 
 withTestDb("optional members are created in the business with the owner as addedBy", async () => {
@@ -82,14 +87,14 @@ withTestDb("optional members are created in the business with the owner as added
   assert.equal(profile.language, "es");
 });
 
-withTestDb("rerunning provision is idempotent, finds the business by its phones, and keeps verified phones verified", async () => {
+withTestDb("rerunning provision is idempotent, finds the business by its phones, and leaves a stopped phone stopped", async () => {
   const config = provisionSchema.parse({
     ...minimal,
     members: [{ name: "Sam Crew", role: "member", phone: "+15555550143" }],
   });
   const first = await provision(config, { admin: fakeAdmin() });
   const owner = (await findMemberByPhone("+15555550142"))!;
-  await setPhoneStatus(first.org.id, owner.phone.id, "verified");
+  await setPhoneStatus(first.org.id, owner.phone.id, "stopped");
   const before = await orgCount();
   // A renamed business is still the same one: its owner's phone finds it.
   const renamed = provisionSchema.parse({ ...config, profile: { ...config.profile, name: "Example Services Group" } });
@@ -101,8 +106,8 @@ withTestDb("rerunning provision is idempotent, finds the business by its phones,
   assert.equal(again.rows.length, 2);
   assert.equal((await listMembers(first.org.id)).length, 2);
   assert.equal((await db().select().from(memberPhones)).length, 2);
-  assert.equal((await findMemberByPhone("+15555550142"))!.phone.status, "verified");
-  assert.equal((await findMemberByPhone("+15555550143"))!.phone.status, "pending");
+  assert.equal((await findMemberByPhone("+15555550142"))!.phone.status, "stopped");
+  assert.equal((await findMemberByPhone("+15555550143"))!.phone.status, "verified");
 });
 
 withTestDb("a second business is provisioned alongside the first, and a phone can't join two", async () => {

@@ -9,6 +9,7 @@ export type Transport = {
   postText: typeof postText;
   postFile: typeof postFile;
   addReaction: typeof addReaction;
+  openThread?: typeof openThread;
 };
 
 const MISSING_CREDENTIALS = "IMESSAGE_PROJECT_ID and IMESSAGE_PROJECT_SECRET must be set to talk to Photon.";
@@ -175,6 +176,16 @@ export async function postFile(threadId: string, file: OutboundFile): Promise<st
   if (!bot) return (await standaloneAdapter().postMessage(threadId, { markdown: "", files: [file] })).id || null;
   const sent = await getBot().thread(threadId).post({ markdown: "", files: [file] });
   return sent.id || null;
+}
+
+/**
+ * The thread id for a 1:1 chat with a phone that has never texted us, opened through Photon, so a
+ * provisioned member can get a sign-in code before their first text.
+ */
+export async function openThread(e164: string): Promise<string> {
+  if (testTransport?.openThread) return testTransport.openThread(e164);
+  if (fakeTransport()) return `fake-dm:${e164}`;
+  return (bot ? getBot().getAdapter("imessage") : standaloneAdapter()).openDM(e164);
 }
 
 /** Sends a tapback on a message. iMessage only; the adapter takes the tapback names directly. */

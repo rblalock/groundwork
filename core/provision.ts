@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { addPhone, createMember, findMemberByPhone, normalizeE164, setPhonePhoton, type Role } from "./members";
+import { addPhone, createMember, findMemberByPhone, normalizeE164, setPhonePhoton, verifyPhone, type Role } from "./members";
 import {
   createOrganization,
   findOrganizationBySlug,
@@ -133,8 +133,8 @@ async function resolveOrganization(config: Provision, people: Person[], createOn
 
 /**
  * Creates or updates the business: its organization and profile, the owner and any listed members,
- * each phone registered with Photon and its assigned line stored. Safe to rerun: existing phones keep
- * their member and status.
+ * each phone registered with Photon and its assigned line stored and marked verified. Safe to rerun:
+ * existing phones keep their member, and a stopped phone stays stopped.
  */
 export async function provision(
   config: Provision,
@@ -157,6 +157,8 @@ export async function provision(
         addedByMemberId: ownerId,
       }));
     const phoneRow = existing?.phone ?? (await addPhone(org.id, member.id, person.phone));
+    // The admin vouched for the phone, so its member can sign in on the web before their first text.
+    await verifyPhone(org.id, phoneRow.id, new Date());
     if (person.role === "owner") ownerId = member.id;
 
     const user = await deps.admin.ensureSharedUser({

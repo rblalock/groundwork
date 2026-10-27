@@ -2,7 +2,7 @@ import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { memberPhones, messages } from "../schema/schema";
 import type { InboundAttachment } from "../schema/types";
 import { db, newId } from "./db";
-import { chunkText, postFile, postText, type OutboundFile } from "./imessage";
+import { chunkText, openThread, postFile, postText, type OutboundFile } from "./imessage";
 import { privilegedMembers, type Member } from "./members";
 import { isSuspended } from "./organizations";
 import { getProfile, type Profile } from "./profile";
@@ -116,6 +116,30 @@ export const postToMember = (async (
   }
   return sentAny ? { posted: true } : { posted: false, reason: "send_failed" };
 }) satisfies Poster;
+
+/**
+ * Texts a phone that has never texted us, on a 1:1 thread opened to its number. Only for a sign-in code
+ * to a phone an admin verified at provisioning; everything else waits for the member's first text.
+ */
+export async function postToPhone(
+  orgId: string,
+  memberId: string,
+  e164: string,
+  payload: { text: string; logText?: string },
+): Promise<{ posted: boolean; reason?: Reason }> {
+  if (await isSuspended(orgId)) return { posted: false, reason: "suspended" };
+  try {
+    const threadId = await openThread(e164);
+    for (const chunk of chunkText(payload.text)) {
+      const ids = await postText(threadId, chunk);
+      await logOutbound({ orgId, memberId, phoneE164: e164, threadId, providerMessageIds: ids, chunks: [payload.logText ?? chunk], kind: "system" });
+    }
+  } catch (error) {
+    console.error("outbound: could not text a phone that has no thread yet", { memberId, error });
+    return { posted: false, reason: "send_failed" };
+  }
+  return { posted: true };
+}
 
 /**
  * Texts every active owner and admin of the business. `text` may be a function of the member, for their language.
