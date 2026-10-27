@@ -52,6 +52,8 @@ Each switch stands in for an outside service on this machine. Never set them in 
 - `STRIPE_FAKE=1`: a local Stripe with accounts, a checkout page, and signed webhook events.
 - `AGENTMAIL_FAKE=1`: local inboxes and signed webhook events for email intake.
 - `BLOB_FAKE=1`: skips Vercel Blob and returns placeholder URLs (`BLOB_LOCAL_DIR` saves files to a folder instead).
+  For photos sent in web chat, set `BLOB_LOCAL_DIR=.local-blobs` so the stored copy opens on the quote
+  page; the model is sent the photo's bytes either way.
 - `LOGIN_CODE_LOG=1`: prints sign-in codes to the server console.
 
 ## Tests and evals

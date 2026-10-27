@@ -1,10 +1,12 @@
 // Files a member attaches in the web chat: photos and PDFs, sent to the assistant with their message
 // as eve file parts (it sees them as it does a texted photo). A big photo is shrunk here first, so a
-// message stays well under what one request can carry.
+// message stays well under what one request can carry. The assistant's chat stores each one first
+// (`storeAttachment`), so it is logged as the member's message, as a texted photo is.
 
 export type Attached = { name: string; mediaType: string; data: string };
+export type FileContent = { type: "file"; data: string; mediaType: string; filename: string };
 
-export const ATTACH_ACCEPT = "image/png,image/jpeg,image/webp,image/gif,application/pdf";
+export const ATTACH_ACCEPT = "image/png,image/jpeg,image/webp,application/pdf";
 export const MAX_ATTACHED = 4;
 /** What one message's files may add up to, encoded: one request to the agent carries a few MB at most. */
 export const MAX_ATTACHED_CHARS = 3_500_000;
@@ -48,5 +50,26 @@ export async function prepareAttachment(file: File): Promise<Attached | "TOO_BIG
     return await shrink(file);
   } catch {
     return "UNSUPPORTED";
+  }
+}
+
+export const asFilePart = (file: Attached): FileContent => ({ type: "file", data: file.data, mediaType: file.mediaType, filename: file.name });
+
+/**
+ * Stores an attached file through `/api/attachments` and returns the part to send: by its URL when the
+ * model can fetch it (https), else as the bytes, since a fake or local store's URL isn't reachable. On a
+ * refusal or a failure, the server's reason when it gave one.
+ */
+export async function storeAttachment(file: Attached): Promise<FileContent | { error: string | null }> {
+  try {
+    const form = new FormData();
+    form.append("file", await (await fetch(file.data)).blob(), file.name);
+    const response = await fetch("/api/attachments", { method: "POST", body: form });
+    const body = (await response.json().catch(() => null)) as { url?: string; name?: string; mediaType?: string; error?: string } | null;
+    if (!response.ok || !body?.url) return { error: body?.error ?? null };
+    if (!/^https:\/\//i.test(body.url)) return asFilePart(file);
+    return { type: "file", data: body.url, mediaType: body.mediaType ?? file.mediaType, filename: body.name ?? file.name };
+  } catch {
+    return { error: null };
   }
 }

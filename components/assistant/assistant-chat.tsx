@@ -18,7 +18,7 @@ import { cachedSession, loadSession, rememberSession, sessionInMemory } from "@/
 import { LanguageToggle, TranslatedNote, useConversationTranslation, type ConversationTranslation } from "@/components/assistant/translation";
 import { copyFor } from "@/lib/copy";
 import { useThreadRail } from "@/components/threads/rail-context";
-import { ATTACH_ACCEPT, MAX_ATTACHED, MAX_ATTACHED_CHARS, prepareAttachment, type Attached } from "@/components/assistant/attach";
+import { asFilePart, ATTACH_ACCEPT, MAX_ATTACHED, MAX_ATTACHED_CHARS, prepareAttachment, storeAttachment, type Attached } from "@/components/assistant/attach";
 import { ChatLink, QuoteCard, ToolSteps } from "@/components/assistant/reply-extras";
 import { linkRecords, type RecordLink } from "@/lib/chat-tools";
 import { ON_SCREEN_HEADER, onScreenHeader, type OnScreenRecord } from "@/lib/on-screen";
@@ -592,14 +592,27 @@ function ChatSession({
       .send(content, sendAlong ? { headers: { [ON_SCREEN_HEADER]: onScreenHeader(sendAlong) } } : undefined)
       .catch((error: unknown) => setSendFailed(error instanceof ClientError && error.status === 429 ? "limited" : "failed"));
   };
-  const send = (text: string) => {
+  const storing = useRef(false);
+  const send = async (text: string) => {
     const message = text.trim();
-    if ((!message && attached.length === 0) || busy || resuming) return;
-    const content: ChatContent = attached.length
-      ? [...(message ? [{ type: "text" as const, text: message }] : []), ...attached.map((file) => ({ type: "file" as const, data: file.data, mediaType: file.mediaType, filename: file.name }))]
-      : message;
+    if ((!message && attached.length === 0) || busy || resuming || storing.current) return;
+    const files = attached;
     setAttached([]);
     setAttachError(null);
+    // The assistant's files are stored and logged first, so a quote made from the chat carries them. One
+    // that fails stays attached with the reason, and the rest of the message still goes.
+    storing.current = true;
+    const stored = agentName === "assistant" ? await Promise.all(files.map(storeAttachment)) : files.map(asFilePart);
+    storing.current = false;
+    const parts = stored.flatMap((part) => ("error" in part ? [] : [part]));
+    const failed = files.filter((_, i) => "error" in stored[i]);
+    if (failed.length) {
+      const reason = stored.find((part): part is { error: string | null } => "error" in part)?.error;
+      setAttached(failed);
+      setAttachError(reason ?? all.assistant.fileUnsupported);
+    }
+    if (!message && parts.length === 0) return;
+    const content: ChatContent = parts.length ? [...(message ? [{ type: "text" as const, text: message }] : []), ...parts] : message;
     deliver(content);
   };
   // Once, when the conversation is open and idle.
