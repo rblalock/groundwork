@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@agent-browser/eve": "0.39.2",
-    "@ai-sdk/azure": "^4.0.110",
+    "@ai-sdk/openai": "^4.0.104",
     "@base-ui/react": "1.8.0",
     "@chat-adapter/state-memory": "4.43.0",
     "@pdf-lib/upng": "1.0.1",

@@ -1,22 +1,44 @@
-// What a model call costs, estimated. These are list prices in US dollars per million tokens, keyed by
-// Azure deployment name: a published scenario, not this account's Azure rate sheet. Every cost shown
-// from them is an estimate and says so. `MODEL_PRICES` overrides or adds deployments, as JSON:
+// The model catalog: which Meta model the app calls, its context budget, and what a call costs, estimated.
+// Prices are list prices in US dollars per million tokens, keyed by model id; every cost shown from them is
+// an estimate and says so. `MODEL_PRICES` overrides or adds models, as JSON:
 //   MODEL_PRICES='{"muse-wonder-1.0":{"input":4,"cachedInput":0.2,"output":20}}'
-// A deployment that's in neither is priced at the default deployment's rates and marked `fallback`.
+// A model that's in neither is priced at the default model's rates and marked `fallback`.
+
+/** A Meta Model API model id, such as `muse-wonder-1.0`. */
+export type ModelId = string;
 
 /** USD per one million tokens. Reasoning tokens are billed as output. */
 export type ModelRates = { input: number; cachedInput: number; cacheWrite: number; output: number };
 
-export const DEFAULT_DEPLOYMENT = "muse-wonder-1.0";
-
-/** The page designer's deployment, set on its own so it can move apart from the assistant's. */
-export const DEFAULT_DESIGNER_DEPLOYMENT = "muse-wonder-1.0";
+const DEFAULT_MODEL: ModelId = "muse-wonder-1.0";
+const DEFAULT_FALLBACK_MODEL: ModelId = "muse-spark-1.3";
+const DEFAULT_CONTEXT_TOKENS = 200_000;
 
 /** Public list prices. muse-spark-1.3 is the cheaper fallback to muse-wonder-1.0. */
-export const PRICE_TABLE: Readonly<Record<string, ModelRates>> = {
+export const PRICE_TABLE: Readonly<Record<ModelId, ModelRates>> = {
   "muse-wonder-1.0": { input: 4, cachedInput: 0.2, cacheWrite: 0.2, output: 20 },
   "muse-spark-1.3": { input: 1.25, cachedInput: 0.15, cacheWrite: 0.15, output: 4.25 },
 };
+
+/** The model every call uses: `MODEL_ID`, or `MODEL_FALLBACK_ID` when `MODEL_USE_FALLBACK=1`. */
+export function currentModel(): ModelId {
+  if (process.env.MODEL_USE_FALLBACK === "1") return process.env.MODEL_FALLBACK_ID?.trim() || DEFAULT_FALLBACK_MODEL;
+  return process.env.MODEL_ID?.trim() || DEFAULT_MODEL;
+}
+
+/** The page designer's model. The same as the assistant's for now, named so it can move apart. */
+export function designerModel(): ModelId {
+  return currentModel();
+}
+
+/**
+ * The context window the app budgets for, not the model's advertised one. Compaction triggers off it, and
+ * an iMessage thread is one long-lived session, so a smaller budget keeps each step's cost in check.
+ */
+export function contextTokens(): number {
+  const value = Number(process.env.MODEL_CONTEXT_TOKENS?.trim());
+  return Number.isInteger(value) && value > 0 ? value : DEFAULT_CONTEXT_TOKENS;
+}
 
 export type PriceSource = "table" | "env" | "fallback";
 
@@ -27,14 +49,6 @@ export type CallTokens = {
   cacheWriteTokens: number;
   outputTokens: number;
 };
-
-export function currentDeployment(): string {
-  return process.env.AZURE_DEPLOYMENT_NAME?.trim() || DEFAULT_DEPLOYMENT;
-}
-
-export function designerDeployment(): string {
-  return process.env.DESIGNER_DEPLOYMENT_NAME?.trim() || DEFAULT_DESIGNER_DEPLOYMENT;
-}
 
 function envPrices(): Record<string, Partial<ModelRates>> {
   const raw = process.env.MODEL_PRICES?.trim();
@@ -51,12 +65,12 @@ function envPrices(): Record<string, Partial<ModelRates>> {
 
 const rate = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined);
 
-/** The rates for a deployment and where they came from. */
-export function ratesFor(deployment: string): { rates: ModelRates; source: PriceSource } {
-  const base = PRICE_TABLE[deployment];
-  const override = envPrices()[deployment];
+/** The rates for a model and where they came from. */
+export function ratesFor(model: ModelId): { rates: ModelRates; source: PriceSource } {
+  const base = PRICE_TABLE[model];
+  const override = envPrices()[model];
   if (override) {
-    const fallback = base ?? PRICE_TABLE[DEFAULT_DEPLOYMENT];
+    const fallback = base ?? PRICE_TABLE[DEFAULT_MODEL];
     return {
       rates: {
         input: rate(override.input) ?? fallback.input,
@@ -68,7 +82,7 @@ export function ratesFor(deployment: string): { rates: ModelRates; source: Price
     };
   }
   if (base) return { rates: base, source: "table" };
-  return { rates: PRICE_TABLE[DEFAULT_DEPLOYMENT], source: "fallback" };
+  return { rates: PRICE_TABLE[DEFAULT_MODEL], source: "fallback" };
 }
 
 /** The estimated cost of one call, in US dollars, to eight places. */
