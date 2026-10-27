@@ -26,7 +26,7 @@ export default async function TeamPage() {
             hasLogin,
             email,
             pendingEmail,
-            phones: phones.map(({ e164, status }) => ({ e164, status })),
+            phones: phones.map(({ e164, status, lastInboundAt }) => ({ e164, status, texted: lastInboundAt !== null })),
           }))}
         />
       </PageBody>

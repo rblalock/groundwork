@@ -23,10 +23,13 @@ export type TeamRow = {
   email: string | null;
   /** An address asked for, waiting on the code texted to them. */
   pendingEmail: string | null;
-  phones: Array<{ e164: string; status: PhoneStatus }>;
+  /** `texted`: they have texted the assistant from this phone, not just verified it by signing in. */
+  phones: Array<{ e164: string; status: PhoneStatus; texted: boolean }>;
 };
 
-const PHONE_TONES = { pending: "orange", verified: "green", stopped: "neutral" } as const;
+const PHONE_TONES = { pending: "orange", verified: "green", texting: "green", stopped: "neutral" } as const;
+const phoneLabel = (phone: { status: PhoneStatus; texted: boolean }) =>
+  phone.status === "verified" && phone.texted ? "texting" : phone.status;
 const RANK: Record<Role, number> = { owner: 3, admin: 2, member: 1 };
 
 /**
@@ -213,8 +216,8 @@ export function TeamManager({
                   {member.phones.map((phone) => (
                     <li className="flex flex-wrap items-center gap-x-2 gap-y-1" key={phone.e164}>
                       <span className="tabular-nums whitespace-nowrap">{formatPhone(phone.e164)}</span>
-                      <StatusPill className="h-5 px-2 text-[12px] whitespace-nowrap" tone={PHONE_TONES[phone.status]}>
-                        {t.phoneStatus[phone.status]}
+                      <StatusPill className="h-5 px-2 text-[12px] whitespace-nowrap" tone={PHONE_TONES[phoneLabel(phone)]}>
+                        {t.phoneStatus[phoneLabel(phone)]}
                       </StatusPill>
                     </li>
                   ))}
