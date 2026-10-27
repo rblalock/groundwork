@@ -1,6 +1,6 @@
 "use client";
 
-import { ClientError, type EveMessage, type MessageStreamEvent } from "eve/client";
+import { ClientError, type EveMessage, type EveMessagePart, type MessageStreamEvent } from "eve/client";
 import { useEveAgent } from "eve/react";
 import type { AgentName } from "@/core/agent-name";
 import { Eye, FileText, Layers, Mail, MessageSquareText, Paperclip, RotateCw, Smartphone, X } from "lucide-react";
@@ -20,6 +20,7 @@ import { copyFor } from "@/lib/copy";
 import { useThreadRail } from "@/components/threads/rail-context";
 import { asFilePart, ATTACH_ACCEPT, MAX_ATTACHED, MAX_ATTACHED_CHARS, prepareAttachment, storeAttachment, type Attached } from "@/components/assistant/attach";
 import { ChatLink, QuoteCard, ToolSteps } from "@/components/assistant/reply-extras";
+import { UnderTheHood } from "@/components/assistant/under-the-hood";
 import { linkRecords, type RecordLink } from "@/lib/chat-tools";
 import { ON_SCREEN_HEADER, onScreenHeader, type OnScreenRecord } from "@/lib/on-screen";
 import { replyExtras, type ReplyExtras } from "@/lib/chat-tools";
@@ -201,6 +202,7 @@ function ThreadMessage({
   settled,
   extras,
   readOnly,
+  sessionId,
 }: {
   message: EveMessage;
   toolLabels: Record<string, ToolLabel>;
@@ -210,8 +212,10 @@ function ThreadMessage({
   /** The reply is finished: its tools show as chips (while it runs, the progress steps show them). */
   settled: boolean;
   /** The steps, quote cards, and record links that go with this message, the last of its reply (lib/chat-tools.ts). */
-  extras: ReplyExtras | undefined;
+  extras: ReplyExtras<EveMessagePart> | undefined;
   readOnly: boolean;
+  /** The eve session, for the reply's trace under "Under the hood". */
+  sessionId: string;
 }) {
   const texts = textPartsOf(message);
   const files = message.parts.filter((part): part is FilePart => part.type === "file");
@@ -249,6 +253,7 @@ function ThreadMessage({
         </Message>
       ))}
       <ToolSteps language={language} steps={chips} toolLabels={toolLabels} />
+      {settled && extras ? <UnderTheHood language={language} parts={extras.parts} sessionId={sessionId} turnId={extras.turnId} /> : null}
       {cards.map((quoteId) => (
         <QuoteCard key={quoteId} language={language} quoteId={quoteId} readOnly={readOnly} />
       ))}
@@ -666,6 +671,7 @@ function ChatSession({
                   message={item.message}
                   extras={extras.get(item.message.id)}
                   readOnly={readOnlyNote !== undefined}
+                  sessionId={sessionId}
                   settled={!(busy && item.message.id === lastMessageId)}
                   toolLabels={toolLabels}
                   translation={translating}

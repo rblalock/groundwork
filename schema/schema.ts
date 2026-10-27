@@ -25,6 +25,8 @@ import type {
   NoteFile,
   RuleEffect,
   RuleLine,
+  TraceStep,
+  TraceUsage,
   WorkingInterval,
 } from "./types";
 
@@ -935,6 +937,40 @@ export const conversationEvents = pgTable(
     index("conversation_events_org_created_idx").on(t.orgId, t.createdAt),
     index("conversation_events_org_delivery_idx").on(t.orgId, t.deliveryId),
     index("conversation_events_org_call_idx").on(t.orgId, t.toolCallId),
+  ],
+);
+
+/**
+ * What the assistant did in one turn, from eve's event stream (`agents/assistant/agent/hooks/trace.ts`):
+ * the model, each step's tool calls with their inputs and outputs, its reasoning and messages, and the
+ * turn's token totals. One row per turn, its steps appended as events arrive. Unlike
+ * `conversation_events`, inputs and outputs are kept whole (up to 32 KB each); redaction happens on
+ * export. `conversation_id` is null for a session with no conversation, like an eval's. `source` is
+ * where the turn came from: `web`, `text`, `email`, `job`, `local`, or `other`.
+ */
+export const turnTraces = pgTable(
+  "turn_traces",
+  {
+    id: text("id").primaryKey(),
+    orgId: orgId(),
+    conversationId: text("conversation_id").references(() => conversations.id),
+    memberId: text("member_id").references(() => members.id),
+    eveSessionId: text("eve_session_id").notNull(),
+    turnId: text("turn_id").notNull(),
+    source: text("source").notNull(),
+    modelId: text("model_id"),
+    /** `running`, then `completed`, `failed`, or `cancelled`. */
+    status: text("status").notNull().default("running"),
+    steps: jsonb("steps").$type<TraceStep[]>().notNull().default([]),
+    usage: jsonb("usage").$type<TraceUsage>(),
+    startedAt: timestamptz("started_at").notNull(),
+    finishedAt: timestamptz("finished_at"),
+    createdAt: createdAt(),
+    updatedAt: timestamptz("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("turn_traces_org_session_turn_idx").on(t.orgId, t.eveSessionId, t.turnId),
+    index("turn_traces_org_conversation_idx").on(t.orgId, t.conversationId, t.startedAt),
   ],
 );
 

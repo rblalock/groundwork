@@ -15,6 +15,13 @@
       "when": 1793134192708,
       "tag": "0001_web-inbound-messages",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793134571758,
+      "tag": "0002_turn-traces",
+      "breakpoints": true
     }
   ]
 }
