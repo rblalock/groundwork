@@ -114,7 +114,7 @@ export async function threadWithSession(caller: AppCaller, cookie: string): Prom
   if (thread?.eveSessionId) return thread;
   try {
     const client = new Client({ host: agentHost(), redirect: "error", headers: { cookie } });
-    const response = await client.fetch("/eve/v1/photon/thread", { method: "POST", signal: AbortSignal.timeout(20_000) });
+    const response = await client.fetch("/eve/v1/photon/thread", { method: "POST", signal: AbortSignal.timeout(5_000) });
     if (!response.ok) throw new Error(`the thread route answered ${response.status}`);
     await response.body?.cancel().catch(() => undefined);
   } catch (error) {
