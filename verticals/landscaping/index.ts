@@ -59,7 +59,7 @@ export const landscaping: VerticalPack = {
       body: [
         "Mulch goes down 3 inches deep: about 1 cubic yard per 100 sq ft of bed.",
         "Edging is measured in linear feet along the bed line.",
-        "Sod is priced by the square foot; round up to a full pallet of 450 sq ft.",
+        "Sod is priced by the square foot the member gives; it comes on 450 sq ft pallets, so mention the pallet count in the confirm but quote the square feet as stated.",
         "Ask for a front and a back photo before quoting.",
         "30% deposit to book. Quotes are good for 14 days.",
       ].join("\n"),
