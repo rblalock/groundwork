@@ -4,12 +4,13 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { asc, eq } from "drizzle-orm";
 import { PDFDocument } from "pdf-lib";
-import { conversations, memberPhones, messages } from "../schema/schema";
+import { conversations, memberPhones, messages, quoteAttachments } from "../schema/schema";
 import {
   handleAssistantMessage,
   handleFailure,
   handleInbound,
   handleReaction,
+  logWebInbound,
   markTurnStarted,
   resolveInboundAttachments,
   toInbound,
@@ -1106,4 +1107,28 @@ withTestDb("a failure reply whose post rejects is logged and does not throw", as
   assert.deepEqual(result, { posted: false });
   assert.equal(errors.length, 2);
   assert.equal((await allMessages()).filter((r) => r.direction === "outbound").length, 0);
+});
+
+withTestDb("a photo sent from web chat is logged with no phone or thread, and a quote made after it carries it", async () => {
+  const { member } = await owner();
+  const caller = { orgId: TEST_ORG, memberId: member.id, name: "Pat Example", role: "owner" as const, language: "en" as const, phoneE164: null };
+  const since = new Date(Date.now() - 60_000);
+  const photo = { type: "image" as const, url: "https://blob.example/inbound/yard.jpg", name: "yard.jpg", mimeType: "image/jpeg" };
+  const id = await logWebInbound({ caller, attachment: photo });
+  const [row] = await allMessages();
+  assert.equal(row.id, id);
+  assert.equal(row.phoneE164, null);
+  assert.equal(row.threadId, null);
+  assert.equal(row.providerMessageId, null);
+  assert.equal(row.direction, "inbound");
+  assert.equal(row.kind, "user");
+  assert.deepEqual(row.attachments, [photo]);
+
+  const [item] = await saveItems(TEST_ORG, [{ name: "mowing", unitKind: "visit", unitLabel: "visit", priceCents: 6000 }], member.id);
+  const quote = await createQuote({ title: "412 Oak", lines: [{ itemId: item.id, quantity: 1 }] }, caller, { post: quietPoster, photosSince: since });
+  const linked = await db().select().from(quoteAttachments).where(eq(quoteAttachments.quoteId, quote.quoteId));
+  assert.deepEqual(
+    linked.map((a) => [a.messageId, a.url, a.mimeType]),
+    [[id, photo.url, "image/jpeg"]],
+  );
 });

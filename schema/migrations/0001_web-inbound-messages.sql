@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ALTER COLUMN "phone_e164" DROP NOT NULL;

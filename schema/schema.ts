@@ -672,7 +672,8 @@ export const messages = pgTable(
     id: text("id").primaryKey(),
     orgId: orgId(),
     memberId: text("member_id").references(() => members.id),
-    phoneE164: text("phone_e164").notNull(),
+    /** Null on what a member sent from web chat: it came in on no phone. */
+    phoneE164: text("phone_e164"),
     direction: messageDirection("direction").notNull(),
     kind: messageKind("kind").notNull(),
     providerMessageId: text("provider_message_id").unique(),

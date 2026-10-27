@@ -226,6 +226,29 @@ export async function logInbound(row: {
   return inserted[0]?.id ?? null;
 }
 
+/**
+ * Logs a file a member sent from web chat as an inbound row, as a texted photo is, so `create_quote`
+ * links it to the quote. It came in on no phone and no thread. Returns the row's id.
+ */
+export async function logWebInbound(row: { caller: Caller; attachment: InboundAttachment; body?: string }): Promise<string> {
+  const id = newId("msg");
+  await db()
+    .insert(messages)
+    .values({
+      id,
+      orgId: row.caller.orgId,
+      memberId: row.caller.memberId,
+      phoneE164: null,
+      direction: "inbound",
+      kind: "user",
+      providerMessageId: null,
+      threadId: null,
+      body: row.body ?? "",
+      attachments: [row.attachment],
+    });
+  return id;
+}
+
 /** Posts a fixed text and logs it. Failures are logged, not thrown: the inbound row is already claimed. */
 async function say(deps: DispatchDeps, member: Member, phone: MemberPhone, threadId: string, text: string): Promise<void> {
   try {
