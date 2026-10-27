@@ -13,7 +13,12 @@ export type ToolCallPart = {
   output?: unknown;
 };
 
-type MessageLike = { id: string; role: string; parts: ReadonlyArray<{ type: string }> };
+type MessageLike<P extends { type: string } = { type: string }> = {
+  id: string;
+  role: string;
+  parts: ReadonlyArray<P>;
+  metadata?: { turnId?: string };
+};
 
 /** Tools that aren't news to the member: the assistant's own housekeeping, and the threads shown as links. */
 export const HIDDEN_TOOLS = new Set([
@@ -216,26 +221,37 @@ export function isRecordLink(href: string): boolean {
   return RECORD_LINK.test(href);
 }
 
-export type ReplyExtras = { chips: ToolChip[]; quoteIds: string[]; links: RecordLink[] };
+/**
+ * `turnId` is the eve turn the reply ran in (its last message's that names one), and `parts` are every
+ * part of the reply's messages, in order: "Under the hood" shows them all.
+ */
+export type ReplyExtras<P extends { type: string } = { type: string }> = {
+  chips: ToolChip[];
+  quoteIds: string[];
+  links: RecordLink[];
+  turnId: string | null;
+  parts: P[];
+};
 
 /**
  * What goes under each reply. A reply can take several assistant messages in a row (tool calls, then
  * the words), so the run's chips go under its last message, with its quotes' cards. A quote touched in
  * more than one reply shows its card only under the latest, so revising it five times shows one card.
  */
-export function replyExtras(messages: ReadonlyArray<MessageLike>): Map<string, ReplyExtras> {
-  const runs: Array<{ lastId: string; parts: Array<{ type: string }> }> = [];
-  let run: { lastId: string; parts: Array<{ type: string }> } | null = null;
+export function replyExtras<P extends { type: string }>(messages: ReadonlyArray<MessageLike<P>>): Map<string, ReplyExtras<P>> {
+  const runs: Array<{ lastId: string; turnId: string | null; parts: P[] }> = [];
+  let run: { lastId: string; turnId: string | null; parts: P[] } | null = null;
   for (const message of messages) {
     if (message.role !== "assistant") {
       run = null;
       continue;
     }
     if (!run) {
-      run = { lastId: message.id, parts: [] };
+      run = { lastId: message.id, turnId: null, parts: [] };
       runs.push(run);
     }
     run.lastId = message.id;
+    run.turnId = message.metadata?.turnId ?? run.turnId;
     run.parts.push(...message.parts);
   }
   const latest = new Map<string, string>();
@@ -247,13 +263,13 @@ export function replyExtras(messages: ReadonlyArray<MessageLike>): Map<string, R
   }
   // A reply often names a record an earlier reply looked up ("Jane's quote is approved"), so each reply
   // links its own records and then, by exact name, the conversation's earlier ones.
-  const extras = new Map<string, ReplyExtras>();
+  const extras = new Map<string, ReplyExtras<P>>();
   const seen = new Map<string, RecordLink>();
-  for (const { lastId, parts } of runs) {
+  for (const { lastId, turnId, parts } of runs) {
     const own = recordLinksOf(parts);
     const names = new Set(own.map((link) => link.text));
     const earlier = [...seen.values()].filter((link) => !names.has(link.text)).map((link) => ({ ...link, earlier: true }));
-    extras.set(lastId, { chips: toolChipsOf(parts), quoteIds: [], links: [...own, ...earlier] });
+    extras.set(lastId, { chips: toolChipsOf(parts), quoteIds: [], links: [...own, ...earlier], turnId, parts });
     for (const link of own) {
       seen.delete(link.text);
       seen.set(link.text, link);

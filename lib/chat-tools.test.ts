@@ -53,10 +53,29 @@ test("a reply's chips and cards go under its last message; a quote's card only u
   ];
   const extras = replyExtras(messages);
   assert.deepEqual([...extras.keys()], ["m1", "m4", "m6"]);
-  assert.deepEqual(extras.get("m1"), { chips: [{ tool: "create_quote", count: 1, failed: false, detail: null }], quoteIds: [], links: [] });
+  assert.deepEqual(extras.get("m1"), { chips: [{ tool: "create_quote", count: 1, failed: false, detail: null }], quoteIds: [], links: [], turnId: null, parts: messages[0].parts });
   assert.deepEqual(extras.get("m4")?.chips.map((c) => c.tool), ["revise_quote", "create_quote"]);
   assert.deepEqual(extras.get("m4")?.quoteIds, ["quo_1", "quo_2"]);
-  assert.deepEqual(extras.get("m6"), { chips: [{ tool: "get_quote", count: 1, failed: true, detail: null }], quoteIds: [], links: [] });
+  assert.deepEqual(extras.get("m6"), { chips: [{ tool: "get_quote", count: 1, failed: true, detail: null }], quoteIds: [], links: [], turnId: null, parts: messages[5].parts });
+});
+
+test("a reply's turn and all its parts, from every message of the run, go under its last message", () => {
+  const reasoning = { type: "reasoning", text: "Price the mulch first." };
+  const tool = call("create_quote", { output: { quoteId: "quo_1" } });
+  const words = { type: "text", text: "Here's the quote." };
+  const messages = [
+    { id: "m1", role: "user", parts: [{ type: "text" }], metadata: { turnId: "turn_1" } },
+    { id: "m2", role: "assistant", parts: [reasoning, tool], metadata: { turnId: "turn_1" } },
+    { id: "m3", role: "assistant", parts: [words], metadata: { turnId: "turn_1" } },
+    { id: "m4", role: "user", parts: [{ type: "text" }] },
+    // A message without a turn (imported history) keeps the run's turn unknown.
+    { id: "m5", role: "assistant", parts: [{ type: "text" }] },
+  ];
+  const extras = replyExtras(messages);
+  assert.equal(extras.get("m3")?.turnId, "turn_1");
+  assert.deepEqual(extras.get("m3")?.parts, [reasoning, tool, words]);
+  assert.equal(extras.get("m2"), undefined);
+  assert.equal(extras.get("m5")?.turnId, null);
 });
 
 test("the records a reply's tools returned link their first mention to their page, and nothing else", () => {
