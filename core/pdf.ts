@@ -9,6 +9,7 @@ import { formatDateOnly, localeFor, type Language } from "./language";
 import { pdfCopy, type PdfCopy } from "./pdf-copy";
 import { accentColors, normalizeHex, type AccentColors, type PdfDetail, type Rgb } from "./pdf-style";
 import type { Profile } from "./profile";
+import { pluralUnit } from "./units";
 
 export interface QuotePdfDocument {
   profile: Profile;
@@ -420,7 +421,7 @@ export async function renderQuotePdf(doc: QuotePdfDocument): Promise<Uint8Array>
     const unitPrice = line.unitCents === null ? "-" : formatCents(line.unitCents, doc.language);
     drawRow(ctx, {
       service: line.name,
-      qty: `${formatQuantity(line.quantity, doc.language)}${line.unitLabel ? ` ${clean(ctx, line.unitLabel)}` : ""}`,
+      qty: `${formatQuantity(line.quantity, doc.language)}${line.unitLabel ? ` ${clean(ctx, pluralUnit(line.quantity, line.unitLabel, doc.language))}` : ""}`,
       unit: unitPrice,
       amount: line.totalCents === null ? "-" : formatCents(line.totalCents, doc.language),
     });
@@ -647,7 +648,7 @@ export async function renderInvoicePdf(doc: InvoicePdfDocument): Promise<Uint8Ar
   for (const line of doc.lines) {
     drawRow(ctx, {
       service: line.name,
-      qty: `${formatQuantity(line.quantity, doc.language)}${line.unitLabel ? ` ${clean(ctx, line.unitLabel)}` : ""}`,
+      qty: `${formatQuantity(line.quantity, doc.language)}${line.unitLabel ? ` ${clean(ctx, pluralUnit(line.quantity, line.unitLabel, doc.language))}` : ""}`,
       unit: line.unitCents === null ? "-" : formatCents(line.unitCents, doc.language),
       amount: line.totalCents === null ? "-" : formatCents(line.totalCents, doc.language),
     });
