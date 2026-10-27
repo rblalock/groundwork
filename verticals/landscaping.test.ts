@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, test } from "node:test";
+import { afterEach, mock, test } from "node:test";
 import type { UnitKind } from "../schema/types";
 import { activeVertical, VERTICALS } from "./index";
 
@@ -46,6 +46,11 @@ test("activeVertical reads VERTICAL on each call", () => {
   assert.equal(activeVertical(), null);
   process.env.VERTICAL = "landscaping";
   assert.equal(activeVertical(), pack);
+  // An unknown pack is no pack, with one warning however many turns read it.
+  const warn = mock.method(console, "warn", () => {});
   process.env.VERTICAL = "plumbing";
-  assert.throws(() => activeVertical(), /UNKNOWN_VERTICAL/);
+  assert.equal(activeVertical(), null);
+  assert.equal(activeVertical(), null);
+  assert.equal(warn.mock.callCount(), 1);
+  warn.mock.restore();
 });
