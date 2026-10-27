@@ -6,7 +6,8 @@ import { updateProfile } from "./profile";
 
 /**
  * Loads a trade pack into one business, as its owner: prices (upserted by name), rules and business
- * notes (skipped when one with the same text or title is already saved), and the minimum charge.
+ * notes (skipped when one with the same text or title is already saved), the minimum charge, and its
+ * profile settings (quote validity, deposit, follow-up).
  * Safe to run again. Rule `appliesTo` names become the saved items' ids. Throws `PACK_ITEM_UNKNOWN`
  * for a rule naming an item the pack does not have.
  */
@@ -51,8 +52,7 @@ export async function applyVerticalPack(
     notesAdded++;
   }
 
-  if (pack.minimumChargeCents !== null) {
-    await updateProfile(orgId, { minimumChargeCents: pack.minimumChargeCents }, memberId);
-  }
+  const profile = { ...pack.profile, ...(pack.minimumChargeCents !== null ? { minimumChargeCents: pack.minimumChargeCents } : {}) };
+  if (Object.keys(profile).length > 0) await updateProfile(orgId, profile, memberId);
   return { items: items.length, rulesAdded, notesAdded };
 }
