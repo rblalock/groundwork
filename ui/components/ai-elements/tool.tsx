@@ -93,6 +93,9 @@ export const ToolHeader = ({
       <div className="flex items-center gap-2">
         <WrenchIcon className="size-4 text-muted-foreground" />
         <span className="font-medium text-sm">{title ?? derivedName}</span>
+        {title && derivedName && title !== derivedName ? (
+          <code className="text-muted-foreground text-xs">{derivedName}</code>
+        ) : null}
         {getStatusBadge(state)}
       </div>
       <ChevronDownIcon className="size-4 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />

@@ -56,7 +56,8 @@ function changeFor(event: StreamEvent, data: Record<string, unknown>): Change {
   const base = { eventId: event.meta.id, at: event.meta.at, stepIndex: typeof data.stepIndex === "number" ? data.stepIndex : null };
   switch (event.type) {
     case "step.started": {
-      const modelId = text(data.modelId);
+      // Eve reports the model as `<provider>/<id>`; the trace keeps the bare id.
+      const modelId = text(data.modelId)?.replace(/^[a-z0-9-]+\//, "");
       return { steps: [{ ...base, kind: "step", status: "started", modelId }], modelId };
     }
     case "actions.requested": {
