@@ -1,7 +1,8 @@
 {
   "profile": {
     "name": "LOX Landscape Co",
-    "timeZone": "America/New_York"
+    "timeZone": "America/New_York",
+    "quoteValidityDays": 14
   },
   "owner": {
     "name": "Pat Ortega",
