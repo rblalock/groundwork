@@ -904,6 +904,19 @@ withTestDb("trackSession keeps the member's thread on their latest session, and 
   assert.deepEqual((await sessions()).map((s) => s.eveSessionId), ["ses_5"]);
 });
 
+withTestDb("trackSession leaves a thread started on the web on its session when a new iMessage thread texts", async () => {
+  const member = await createMember({ orgId: TEST_ORG, name: "Pat Example", role: "owner" });
+  const auth = {
+    authenticator: "photon-imessage",
+    principalId: `member:${member.id}`,
+    principalType: "user",
+    attributes: { orgId: TEST_ORG, memberId: member.id, phone: OWNER_PHONE },
+  };
+  const started = await startThread(TEST_ORG, member.id, "ses_web");
+  await trackSession(auth, "ses_new_imessage_thread");
+  assert.deepEqual((await db().select().from(conversations)).map((c) => [c.id, c.eveSessionId]), [[started.id, "ses_web"]]);
+});
+
 test("toInbound maps a Chat SDK message and reads the service defensively", () => {
   const thread = { id: "imessage:abc" };
   const inbound = toInbound(thread, {

@@ -104,6 +104,7 @@ const en = {
     pricedOutcome: {
       no_photo: "This quote has no photo to price.",
       unreadable_photo: "The quote's photo couldn't be read. Add a JPEG or PNG photo.",
+      photo_too_small: "The quote's photo is too small to label. Add a larger photo.",
       no_lines: "The quote has no lines to put on the photo.",
       quote_not_found: "That quote isn't here.",
       failed: "The photo couldn't be priced just now. Try again.",
@@ -1232,6 +1233,7 @@ const es: PageCopy = {
     pricedOutcome: {
       no_photo: "Esta cotización no tiene foto para marcar.",
       unreadable_photo: "La foto de la cotización no se pudo leer. Agrega una foto JPEG o PNG.",
+      photo_too_small: "La foto de la cotización es demasiado pequeña para marcarla. Agrega una foto más grande.",
       no_lines: "La cotización no tiene líneas para poner en la foto.",
       quote_not_found: "Esa cotización no está aquí.",
       failed: "No se pudo marcar la foto ahora. Inténtalo de nuevo.",

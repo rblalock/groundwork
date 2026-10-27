@@ -34,13 +34,14 @@ export async function upsertThread(
 /**
  * Records a session the web app started as the member's thread, unless they already have one (a text
  * that arrived meanwhile started it): the thread comes back either way, and its session is the one to
- * use. Throws `MEMBER_NOT_FOUND` for a member outside this business.
+ * use. Its `source` is `web`, so a text from a new iMessage thread never moves it (`trackSession`).
+ * Throws `MEMBER_NOT_FOUND` for a member outside this business.
  */
 export async function startThread(orgId: string, memberId: string, eveSessionId: string): Promise<Conversation> {
   if (!(await findMemberById(orgId, memberId))) throw new Error("MEMBER_NOT_FOUND");
   await db()
     .insert(conversations)
-    .values({ id: newId("conv"), orgId, memberId, kind: "thread", eveSessionId })
+    .values({ id: newId("conv"), orgId, memberId, kind: "thread", eveSessionId, source: "web" })
     .onConflictDoNothing({ target: [conversations.orgId, conversations.memberId], where: sql`${conversations.kind} = 'thread'` });
   const thread = await threadFor(orgId, memberId);
   if (!thread) throw new Error("THREAD_NOT_STARTED");

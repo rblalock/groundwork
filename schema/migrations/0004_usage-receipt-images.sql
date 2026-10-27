@@ -1,0 +1,1 @@
+ALTER TABLE "usage_receipts" ADD COLUMN "images" integer;

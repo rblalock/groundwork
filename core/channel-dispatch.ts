@@ -925,14 +925,15 @@ export async function handleFailure(
  * Remembers the member's eve session as their thread conversation: the session their texts run in,
  * which the web app's Assistant page resumes. A new Photon session (a new iMessage thread) moves the
  * thread to it; the old session's history stays in eve but the web app no longer shows it. A thread
- * started on the web never moves this way: texts join its session (`threadSession`).
+ * started on the web (`source` `web`) never moves: texts join its session (`threadSession`), and a
+ * text that started a session of its own before it could join leaves the thread where it is.
  */
 export async function trackSession(auth: SessionAuthContext | null | undefined, eveSessionId: string): Promise<void> {
   const orgId = attribute(auth, "orgId");
   const memberId = attribute(auth, "memberId");
   if (!orgId || !memberId) return;
   const existing = await threadFor(orgId, memberId);
-  if (existing?.eveSessionId === eveSessionId) return;
+  if (existing?.eveSessionId === eveSessionId || existing?.source === "web") return;
   if (!(await findMemberById(orgId, memberId))) return;
   await upsertThread(orgId, memberId, eveSessionId);
 }

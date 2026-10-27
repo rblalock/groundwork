@@ -404,7 +404,7 @@ const idsOf = (rows: Array<{ id: string }>) => rows.map((r) => r.id).sort();
 
 withTestDb("every business table has org_id, and the seed fills each one for both businesses", async () => {
   const { a, b } = await seedTwo();
-  assert.equal(businessTables.length, 42);
+  assert.equal(businessTables.length, 44);
   for (const table of businessTables) {
     const name = getTableName(table);
     for (const orgId of [a.orgId, b.orgId]) {

@@ -422,7 +422,10 @@ export const conversations = pgTable(
     quoteId: text("quote_id").references((): AnyPgColumn => quotes.id),
     /** A job's customer, when it's about one. */
     customerId: text("customer_id").references((): AnyPgColumn => customers.id),
-    /** `email` for a thread an email the member forwarded started; null for the rest. */
+    /**
+     * `email` for a thread an email the member forwarded started, `web` for the member's thread Home
+     * started; null for the rest.
+     */
     source: text("source"),
     /**
      * An email thread's conversation: who wrote the original and its subject, without "Re:" or "Fwd:"
@@ -1355,7 +1358,10 @@ export const usageReceipts = pgTable(
     reservationId: text("reservation_id"),
     /** Where the turn came from: `text`, `web`, `job`, `schedule`, `local` (dev and evals), or `other`; `translation` is no turn. */
     channel: text("channel").notNull(),
-    /** `step` for an ordinary model call, `compaction` for a history summary, `translation` for the web app's translated view. */
+    /**
+     * `step` for an ordinary model call, `compaction` for a history summary, `translation` for the web
+     * app's translated view, `sam` for a priced photo's segmentation call.
+     */
     kind: text("kind").notNull().default("step"),
     /** The deployment the call went to, and the model id the provider answered with. */
     deployment: text("deployment").notNull(),
@@ -1366,6 +1372,8 @@ export const usageReceipts = pgTable(
     outputTokens: integer("output_tokens").notNull().default(0),
     /** Part of `output_tokens`, when the provider reports it. */
     reasoningTokens: integer("reasoning_tokens"),
+    /** The images a SAM call processed; null for a token-billed call. */
+    images: integer("images"),
     /** An estimate from list prices, in US dollars. */
     estimatedCostUsd: numeric("estimated_cost_usd", { precision: 14, scale: 8, mode: "number" }).notNull().default(0),
     /** Which prices the estimate used: `table`, `env` (MODEL_PRICES), or `fallback` (an unlisted deployment). */
