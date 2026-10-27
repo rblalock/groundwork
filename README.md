@@ -73,7 +73,8 @@ Everything is listed with comments in `.env.example`.
   (default `muse-wonder-1.0`), `MODEL_FALLBACK_ID` (default `muse-spark-1.3`), `MODEL_USE_FALLBACK=1`
   to run on the fallback, `MODEL_REASONING_EFFORT` (`low`, `medium`, `high`), `MODEL_CONTEXT_TOKENS`
   (the context budget compaction works from), and `MODEL_API=chat` to use Chat Completions instead
-  of the Responses API.
+  of the Responses API. `SAM_MODEL_ID` (default `sam-3.1`) is the segmentation model for priced
+  photos.
 - `VERTICAL`: the trade pack's instructions. `EVAL_MODEL_ID` and `EVAL_JUDGE_MODEL_ID`: the agent's
   and the judge's models in evals.
 - `MODEL_PRICES` (list prices for cost estimates, JSON) and `USAGE_HOURLY_TURNS`,
