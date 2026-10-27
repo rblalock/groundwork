@@ -25,7 +25,7 @@ export type SamObject = {
 
 export type SamImage = { bytes: Uint8Array; mimeType: string } | { url: string };
 
-const MODEL = "sam-3.1";
+const MODEL = process.env.SAM_MODEL_ID?.trim() || "sam-3.1";
 const TIMEOUT_MS = 30_000;
 
 const imageUrl = (image: SamImage): string =>
