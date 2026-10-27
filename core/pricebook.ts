@@ -15,10 +15,12 @@ export type NewItem = {
   taxable?: boolean;
   group?: string;
   notes?: string;
+  /** The noun phrase that finds the item in a photo, for the priced photo. */
+  photoPrompt?: string;
   createdFromQuoteId?: string;
 };
 export type ItemPatch = Partial<
-  Pick<Item, "name" | "unitLabel" | "unitKind" | "priceCents" | "taxable" | "status" | "group" | "notes">
+  Pick<Item, "name" | "unitLabel" | "unitKind" | "priceCents" | "taxable" | "status" | "group" | "notes" | "photoPrompt">
 >;
 
 /** Lowercase, trim, collapse whitespace, strip punctuation except `/` and `-`. */
@@ -56,6 +58,7 @@ const TRACKED_FIELDS = [
   "status",
   "group",
   "notes",
+  "photoPrompt",
 ] as const satisfies readonly (keyof ItemPatch)[];
 
 const FIELD_NAMES: Record<(typeof TRACKED_FIELDS)[number], string> = {
@@ -67,6 +70,7 @@ const FIELD_NAMES: Record<(typeof TRACKED_FIELDS)[number], string> = {
   status: "status",
   group: "group",
   notes: "notes",
+  photoPrompt: "photo_prompt",
 };
 
 /** Applies a patch to an existing item. Logs one change row per changed field. Returns null when nothing changed. */
@@ -154,6 +158,7 @@ export async function saveItemsWithOutcome(
             taxable: input.taxable ?? true,
             group: input.group ?? null,
             notes: input.notes ?? null,
+            photoPrompt: input.photoPrompt ?? null,
             createdFromQuoteId: input.createdFromQuoteId ?? null,
           })
           .returning();
@@ -171,6 +176,7 @@ export async function saveItemsWithOutcome(
           taxable: input.taxable,
           group: input.group,
           notes: input.notes,
+          photoPrompt: input.photoPrompt,
           status: "active",
         },
         memberId,

@@ -23,6 +23,7 @@ import type {
   InvoiceLine,
   LineResult,
   NoteFile,
+  PricedRegion,
   RuleEffect,
   RuleLine,
   TraceStep,
@@ -456,6 +457,8 @@ export const pricebookItems = pgTable(
     taxable: boolean("taxable").notNull().default(true),
     group: text("group"),
     notes: text("notes"),
+    /** The noun phrase that finds this item in a photo ("mulch bed"), for the priced photo; null for none. */
+    photoPrompt: text("photo_prompt"),
     status: itemStatus("status").notNull().default("active"),
     createdFromQuoteId: text("created_from_quote_id"),
     version: integer("version").notNull().default(1),
@@ -715,6 +718,33 @@ export const quoteAttachments = pgTable(
     createdAt: createdAt(),
   },
   (t) => [check("quote_attachments_source", sql`${t.messageId} is not null or ${t.uploadedByMemberId} is not null`)],
+);
+
+/**
+ * A quote's photo with each quoted thing outlined and labeled with its line's quantity and price
+ * (core/priced-photo.ts): one per quote per source photo, replaced when made again. The source is a
+ * quote attachment before the job or a work photo after it. `url` is the rendered PNG.
+ */
+export const pricedPhotos = pgTable(
+  "priced_photos",
+  {
+    id: text("id").primaryKey(),
+    orgId: orgId(),
+    quoteId: text("quote_id")
+      .notNull()
+      .references(() => quotes.id),
+    revisionNumber: integer("revision_number").notNull(),
+    sourceKind: text("source_kind").$type<"quote_attachment" | "work_photo">().notNull(),
+    sourceId: text("source_id").notNull(),
+    sourceUrl: text("source_url").notNull(),
+    url: text("url").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    regions: jsonb("regions").$type<PricedRegion[]>().notNull(),
+    memberId: text("member_id").references(() => members.id),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("priced_photos_org_quote_source_idx").on(t.orgId, t.quoteId, t.sourceUrl)],
 );
 
 /**

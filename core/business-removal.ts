@@ -46,6 +46,7 @@ const FILE_SOURCES: Array<(orgs: SQL) => SQL> = [
   (orgs) => sql`select pdf_url as url from invoices where pdf_url is not null and org_id ${orgs}`,
   (orgs) => sql`select url from quote_attachments where org_id ${orgs}`,
   (orgs) => sql`select url from work_photos where org_id ${orgs}`,
+  (orgs) => sql`select url from priced_photos where org_id ${orgs}`,
   (orgs) => sql`select e->>'url' as url from messages, jsonb_array_elements(attachments) e where org_id ${orgs}`,
   (orgs) => sql`select e->>'url' as url from notes, jsonb_array_elements(files) e where org_id ${orgs}`,
 ];

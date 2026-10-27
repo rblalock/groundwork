@@ -10,6 +10,8 @@ export type PackItem = {
   priceCents: number;
   group?: string;
   notes?: string;
+  /** The noun phrase that finds the item in a photo ("mulch bed"); none for items a photo can't show. */
+  photoPrompt?: string;
 };
 
 export type PackRule = {

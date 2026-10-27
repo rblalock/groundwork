@@ -125,3 +125,20 @@ export type TraceUsage = {
   cacheWriteTokens?: number;
   costUsd?: number;
 };
+
+/**
+ * One quote line on a priced photo (`priced_photos.regions`): the line as quoted, the noun phrase it was
+ * looked for by, and the objects kept for it. Boxes are in the priced photo's pixels, `right` and `bottom`
+ * exclusive. A line with no phrase or no object kept has `located: false` and stays on the legend.
+ */
+export type PricedRegion = {
+  lineIndex: number;
+  itemId: string | null;
+  name: string;
+  quantity: number;
+  unitLabel: string;
+  totalCents: number | null;
+  phrase: string | null;
+  objects: Array<{ box: { left: number; top: number; right: number; bottom: number }; areaPx: number; confidence: number | null }>;
+  located: boolean;
+};
