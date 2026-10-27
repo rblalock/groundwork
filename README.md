@@ -62,6 +62,7 @@ npm test            # no database or keys needed; every outside service is force
 npm run test:db     # also the tests that need DATABASE_URL; empties its tables
 npm run evals       # conversation evals in agents/assistant/evals/ against a local agent
 VERTICAL=landscaping npm run evals   # the same, with the landscaping instructions
+npm run traces:export -- --org <slug> --redact > traces.jsonl   # every turn's trace, one JSON line each
 ```
 
 `npm test` runs offline: `scripts/test-env.ts` switches every outside service to its fake and blanks
