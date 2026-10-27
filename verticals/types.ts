@@ -1,0 +1,32 @@
+import type { UnitKind } from "../schema/types";
+
+// A trade pack: plain data applied to a business by `applyVerticalPack` (core/vertical-seed.ts), plus
+// the instruction overlay the assistant gets each turn when `VERTICAL` names the pack.
+
+export type PackItem = {
+  name: string;
+  unitKind: UnitKind;
+  unitLabel: string;
+  priceCents: number;
+  group?: string;
+  notes?: string;
+};
+
+export type PackRule = {
+  text: string;
+  kind: "pricing_modifier" | "scope" | "exclusion" | "process";
+  /** `appliesTo` lists item names; the seed resolves them to the saved items' ids. */
+  effect?: { op: "add_fixed" | "add_per_unit" | "percent"; amount: number; appliesTo: "any" | string[] };
+};
+
+export type PackNote = { title: string; body: string; tags?: string[] };
+
+export type VerticalPack = {
+  id: string;
+  label: string;
+  minimumChargeCents: number | null;
+  items: PackItem[];
+  rules: PackRule[];
+  notes: PackNote[];
+  instructions: string;
+};
