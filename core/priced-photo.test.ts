@@ -8,7 +8,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import sharp from "sharp";
-import { quoteAttachments } from "../schema/schema";
+import { pricedPhotos, quoteAttachments } from "../schema/schema";
 import type { PricedRegion } from "../schema/types";
 import { landscaping } from "../verticals/landscaping";
 import { storeInboundAttachment } from "./blob";
@@ -18,7 +18,7 @@ import { z } from "zod";
 import { memberAuth } from "./channel-dispatch";
 import { addPhone, createMember, findMemberById, type Caller } from "./members";
 import { saveItems } from "./pricebook";
-import { createPricedPhoto, pricedPhotosFor, renderOverlay } from "./priced-photo";
+import { createPricedPhoto, pricedPhotosFor, renderOverlay, RERENDER_MS, rerenderTooSoon } from "./priced-photo";
 import { createQuote, type Poster } from "./quotes";
 import { TEST_ORG, withTestDb } from "./test-db";
 
@@ -89,6 +89,14 @@ withTestDb("priced photo: no photo, an unreadable one, or no such quote is a rea
   assert.deepEqual(await createPricedPhoto(owner, { quoteId: "quo_missing" }), { pricedPhotoId: null, reason: "quote_not_found" });
 });
 
+test("a priced photo isn't rendered again within ten seconds of the last render of the same revision", () => {
+  const now = new Date("2026-10-27T12:00:10Z");
+  const previous = { revisionNumber: 2, createdAt: new Date("2026-10-27T12:00:01Z") };
+  assert.equal(rerenderTooSoon(previous, 2, now), true);
+  assert.equal(rerenderTooSoon(previous, 3, now), false);
+  assert.equal(rerenderTooSoon({ ...previous, createdAt: new Date("2026-10-27T12:00:00Z") }, 2, now), false);
+});
+
 withTestDb("priced photo: making it again replaces the one for that photo", async () => {
   const { owner, items } = await seed();
   // Cleanup labor has no photo prompt, so nothing is sent to SAM and the line is listed as not located.
@@ -97,6 +105,8 @@ withTestDb("priced photo: making it again replaces the one for that photo", asyn
   const first = await createPricedPhoto(owner, { quoteId: quote.quoteId });
   assert.ok(first.pricedPhotoId);
   assert.deepEqual([first.located, first.notLocated], [0, ["Cleanup labor"]]);
+  // Past the re-render window, so this one renders again.
+  await db().update(pricedPhotos).set({ createdAt: new Date(Date.now() - RERENDER_MS - 1) });
   const again = await createPricedPhoto(owner, { quoteId: quote.quoteId });
   assert.equal(again.pricedPhotoId, first.pricedPhotoId);
   const rows = await pricedPhotosFor(TEST_ORG, quote.quoteId);

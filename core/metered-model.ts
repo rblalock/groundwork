@@ -12,7 +12,7 @@ type Model = Exclude<LanguageModel, string>;
  * `translation` is the web app's translated view (core/translation.ts), not a turn's step.
  */
 export type CallUsage = {
-  kind: "step" | "compaction" | "translation";
+  kind: "step" | "compaction" | "translation" | "sam";
   inputTokens: number;
   cachedInputTokens: number;
   cacheWriteTokens: number;
@@ -20,6 +20,8 @@ export type CallUsage = {
   reasoningTokens: number | null;
   responseId: string | null;
   responseModel: string | null;
+  /** The images a SAM call processed, its billed unit. */
+  images?: number;
 };
 
 type TokenCount = number | { total?: number; noCache?: number; cacheRead?: number; cacheWrite?: number; text?: number; reasoning?: number } | undefined;

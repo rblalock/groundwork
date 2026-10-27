@@ -93,6 +93,7 @@ async function insertReceipt(who: Receipt, usage: CallUsage, options: { deployme
       cacheWriteTokens: usage.cacheWriteTokens,
       outputTokens: usage.outputTokens,
       reasoningTokens: usage.reasoningTokens,
+      images: usage.images ?? null,
       estimatedCostUsd: estimateCostUsd(usage, rates),
       priceSource: source,
       createdAt: now,
@@ -127,11 +128,12 @@ export async function recordUsage(ref: TurnRef, usage: CallUsage, options: { dep
 }
 
 /**
- * Records the receipt of a model call that isn't a turn's step (a translation), for the business and
- * member it ran for, against its admitted reservation (`admitModelCall`). Once per `callId`.
+ * Records the receipt of a model call that isn't a turn's step (a translation, a SAM call), for the
+ * business and member it ran for, against its admitted reservation (`admitModelCall`) when it has one.
+ * Once per `callId`.
  */
 export async function recordModelCall(
-  call: { orgId: string; memberId: string | null; conversationId: string | null; reservationId: string; channel: UsageChannel; callId: string },
+  call: { orgId: string; memberId: string | null; conversationId: string | null; reservationId: string | null; channel: UsageChannel; callId: string },
   usage: CallUsage,
   options: { deployment?: string; now?: Date } = {},
 ): Promise<{ recorded: boolean }> {

@@ -25,7 +25,8 @@ export type SamObject = {
 
 export type SamImage = { bytes: Uint8Array; mimeType: string } | { url: string };
 
-const MODEL = process.env.SAM_MODEL_ID?.trim() || "sam-3.1";
+/** The SAM deployment: `SAM_MODEL_ID`, or `sam-3.1`. */
+export const SAM_MODEL = process.env.SAM_MODEL_ID?.trim() || "sam-3.1";
 const TIMEOUT_MS = 30_000;
 
 const imageUrl = (image: SamImage): string =>
@@ -39,7 +40,7 @@ export async function requestSam(image: SamImage, phrase: string, opts: { signal
     method: "POST",
     headers: { authorization: `Bearer ${process.env.META_MODEL_API_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({
-      model: MODEL,
+      model: SAM_MODEL,
       stream: true,
       input: [{ role: "user", content: [{ type: "input_text", text: phrase }, { type: "input_image", image_url: imageUrl(image) }] }],
       metadata: { mask_encoding: "lossless", include_confidence: "true" },
@@ -118,20 +119,36 @@ export function parseSamStream(sseText: string, size: SamSize): SamObject[] {
 
 type SegmentOptions = { signal?: AbortSignal; size: SamSize };
 
-/** Finds the objects one noun phrase names in the image, which is `size` pixels. */
-export async function segment(image: SamImage, phrase: string, opts: SegmentOptions): Promise<{ objects: SamObject[]; ms: number }> {
+/**
+ * Finds the objects one noun phrase names in the image, which is `size` pixels. `images` is what the
+ * call was billed for: its `images_processed`, or 1 when the stream left it out.
+ */
+export async function segment(image: SamImage, phrase: string, opts: SegmentOptions): Promise<{ objects: SamObject[]; images: number; ms: number }> {
   const started = Date.now();
-  const objects = parseSamStream(await requestSam(image, phrase, opts), opts.size);
-  return { objects, ms: Date.now() - started };
+  const { result, usage } = readSamStream(await requestSam(image, phrase, opts));
+  const processed = usage?.images_processed;
+  const images = typeof processed === "number" && Number.isInteger(processed) && processed >= 0 ? processed : 1;
+  return { objects: samObjects(result, opts.size), images, ms: Date.now() - started };
 }
 
 /**
- * `segment` for each distinct phrase, in parallel. A phrase whose call fails maps to no objects; when
- * every call fails, the first failure is thrown.
+ * `segment` for each distinct phrase, in parallel, telling `onCall` the images each answered call was
+ * billed for. A phrase whose call fails maps to no objects; when every call fails, the first failure is
+ * thrown.
  */
-export async function segmentMany(image: SamImage, phrases: string[], opts: SegmentOptions): Promise<Map<string, SamObject[]>> {
+export async function segmentMany(
+  image: SamImage,
+  phrases: string[],
+  opts: SegmentOptions & { onCall?: (call: { phrase: string; images: number }) => void },
+): Promise<Map<string, SamObject[]>> {
   const distinct = [...new Set(phrases)];
-  const settled = await Promise.allSettled(distinct.map((phrase) => segment(image, phrase, opts)));
+  const settled = await Promise.allSettled(
+    distinct.map(async (phrase) => {
+      const call = await segment(image, phrase, opts);
+      opts.onCall?.({ phrase, images: call.images });
+      return call;
+    }),
+  );
   const failed = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected");
   if (distinct.length > 0 && failed.length === distinct.length) throw failed[0].reason;
   return new Map(

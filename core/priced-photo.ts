@@ -1,6 +1,7 @@
 // The priced photo: a quote's photo with each quoted thing outlined by SAM and labeled with its line's
 // quantity and price, and a legend of every line under it. Nothing here measures anything: quantities
-// and prices come from the quote. One per quote per source photo; making it again replaces it.
+// and prices come from the quote. One per quote per source photo; making it again replaces it, except
+// within `RERENDER_MS` of the last render of the same revision, which comes back instead.
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,7 +20,8 @@ import { formatCents } from "./money";
 import { listItems } from "./pricebook";
 import { selectRegions, type PhotoLine } from "./priced-photo-select";
 import { getQuote } from "./quotes";
-import { segmentMany, type SamObject } from "./sam";
+import { SAM_MODEL, segmentMany, type SamObject } from "./sam";
+import { recordModelCall } from "./usage";
 
 export type PricedPhoto = typeof pricedPhotos.$inferSelect;
 export type PricedPhotoSource = { kind: "quote_attachment" | "work_photo"; id: string };
@@ -32,6 +34,13 @@ export type PricedPhotoResult =
 const MAX_SIDE = 1600;
 const PHOTO_TYPES = new Set(["image/jpeg", "image/png"]);
 const PHOTO_NAME = /\.(jpe?g|png)$/i;
+/** A render of the same quote revision and photo this recent is returned instead of made again. */
+export const RERENDER_MS = 10_000;
+
+/** Whether `previous` is recent enough, for the same revision, that rendering again would only repeat it. */
+export function rerenderTooSoon(previous: { revisionNumber: number; createdAt: Date }, revisionNumber: number, now: Date): boolean {
+  return previous.revisionNumber === revisionNumber && now.getTime() - previous.createdAt.getTime() < RERENDER_MS;
+}
 
 /**
  * Makes (or makes again) the priced photo for a quote: from the photo given, or else the quote's most
@@ -45,6 +54,11 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
   if (quote.lines.length === 0) return { pricedPhotoId: null, reason: "no_lines" };
   const source = await findSource(orgId, quote.quoteId, input.source);
   if (!source) return { pricedPhotoId: null, reason: "no_photo" };
+  const [before] = await db()
+    .select()
+    .from(pricedPhotos)
+    .where(and(eq(pricedPhotos.orgId, orgId), eq(pricedPhotos.quoteId, quote.quoteId), eq(pricedPhotos.sourceUrl, source.url)));
+  if (before && rerenderTooSoon(before, quote.revisionNumber, new Date())) return resultOf(before.id, before.url, before.regions);
   const photo = await preparePhoto(source.url);
   if (!photo) return { pricedPhotoId: null, reason: "unreadable_photo" };
 
@@ -63,15 +77,16 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
     };
   });
   const phrases = lines.flatMap((line) => (line.phrase ? [line.phrase] : []));
-  const found = phrases.length > 0 ? await segmentMany({ bytes: photo.bytes, mimeType: "image/jpeg" }, phrases, { size: photo }) : new Map<string, SamObject[]>();
+  const calls: Array<{ phrase: string; images: number }> = [];
+  const found =
+    phrases.length > 0
+      ? await segmentMany({ bytes: photo.bytes, mimeType: "image/jpeg" }, phrases, { size: photo, onCall: (call) => calls.push(call) })
+      : new Map<string, SamObject[]>();
+  await recordSamCalls(caller, quote.quoteId, calls);
   const regions = selectRegions(lines, found, photo);
   const png = await renderOverlay(photo, regions, maskPaths(regions, found), quote.totalCents, quote.customerLanguage);
   const url = await storeInboundAttachment(`priced-${quote.quoteId}.png`, "image/png", png.png);
 
-  const [before] = await db()
-    .select({ url: pricedPhotos.url })
-    .from(pricedPhotos)
-    .where(and(eq(pricedPhotos.orgId, orgId), eq(pricedPhotos.quoteId, quote.quoteId), eq(pricedPhotos.sourceUrl, source.url)));
   const values = {
     revisionNumber: quote.revisionNumber,
     sourceKind: source.kind,
@@ -89,14 +104,31 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
     .onConflictDoUpdate({ target: [pricedPhotos.orgId, pricedPhotos.quoteId, pricedPhotos.sourceUrl], set: values })
     .returning({ id: pricedPhotos.id });
   if (before && before.url !== url) await deleteBlob(before.url).catch((error) => console.error("priced photo: deleting the old render failed", error));
+  return resultOf(row.id, url, regions);
+}
 
+function resultOf(pricedPhotoId: string, url: string, regions: PricedRegion[]): PricedPhotoResult {
   return {
-    pricedPhotoId: row.id,
+    pricedPhotoId,
     url,
     regions,
     located: regions.filter((region) => region.located).length,
     notLocated: regions.filter((region) => !region.located).map((region) => region.name),
   };
+}
+
+/** One usage receipt per answered SAM call, billed by the image, for the quote it priced. A failure only logs. */
+async function recordSamCalls(caller: Caller, quoteId: string, calls: Array<{ phrase: string; images: number }>): Promise<void> {
+  const usage = { kind: "sam", inputTokens: 0, cachedInputTokens: 0, cacheWriteTokens: 0, outputTokens: 0, reasoningTokens: null, responseId: null, responseModel: null } as const;
+  await Promise.all(
+    calls.map((call) =>
+      recordModelCall(
+        { orgId: caller.orgId, memberId: caller.memberId, conversationId: null, reservationId: null, channel: "other", callId: `${quoteId}:${crypto.randomUUID()}` },
+        { ...usage, images: call.images },
+        { deployment: SAM_MODEL },
+      ),
+    ),
+  ).catch((error) => console.error("priced photo: SAM usage was not recorded", { quoteId, error }));
 }
 
 /** The quote's priced photos, newest first. */
