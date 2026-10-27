@@ -63,7 +63,7 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
     };
   });
   const phrases = lines.flatMap((line) => (line.phrase ? [line.phrase] : []));
-  const found = phrases.length > 0 ? await segmentMany({ bytes: photo.bytes, mimeType: "image/jpeg" }, phrases) : new Map<string, SamObject[]>();
+  const found = phrases.length > 0 ? await segmentMany({ bytes: photo.bytes, mimeType: "image/jpeg" }, phrases, { size: photo }) : new Map<string, SamObject[]>();
   const regions = selectRegions(lines, found, photo);
   const png = await renderOverlay(photo, regions, maskPaths(regions, found), quote.totalCents, quote.customerLanguage);
   const url = await storeInboundAttachment(`priced-${quote.quoteId}.png`, "image/png", png.png);

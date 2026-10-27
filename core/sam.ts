@@ -85,33 +85,43 @@ function translatePath(path: string, dx: number, dy: number): string {
   return path.replace(/([ML])(-?[\d.]+) (-?[\d.]+)/g, (_, op: string, x: string, y: string) => `${op}${Number(x) + dx} ${Number(y) + dy}`);
 }
 
-/** The objects in a decoded result: one per mask, with the box record's box and confidence when there is one. */
-export function samObjects(result: ImageSegmentationResult): SamObject[] {
+/** The photo SAM saw, in pixels. */
+export type SamSize = { width: number; height: number };
+
+/**
+ * The objects in a decoded result: one per mask, with the box record's box and confidence when there is
+ * one. A mask larger than the photo is dropped before it's decoded.
+ */
+export function samObjects(result: ImageSegmentationResult, size: SamSize): SamObject[] {
   const boxes = new Map(recordsOfKind(result.records, "box").map((box) => [box.objectId, box]));
-  return recordsOfKind(result.records, "mask").map((record) => {
-    const { mask, bounds } = record;
-    const box = boxes.get(record.objectId) ?? bounds;
-    return {
-      id: Number(record.objectId),
-      box: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
-      areaPx: decodeMaskToRaster(mask).reduce((sum, bit) => sum + bit, 0),
-      confidence: record.confidence ?? boxes.get(record.objectId)?.confidence ?? null,
-      svgPath: translatePath(decodeMaskToSVGPath(mask), bounds.left, bounds.top),
-      width: box.right - box.left,
-      height: box.bottom - box.top,
-    };
-  });
+  return recordsOfKind(result.records, "mask")
+    .filter((record) => record.mask.width * record.mask.height <= size.width * size.height)
+    .map((record) => {
+      const { mask, bounds } = record;
+      const box = boxes.get(record.objectId) ?? bounds;
+      return {
+        id: Number(record.objectId),
+        box: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
+        areaPx: decodeMaskToRaster(mask).reduce((sum, bit) => sum + bit, 0),
+        confidence: record.confidence ?? boxes.get(record.objectId)?.confidence ?? null,
+        svgPath: translatePath(decodeMaskToSVGPath(mask), bounds.left, bounds.top),
+        width: box.right - box.left,
+        height: box.bottom - box.top,
+      };
+    });
 }
 
-/** The objects in a recorded event stream. Pure. */
-export function parseSamStream(sseText: string): SamObject[] {
-  return samObjects(readSamStream(sseText).result);
+/** The objects in a recorded event stream, from a photo of `size`. Pure. */
+export function parseSamStream(sseText: string, size: SamSize): SamObject[] {
+  return samObjects(readSamStream(sseText).result, size);
 }
 
-/** Finds the objects one noun phrase names in the image. */
-export async function segment(image: SamImage, phrase: string, opts: { signal?: AbortSignal } = {}): Promise<{ objects: SamObject[]; ms: number }> {
+type SegmentOptions = { signal?: AbortSignal; size: SamSize };
+
+/** Finds the objects one noun phrase names in the image, which is `size` pixels. */
+export async function segment(image: SamImage, phrase: string, opts: SegmentOptions): Promise<{ objects: SamObject[]; ms: number }> {
   const started = Date.now();
-  const objects = parseSamStream(await requestSam(image, phrase, opts));
+  const objects = parseSamStream(await requestSam(image, phrase, opts), opts.size);
   return { objects, ms: Date.now() - started };
 }
 
@@ -119,7 +129,7 @@ export async function segment(image: SamImage, phrase: string, opts: { signal?: 
  * `segment` for each distinct phrase, in parallel. A phrase whose call fails maps to no objects; when
  * every call fails, the first failure is thrown.
  */
-export async function segmentMany(image: SamImage, phrases: string[], opts: { signal?: AbortSignal } = {}): Promise<Map<string, SamObject[]>> {
+export async function segmentMany(image: SamImage, phrases: string[], opts: SegmentOptions): Promise<Map<string, SamObject[]>> {
   const distinct = [...new Set(phrases)];
   const settled = await Promise.allSettled(distinct.map((phrase) => segment(image, phrase, opts)));
   const failed = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected");

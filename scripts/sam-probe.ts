@@ -87,7 +87,7 @@ async function main() {
       const ms = Date.now() - started;
       if (dump && index === 0) writeFileSync(dump, stream);
       const { result, usage } = readSamStream(stream);
-      const objects = samObjects(result);
+      const objects = samObjects(result, { width, height });
       const masks = new Map(recordsOfKind(result.records, "mask").map((record) => [Number(record.objectId), record.mask]));
       const file = await writeOverlay(upright, width, height, `${prefix}${slug(prompt)}`, prompt, objects);
       console.log(`"${prompt}"  objects=${objects.length}  ${ms}ms  outcome=${result.outcome.status}  usage=${JSON.stringify(usage ?? null)}`);
