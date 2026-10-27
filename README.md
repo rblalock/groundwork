@@ -61,6 +61,7 @@ npm run typecheck
 npm test            # no database or keys needed; every outside service is forced to its fake
 npm run test:db     # also the tests that need DATABASE_URL; empties its tables
 npm run evals       # conversation evals in agents/assistant/evals/ against a local agent
+VERTICAL=landscaping npm run evals   # the same, with the landscaping instructions
 ```
 
 `npm test` runs offline: `scripts/test-env.ts` switches every outside service to its fake and blanks

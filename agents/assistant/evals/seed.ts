@@ -4,7 +4,7 @@ import { upsertThread } from "../../../core/conversations";
 import { createBusinessInbox } from "../../../core/email-intake";
 import { createAdapter } from "../../../core/imessage";
 import { createOrganization } from "../../../core/organizations";
-import { saveItems } from "../../../core/pricebook";
+import { listItems, saveItems } from "../../../core/pricebook";
 import { updateProfile } from "../../../core/profile";
 import { saveCustomer, searchCustomers } from "../../../core/customers";
 import { saveNote } from "../../../core/notes";
@@ -15,6 +15,8 @@ import { resolveLocalTime, wallClock } from "../../../core/scheduling-time";
 import { addDays } from "../../../core/time";
 import { confirmedEmailForTests, truncateAll } from "../../../core/test-db";
 import { LIMIT_BOUNDS, setUsageLimits } from "../../../core/usage-limits";
+import { applyVerticalPack } from "../../../core/vertical-seed";
+import { VERTICALS } from "../../../verticals";
 
 /**
  * Obviously fake. The only business in the database, so its owner is the one the local-dev principal
@@ -35,11 +37,11 @@ export type SeededBusiness = {
 /** Never texts anyone: a draft seeded for an eval must not try to post a PDF. */
 const noPost = async () => ({ posted: false as const, reason: "eval" });
 
-async function seedBase(): Promise<Caller> {
+async function seedBase(names: { business: string; owner: string } = { business: BUSINESS_NAME, owner: OWNER_NAME }): Promise<Caller> {
   await truncateAll();
-  const org = await createOrganization({ name: BUSINESS_NAME });
-  const owner = await createMember({ orgId: org.id, name: OWNER_NAME, role: "owner" });
-  await updateProfile(org.id, { name: BUSINESS_NAME }, owner.id);
+  const org = await createOrganization({ name: names.business });
+  const owner = await createMember({ orgId: org.id, name: names.owner, role: "owner" });
+  await updateProfile(org.id, { name: names.business }, owner.id);
   // Evals measure the assistant, not the usage limits: the eval business gets the highest ones.
   await setUsageLimits(
     org.id,
@@ -232,4 +234,15 @@ export async function seedEmailBusiness(): Promise<EmailBusiness> {
   await confirmedEmailForTests(owner.orgId, owner.memberId, ownerEmail);
   const inbox = await createBusinessInbox(owner.orgId);
   return { ...business, owner: { ...owner, phoneE164: phone }, inbox, ownerEmail, ownerThreadId };
+}
+
+/**
+ * LOX Landscape Co with the landscaping pack loaded: its items, rules, notes, and $150 minimum. Run its
+ * evals with VERTICAL=landscaping so the assistant gets the pack's instructions too.
+ */
+export async function seedLandscapingBusiness(): Promise<SeededBusiness & { itemIdsByName: Record<string, string> }> {
+  const owner = await seedBase({ business: "LOX Landscape Co", owner: "Pat Ortega" });
+  await applyVerticalPack(owner.orgId, owner.memberId, VERTICALS.landscaping);
+  const itemIdsByName = Object.fromEntries((await listItems(owner.orgId)).map((item) => [item.name, item.id]));
+  return { orgId: owner.orgId, owner, itemIds: null, itemIdsByName };
 }
