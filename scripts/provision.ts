@@ -44,7 +44,7 @@ async function main(): Promise<number> {
     const { org, rows } = await provision(parsed.data, { admin: createPhotonAdmin() });
     console.log(`${org.name} (${org.slug})\n`);
     console.log(formatTable(rows));
-    console.log("\nHand each person their number on the call. Their first text to it activates them.");
+    console.log("\nHand each person their number on the call. They can sign in on the web now, and their first text to it gets the welcome.");
     return 0;
   } catch (error) {
     console.error(`Provisioning failed: ${error instanceof Error ? error.message : error}`);
