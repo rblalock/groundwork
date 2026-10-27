@@ -9,7 +9,7 @@ import { APP_JOB, APP_WEB } from "./members";
 export type ConversationEvent = typeof conversationEvents.$inferSelect;
 
 /** The auth a turn runs under, as eve gives it to hooks. */
-type TurnAuth = { authenticator: string; principalId: string; attributes?: Record<string, unknown> } | null | undefined;
+export type TurnAuth = { authenticator: string; principalId: string; attributes?: Record<string, unknown> } | null | undefined;
 
 /** One eve stream event, as hooks receive it. Structural, so tests need no eve runtime. */
 export type StreamEvent = { type: string; data?: unknown; meta: { id: string; at: string } };
@@ -24,7 +24,7 @@ const attr = (auth: TurnAuth, key: string): string | null => {
 };
 
 /** Where a turn came from: a text, a forwarded email, the web app, a job the thread drives, or local dev and evals. */
-function originOf(auth: TurnAuth): string {
+export function originOf(auth: TurnAuth): string {
   switch (auth?.authenticator) {
     case "photon-imessage":
       return attr(auth, "origin") === "email" ? "email" : "text";

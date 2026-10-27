@@ -92,3 +92,36 @@ export interface DeliveryProgress {
   /** Held back by the business's usage limits: the inbound row is this delivery's own, and a later try resumes. */
   held?: boolean;
 }
+
+/**
+ * One entry in a turn's trace (`turn_traces.steps`), from one eve stream event: a model step starting
+ * or completing, a tool call or its result, the model's reasoning, or a message it wrote. `eventId` is
+ * the event's id, so a re-delivered event is appended once. Inputs and outputs are stored as they were,
+ * cut to 32 KB of JSON with `truncated` set.
+ */
+export type TraceStep = {
+  eventId: string;
+  at: string;
+  stepIndex: number | null;
+  kind: "step" | "tool.call" | "tool.result" | "reasoning" | "message";
+  toolName?: string;
+  callId?: string;
+  input?: unknown;
+  output?: unknown;
+  isError?: boolean;
+  status?: string;
+  text?: string;
+  modelId?: string;
+  usage?: Record<string, number>;
+  finishReason?: string;
+  truncated?: boolean;
+};
+
+/** A turn's token and cost totals, summed over its steps. */
+export type TraceUsage = {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  costUsd?: number;
+};

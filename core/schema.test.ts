@@ -9,7 +9,7 @@ import type { UnitKind } from "../schema/types";
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
 const unitKindsMatch: Same<(typeof schema.unitKind.enumValues)[number], UnitKind> = true;
 
-test("schema defines the 50 tables", () => {
+test("schema defines the 51 tables", () => {
   assert.ok(unitKindsMatch);
   const names = Object.values(schema)
     .filter((v) => is(v, PgTable))
@@ -20,7 +20,7 @@ test("schema defines the 50 tables", () => {
     "followups", "glossary_terms", "invitation", "invoices", "login_codes", "member", "member_phones", "members", "messages",
     "notes", "organization", "owner_requests", "payments", "pricebook_changes", "pricebook_items", "properties",
     "quote_attachments", "quote_revisions", "quotes", "rate_limit", "rules", "service_jobs", "session",
-    "stripe_accounts", "stripe_events", "translations", "turn_reservations", "usage_limits", "usage_receipts", "user", "verification", "visit_crew",
+    "stripe_accounts", "stripe_events", "translations", "turn_reservations", "turn_traces", "usage_limits", "usage_receipts", "user", "verification", "visit_crew",
     "visit_revisions", "visits", "work_photos",
   ]);
 });
