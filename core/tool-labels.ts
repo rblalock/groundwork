@@ -120,6 +120,11 @@ export const toolLabels: Record<string, ToolLabel> = {
   reschedule_visit: { active: "Moving the visit", done: "Moved the visit" },
   change_visit_status: { active: "Updating the visit", done: "Updated the visit" },
   attach_work_photos: { active: "Adding the photos", done: "Added the photos" },
+  price_photo: {
+    active: "Pricing the photo",
+    done: "Priced the photo",
+    detail: "Each quoted thing outlined and labeled with its line from the quote.",
+  },
   close_service_job: { active: "Closing the work", done: "Closed the work" },
   set_work_hours: { active: "Setting working hours", done: "Set working hours" },
   add_time_off: { active: "Adding time off", done: "Added time off" },
@@ -280,6 +285,11 @@ export const toolLabelsEs: Record<string, ToolLabel> = {
   reschedule_visit: { active: "Moviendo la visita", done: "Moví la visita" },
   change_visit_status: { active: "Actualizando la visita", done: "Actualicé la visita" },
   attach_work_photos: { active: "Agregando las fotos", done: "Agregué las fotos" },
+  price_photo: {
+    active: "Marcando precios en la foto",
+    done: "Marqué precios en la foto",
+    detail: "Cada cosa cotizada marcada y con su línea de la cotización.",
+  },
   close_service_job: { active: "Cerrando el servicio", done: "Cerré el servicio" },
   set_work_hours: { active: "Poniendo el horario de trabajo", done: "Puse el horario de trabajo" },
   add_time_off: { active: "Agregando tiempo libre", done: "Agregué tiempo libre" },

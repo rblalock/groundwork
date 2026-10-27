@@ -39,6 +39,7 @@ test("a quote tool's quote: from its output, the approval's quote, or its input;
   assert.equal(quoteIdOf(call("set_quote_outcome", { input: { quoteId: "quo_3" }, output: { status: "won" } })), "quo_3");
   assert.equal(quoteIdOf(call("revise_quote", { input: { quoteId: "quo_4" }, output: { error: "QUOTE_NOT_FOUND" } })), null);
   assert.equal(quoteIdOf(call("find_customer", { output: { quoteId: "quo_5" } })), null);
+  assert.equal(quoteIdOf(call("price_photo", { output: { quoteId: "quo_6", pricedPhotoId: "ppho_1" } })), "quo_6");
 });
 
 test("a reply's chips and cards go under its last message; a quote's card only under the latest reply about it", () => {

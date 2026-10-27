@@ -13,7 +13,10 @@ import type { PricedRegion } from "../schema/types";
 import { landscaping } from "../verticals/landscaping";
 import { storeInboundAttachment } from "./blob";
 import { db, newId } from "./db";
-import { createMember, type Caller } from "./members";
+import { NOTO_SANS_BOLD_BASE64 } from "./fonts/noto-sans-bold";
+import { z } from "zod";
+import { memberAuth } from "./channel-dispatch";
+import { addPhone, createMember, findMemberById, type Caller } from "./members";
 import { saveItems } from "./pricebook";
 import { createPricedPhoto, pricedPhotosFor, renderOverlay } from "./priced-photo";
 import { createQuote, type Poster } from "./quotes";
@@ -50,6 +53,11 @@ test("draws the regions and a legend under the photo; two lines on one bed share
   assert.ok(height > 1024, "the legend sits under the photo");
   assert.ok(png.byteLength > 50_000);
   if (process.env.PRICED_PHOTO_OUT) writeFileSync(process.env.PRICED_PHOTO_OUT, png);
+});
+
+test("the embedded label font is the bundled font file", () => {
+  const font = readFileSync(new URL("./fonts/NotoSans-Bold.ttf", import.meta.url));
+  assert.ok(Buffer.from(NOTO_SANS_BOLD_BASE64, "base64").equals(font), "run scripts/embed-font.ts");
 });
 
 const post: Poster = async () => ({ posted: true });
@@ -94,6 +102,24 @@ withTestDb("priced photo: making it again replaces the one for that photo", asyn
   const rows = await pricedPhotosFor(TEST_ORG, quote.quoteId);
   assert.equal(rows.length, 1);
   assert.deepEqual([rows[0].url, rows[0].sourceUrl], [again.pricedPhotoId && again.url, url]);
+});
+
+withTestDb("price_photo: a quote without photos comes back with a reason and a note, not an error", async () => {
+  const { owner, items } = await seed();
+  const phone = await addPhone(TEST_ORG, owner.memberId, "+15555550142");
+  const member = await findMemberById(TEST_ORG, owner.memberId);
+  const auth = memberAuth(member!, phone);
+  const bare = await quoteWith(owner, [{ itemId: items.get("Lawn mowing")!.id, quantity: 1 }]);
+  const { default: pricePhoto } = await import("../agents/assistant/agent/tools/price_photo");
+  const tool = pricePhoto as unknown as { inputSchema: z.ZodType; execute: (input: unknown, ctx: unknown) => Promise<Record<string, unknown>> };
+  const call = (input: unknown) => tool.execute(tool.inputSchema.parse(input), { session: { id: "ses_x", auth: { current: auth } } });
+
+  const named = await call({ quoteId: bare.quoteId });
+  assert.deepEqual([named.pricedPhotoId, named.reason, named.quoteId], [null, "no_photo", bare.quoteId]);
+  assert.match(String(named.note), /no photo/);
+  // With no quoteId, the quote the member just made.
+  const latest = await call({});
+  assert.deepEqual([latest.reason, latest.quoteId], ["no_photo", bare.quoteId]);
 });
 
 // Calls SAM: runs only with a key, and leaves the render at /tmp/priced-photo.png for a look.

@@ -94,9 +94,9 @@ export function ChatLink(props: ComponentProps<"a"> & { node?: unknown }) {
 }
 
 /**
- * A quote the reply made or changed, as it is now (`GET /api/quotes/[id]/card`): its title, customer,
- * total, and status, a way to open it, and Approve for an owner or admin on a ready draft. Nothing for
- * a quote the viewer can't see.
+ * A quote the reply made or changed, as it is now (`GET /api/quotes/[id]/card`): its priced photo across
+ * the top when it has one, its title, customer, total, and status, a way to open it, and Approve for an
+ * owner or admin on a ready draft. Nothing for a quote the viewer can't see.
  */
 export function QuoteCard({ quoteId, language, readOnly }: { quoteId: string; language: Language; readOnly: boolean }) {
   const copy = copyFor(language).assistant;
@@ -142,6 +142,15 @@ export function QuoteCard({ quoteId, language, readOnly }: { quoteId: string; la
 
   return (
     <article aria-label={quote.title} className="flex max-w-md flex-col gap-2.5 rounded-[12px] bg-surface px-3.5 py-3 shadow-hairline">
+      {quote.pricedPhoto ? (
+        <figure className="-mx-3.5 -mt-3 flex flex-col gap-1.5">
+          <a className="block overflow-hidden rounded-t-[12px] bg-inset" href={quote.pricedPhoto.url} rel="noopener" target="_blank">
+            {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
+            <img alt={copy.quotePricedAlt} className="block h-auto w-full" src={quote.pricedPhoto.url} />
+          </a>
+          <figcaption className="px-3.5 text-[12px] text-ink-3">{copy.quotePricedCaption}</figcaption>
+        </figure>
+      ) : null}
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-[14px] font-medium text-ink">{quote.title}</p>

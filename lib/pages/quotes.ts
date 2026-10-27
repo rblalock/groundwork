@@ -3,6 +3,7 @@ import { quoteDeposits } from "../../core/invoices";
 import { isLanguage } from "../../core/language";
 import { isPrivileged } from "../../core/members";
 import { pdfFileName } from "../../core/pdf";
+import { createPricedPhoto, pricedPhotosFor, type PricedPhoto, type PricedPhotoResult } from "../../core/priced-photo";
 import { customerLinkFor } from "../../core/quote-link";
 import { quoteTimeline, type TimelineEntry } from "../../core/quote-timeline";
 import {
@@ -19,7 +20,7 @@ import {
   type QuoteDetail,
   type QuoteSummary,
 } from "../../core/quotes";
-import { HttpError, type AppCaller } from "../guards";
+import { HttpError, memberCaller, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { notFound, privilegedActor, refuse } from "./access";
 
@@ -92,12 +93,20 @@ export async function assertVisible(caller: AppCaller, quoteId: string): Promise
   if (!(await quoteCreatorId(caller.orgId, quoteId))) throw notFound();
 }
 
-/** `depositPaidCents` is what's been paid of the quote's deposit, for owners and admins (null otherwise, or with none asked). */
-export type QuotePage = { quote: QuoteDetail; timeline: TimelineEntry[]; depositPaidCents: number | null };
+/**
+ * `depositPaidCents` is what's been paid of the quote's deposit, for owners and admins (null otherwise, or
+ * with none asked). `pricedPhoto` is its latest priced photo, and the lines it couldn't find in it.
+ */
+export type QuotePage = {
+  quote: QuoteDetail;
+  timeline: TimelineEntry[];
+  depositPaidCents: number | null;
+  pricedPhoto: { id: string; url: string; notLocated: string[] } | null;
+};
 
 export async function quoteFor(caller: AppCaller, quoteId: string): Promise<QuotePage> {
   await assertVisible(caller, quoteId);
-  const [quote, timeline] = await Promise.all([getQuote(caller.orgId, quoteId), quoteTimeline(caller.orgId, quoteId)]);
+  const [quote, timeline, [priced]] = await Promise.all([getQuote(caller.orgId, quoteId), quoteTimeline(caller.orgId, quoteId), pricedPhotosFor(caller.orgId, quoteId)]);
   if (!quote) throw notFound();
   // A quote approved before links existed gets its link the first time it's looked at.
   const customerLink = quote.customerLink ?? (await customerLinkFor(caller.orgId, quoteId));
@@ -106,6 +115,9 @@ export async function quoteFor(caller: AppCaller, quoteId: string): Promise<Quot
     quote: { ...quote, customerLink },
     timeline: timeline ?? [],
     depositPaidCents: deposits ? deposits.reduce((sum, p) => sum + p.amountCents, 0) : null,
+    pricedPhoto: priced
+      ? { id: priced.id, url: pricedPhotoHref(priced), notLocated: priced.regions.filter((region) => !region.located).map((region) => region.name) }
+      : null,
   };
 }
 
@@ -119,7 +131,13 @@ export type QuoteCard = {
   revisionNumber: number;
   ready: boolean;
   canApprove: boolean;
+  /** The quote's latest priced photo, as the app serves it. */
+  pricedPhoto: { id: string; url: string } | null;
 };
+
+/** Where the app serves a priced photo; the version changes when it's made again, so a cached one isn't shown. */
+export const pricedPhotoHref = (photo: Pick<PricedPhoto, "id" | "quoteId" | "createdAt">) =>
+  `/api/quotes/${encodeURIComponent(photo.quoteId)}/priced/${encodeURIComponent(photo.id)}?v=${photo.createdAt.getTime()}`;
 
 /**
  * A quote's card for the chat, for whoever may see the quote (`assertVisible`); a 404 for anyone else.
@@ -131,6 +149,7 @@ export async function quoteCardFor(caller: AppCaller, quoteId: string): Promise<
     refuse(error, { QUOTE_NOT_FOUND: [404, "That isn't here."] });
   });
   const ready = quote.state === "ready";
+  const [priced] = await pricedPhotosFor(caller.orgId, quoteId);
   return {
     quoteId: quote.quoteId,
     title: quote.title,
@@ -140,6 +159,7 @@ export async function quoteCardFor(caller: AppCaller, quoteId: string): Promise<
     revisionNumber: quote.revisionNumber,
     ready,
     canApprove: caller.memberId !== null && isPrivileged(caller.role) && ready && (quote.status === "draft" || quote.status === "needs_owner"),
+    pricedPhoto: priced ? { id: priced.id, url: pricedPhotoHref(priced) } : null,
   };
 }
 
@@ -224,6 +244,21 @@ export async function quoteFile(caller: AppCaller, quoteId: string, which: { pdf
     contentType: image ?? "application/octet-stream",
     filename: (photo.name ?? "attachment").replace(/[^\w.-]+/g, "_"),
   };
+}
+
+/** One of the quote's priced photos, read back from storage, for anyone who may see the quote. */
+export async function pricedPhotoFile(caller: AppCaller, quoteId: string, pricedId: string): Promise<StoredFile> {
+  await assertVisible(caller, quoteId);
+  const photo = (await pricedPhotosFor(caller.orgId, quoteId)).find((p) => p.id === pricedId);
+  const bytes = photo ? await readStoredFile(photo.url) : null;
+  if (!bytes) throw notFound();
+  return { bytes, contentType: "image/png", filename: `priced-photo-${quoteId}.png` };
+}
+
+/** Makes (or makes again) the quote's priced photo from its latest photo, as the assistant's price_photo does. */
+export async function pricePhotoFromApp(caller: AppCaller, quoteId: string): Promise<PricedPhotoResult> {
+  await assertVisible(caller, quoteId);
+  return createPricedPhoto(memberCaller(caller), { quoteId });
 }
 
 /** A stored file as a response: images and PDFs open in the browser, anything else downloads. */

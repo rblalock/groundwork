@@ -2,7 +2,9 @@
 // quantity and price, and a legend of every line under it. Nothing here measures anything: quantities
 // and prices come from the quote. One per quote per source photo; making it again replaces it.
 import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { rename, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import sharp, { type OverlayOptions } from "sharp";
 import { pricedPhotos, quoteAttachments, quotes, serviceJobs, workPhotos } from "../schema/schema";
@@ -12,6 +14,7 @@ import { db, newId } from "./db";
 import { MAX_PIXELS } from "./images";
 import type { Language } from "./language";
 import type { Caller } from "./members";
+import { NOTO_SANS_BOLD_BASE64 } from "./fonts/noto-sans-bold";
 import { formatCents } from "./money";
 import { listItems } from "./pricebook";
 import { selectRegions, type PhotoLine } from "./priced-photo-select";
@@ -195,10 +198,29 @@ const COPY: Record<Language, { notLocated: string; total: string }> = {
   es: { notLocated: "no ubicado", total: "Total" },
 };
 
-// Labels are drawn with this font file, so they look the same wherever the app runs, fonts installed
-// or not. Noto Sans Bold, Latin only (core/fonts/OFL.txt).
-const FONT_FILE = fileURLToPath(new URL("./fonts/NotoSans-Bold.ttf", import.meta.url));
+// Labels are drawn with this font, so they look the same wherever the app runs, fonts installed or not:
+// Noto Sans Bold, Latin only (core/fonts/OFL.txt). Its bytes come in a module, since no bundle carries a
+// file beside the source, and are written to a temp file once per process for sharp to load.
 const FONT_FAMILY = "Noto Sans Bold";
+let fontFile: Promise<string> | null = null;
+
+function labelFont(): Promise<string> {
+  fontFile ??= (async () => {
+    const bytes = Buffer.from(NOTO_SANS_BOLD_BASE64, "base64");
+    const file = join(tmpdir(), `groundwork-noto-sans-bold-${bytes.byteLength}.ttf`);
+    if (!existsSync(file)) {
+      // Written beside it and renamed, so another process never loads half a font.
+      const partial = `${file}.${process.pid}`;
+      await writeFile(partial, bytes);
+      await rename(partial, file);
+    }
+    return file;
+  })().catch((error: unknown) => {
+    fontFile = null;
+    throw error;
+  });
+  return fontFile;
+}
 
 const escapeMarkup = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const quantityText = (quantity: number) => String(Number(quantity.toFixed(2)));
@@ -212,7 +234,7 @@ async function textImage(text: string, px: number, maxWidth: number, color = "#f
       text: `<span foreground="${color}">${escapeMarkup(text)}</span>`,
       font: `${FONT_FAMILY} ${px}`,
       width: Math.max(1, Math.floor(maxWidth)),
-      ...(existsSync(FONT_FILE) ? { fontfile: FONT_FILE } : {}),
+      fontfile: await labelFont(),
       rgba: true,
       dpi: 72,
     },

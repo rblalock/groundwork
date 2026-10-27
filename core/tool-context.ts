@@ -95,6 +95,7 @@ const HINTS: Record<string, string> = {
   LOGO_ANIMATED: "That image is animated. Ask for a still PNG or JPEG.",
   LOGO_UNREADABLE: "That image couldn't be opened. Ask them to send it again as a PNG or JPEG.",
   PHOTO_NOT_FOUND: "That photo isn't on this quote. Use get_quote for its attachments and their ids.",
+  SAM_FAILED: "The photo couldn't be priced just now. Say so in one line; the quote itself is fine, and the photo can be priced again from the quote's page.",
   TOO_MANY_PHOTOS: "That work already has as many photos as it can hold. Say so in one line: some can be taken off on its page.",
   PROPERTY_MISMATCH: "That property belongs to a different customer.",
   LINE_NEEDS_ITEM_OR_NAME: "Each line needs an itemId from the pricebook or a name.",

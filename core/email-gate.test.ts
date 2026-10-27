@@ -73,6 +73,7 @@ const ALLOWED: Record<string, string> = {
   list_jobs: "reads",
   list_quotes: "reads",
   no_reply: "no effect",
+  price_photo: "draws the quote's own photo and lines; nothing reaches the customer until the quote is sent",
   react: "a tapback on the member's own message; never on an email",
   read_business: "reads",
   read_note: "reads",
