@@ -1,0 +1,173 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "../ui/styles/beautiful.css";
+
+@source "../ui";
+@source "../node_modules/streamdown/dist/*.js";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Beautiful UI (ui/styles/beautiful.css) is the design system.
+ * The shadcn variables below only alias its tokens, so the remaining shadcn
+ * components take on the same look. `accent` belongs to Beautiful UI (the
+ * blue); shadcn hover surfaces use `bg-hover` instead. Dark mode follows
+ * automatically, since the tokens themselves switch under `.dark`.
+ */
+:root {
+  --background: var(--page);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--canvas);
+  --secondary: var(--hover);
+  --secondary-foreground: var(--ink);
+  --muted: var(--inset);
+  --muted-foreground: var(--ink-2);
+  --destructive: var(--red);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--accent);
+  --radius: 10px;
+  --sidebar: var(--canvas);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--canvas);
+  --sidebar-accent: var(--hover);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--line);
+  --sidebar-ring: var(--accent);
+}
+
+@theme inline {
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  /* Beautiful UI type: Inter at 14px, tight tracking. */
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv11", "ss01";
+    font-size: 14px;
+    letter-spacing: -0.01em;
+    line-height: 1.5;
+  }
+}
+
+/*
+ * The phone and tablet shell (below `lg`, 1024px): no sidebar. Each page's title bar is the top bar,
+ * under the status bar's safe area: menu button, title, account, and the page's actions on a second row.
+ */
+.paper-title {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  grid-template-areas: "menu title slot rail account";
+  align-items: center;
+  column-gap: 4px;
+  min-height: 52px;
+  padding: env(safe-area-inset-top) max(6px, env(safe-area-inset-right)) 0 max(6px, env(safe-area-inset-left));
+}
+.paper-title[data-actions] {
+  grid-template-areas:
+    "menu title slot rail account"
+    "actions actions actions actions actions";
+  padding-bottom: 8px;
+}
+.paper-title-actions {
+  padding-inline: 6px;
+}
+/* Actions keep their width (the row scrolls before a label wraps). */
+.paper-title-actions > * {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+@media (min-width: 64rem) {
+  .paper-title,
+  .paper-title[data-actions] {
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-areas: "title actions slot rail";
+    column-gap: 12px;
+    min-height: 44px;
+    height: 44px;
+    padding: 0 16px;
+  }
+  .paper-title-actions {
+    padding-inline: 0;
+  }
+}
+
+/* The thread panel's line under its tabs: hidden when the thread is about nothing and has no toggle yet. */
+.rail-about:not([data-about]):has([data-header-slot]:empty) {
+  display: none;
+}
+
+/* A page's body clears the home indicator when it scrolls to the end. */
+.paper-body {
+  padding-bottom: max(2rem, calc(env(safe-area-inset-bottom) + 1.25rem));
+}
+
+/* iOS zooms into a focused field whose text is under 16px; on touch screens and narrow windows fields are 16px. */
+@media (max-width: 63.98rem), (pointer: coarse) {
+  input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]),
+  textarea,
+  select {
+    font-size: 16px;
+  }
+}
+
+/* The navigation drawer: the sidebar, clear of the status bar and home indicator, without its collapse control. */
+.shell-drawer {
+  padding-top: max(10px, env(safe-area-inset-top));
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.shell-drawer .sidebar-collapse-control,
+.shell-drawer .sidebar-expand-control {
+  display: none;
+}
+.shell-drawer aside,
+.shell-drawer aside > div {
+  width: 100% !important;
+}
+.shell-drawer .sidebar-workspace-control {
+  width: calc(100% - 64px);
+}
+/* Touch-sized rows in the drawer. */
+.shell-drawer .sidebar-row {
+  width: calc(100% - 16px);
+  height: 40px;
+}

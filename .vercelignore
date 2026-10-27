@@ -1,0 +1,9 @@
+# Deploys never upload local env or caches.
+node_modules
+.env*
+!.env.example
+.eve/
+.vercel
+*.tsbuildinfo
+.DS_Store
+.next

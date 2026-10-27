@@ -1,0 +1,31 @@
+# Private planning notes and scratch work. Never committed.
+.plans/
+
+# Dependencies and build output
+node_modules/
+.next/
+.eve/
+.output/
+dist/
+
+# Local env and secrets
+.env
+.env.*
+!.env.example
+
+# Local tooling artifacts
+.playwright-mcp/
+*.log
+.DS_Store
+.superpowers/
+.vercel
+*.tsbuildinfo
+next-env.d.ts
+provision.json
+.local-blobs/
+.local-tunnel/
+
+# `eve dev` installs its fallback sandbox (just-bash) into an agent's folder; a package.json there would
+# take the agent out of the eve workspace.
+agents/*/package.json
+agents/*/package-lock.json

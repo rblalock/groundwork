@@ -1,0 +1,101 @@
+import { and, desc, eq, inArray, notLike } from "drizzle-orm";
+import { messages } from "../../schema/schema";
+import { db } from "../../core/db";
+import { memberCaller, type AppCaller } from "../guards";
+import { CODE_MASK } from "../login-codes";
+
+// The Assistant page's other half: what the assistant texted the member on its own (the morning line,
+// nudges, booking notices, approval requests, quote and invoice PDFs, fixed replies). Those are logged
+// in `messages` but aren't turns of the member's eve session, so the page shows them beside the session,
+// by time. Read-only, and only the signed-in member's own, in the open business. Left out: the
+// session's own replies (`assistant`, which the session already shows), what the member sent, and
+// sign-in code notices, which never show on the web.
+
+/** The newest texts the page loads. */
+export const TEXTED_LIMIT = 200;
+
+export type TextedJson = {
+  id: string;
+  /** ISO time it was sent. */
+  at: string;
+  kind: "proactive" | "system";
+  /** The text, or empty for a file sent alone. */
+  text: string;
+  /** A file it carried: a PDF, linked where there's somewhere to open it. */
+  file: { name: string; href: string | null } | null;
+};
+
+const squash = (value: string) => value.replace(/\s+/g, "");
+
+/** A stored file's URL the browser can open. Local stand-ins (`fake://`, `file://`) can't be. */
+function openable(url: string | undefined): string | null {
+  return url && /^https?:\/\//i.test(url) ? url : null;
+}
+
+type Row = Pick<typeof messages.$inferSelect, "id" | "body" | "kind" | "createdAt" | "quoteId" | "attachments">;
+
+/**
+ * Logged rows as the thread shows them. A text with a file is logged as its text's rows and then a
+ * file row repeating the text: they show once, as the file with its text.
+ */
+export function presentTexted(rows: Row[]): TextedJson[] {
+  const out: TextedJson[] = [];
+  for (const row of rows) {
+    if (row.kind !== "proactive" && row.kind !== "system") continue;
+    const attached = row.attachments.find((a) => a.type === "file");
+    // Rows from before files were logged with their URL: a quote's PDF sent alone logs its file name.
+    const legacyPdf = !attached && row.quoteId !== null && /\.pdf$/i.test(row.body.trim());
+    if (!attached && !legacyPdf) {
+      out.push({ id: row.id, at: row.createdAt.toISOString(), kind: row.kind, text: row.body, file: null });
+      continue;
+    }
+    const name = attached?.name ?? row.body.trim();
+    const href = openable(attached?.url) ?? (row.quoteId ? `/api/quotes/${encodeURIComponent(row.quoteId)}/pdf` : null);
+    const text = row.body.trim() === name ? "" : row.body;
+    // Fold the text rows just before it that spell out this row's text.
+    if (text) {
+      const whole = squash(text);
+      let joined = "";
+      let take = 0;
+      for (let i = out.length - 1; i >= 0 && !out[i].file; i--) {
+        joined = squash(out[i].text) + joined;
+        if (!whole.endsWith(joined)) break;
+        if (joined === whole) {
+          take = out.length - i;
+          break;
+        }
+      }
+      if (take) out.splice(out.length - take, take);
+    }
+    out.push({ id: row.id, at: row.createdAt.toISOString(), kind: row.kind, text, file: { name, href } });
+  }
+  return out;
+}
+
+/** The signed-in member's texts from the assistant, oldest first. Super admins have no thread here. */
+export async function textedFor(caller: AppCaller, input: { limit?: number } = {}): Promise<TextedJson[]> {
+  const member = memberCaller(caller);
+  const rows = await db()
+    .select({
+      id: messages.id,
+      body: messages.body,
+      kind: messages.kind,
+      createdAt: messages.createdAt,
+      quoteId: messages.quoteId,
+      attachments: messages.attachments,
+    })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.orgId, member.orgId),
+        eq(messages.memberId, member.memberId),
+        eq(messages.direction, "outbound"),
+        inArray(messages.kind, ["proactive", "system"]),
+        notLike(messages.body, `%${CODE_MASK}%`),
+      ),
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(input.limit ?? TEXTED_LIMIT);
+  rows.reverse();
+  return presentTexted(rows);
+}

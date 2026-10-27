@@ -1,0 +1,49 @@
+import assert from "node:assert/strict";
+import { getProfile, updateProfile } from "../../core/profile";
+import { TEST_ORG, withTestDb } from "../../core/test-db";
+import { PATCH as settingsRoute } from "../../app/api/settings/route";
+import { settingsFor } from "./settings";
+import { appCaller, call, installTransport, otherBusiness, person, refused, signIn, superAdminViewing } from "./test-support";
+
+async function seed() {
+  installTransport();
+  const owner = await person("Pat Owner", "owner", "+15555550101");
+  await person("Sam Crew", "member", "+15555550102");
+  await updateProfile(TEST_ORG, { name: "Example Services" }, owner.memberId);
+  const other = await otherBusiness();
+  const otherOwner = await person("Kim Other", "owner", "+15555550201", other);
+  await updateProfile(other, { name: "Other Co", taxRateBp: 500 }, otherOwner.memberId);
+  return { other };
+}
+
+withTestDb("settings: owners change only what differs; crew and super admins can't change anything", async () => {
+  const s = await seed();
+  const ownerHeaders = await signIn("+15555550101");
+  const crewHeaders = await signIn("+15555550102");
+
+  await assert.rejects(settingsFor(await appCaller(crewHeaders)), { status: 403 });
+  refused(await call(settingsRoute, crewHeaders, { method: "PATCH", body: { taxRateBp: 700 } }), 403, "NOT_PRIVILEGED");
+  refused(await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { timeZone: "Mars/Olympus" } }), 400, "INVALID_INPUT");
+  refused(await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { quietStartHour: 24 } }), 400);
+
+  const before = await getProfile(TEST_ORG);
+  const unchanged = await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { name: "Example Services", taxRateBp: null } });
+  assert.deepEqual(unchanged.body?.changed, []);
+  assert.equal((await getProfile(TEST_ORG)).version, before.version);
+
+  const saved = await call(settingsRoute, ownerHeaders, {
+    method: "PATCH",
+    body: { name: "Example Services", taxRateBp: 725, minimumChargeCents: 15000, quietStartHour: 21, timeZone: "America/Chicago", phone: null },
+  });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.deepEqual(saved.body?.changed, ["timeZone", "quietStartHour", "minimumChargeCents", "taxRateBp"]);
+  const after = await getProfile(TEST_ORG);
+  assert.equal(after.version, before.version + 1);
+  assert.equal(after.taxRateBp, 725);
+  assert.equal(after.timeZone, "America/Chicago");
+  assert.equal((await getProfile(s.other)).taxRateBp, 500);
+
+  const admin = await superAdminViewing(TEST_ORG);
+  assert.equal((await settingsFor(await appCaller(admin))).name, "Example Services");
+  refused(await call(settingsRoute, admin, { method: "PATCH", body: { taxRateBp: 0 } }), 403, "NOT_A_MEMBER");
+});
