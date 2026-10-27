@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-27T21:03:53.343Z",
+  "generatedAt": "2026-10-27T22:06:52.373Z",
   "conditions": [
     {
       "condition": "Baseline (no landscaping pack)",
@@ -12,17 +12,17 @@
       "judgeModels": [
         "muse-wonder-1.0"
       ],
-      "evals": 13,
+      "evals": 14,
       "passed": 11,
       "skipped": 0,
-      "passRate": 0.8461538461538461,
-      "judgeMean": 0.8633333333333334,
+      "passRate": 0.7857142857142857,
+      "judgeMean": 0.8560000000000001,
       "completed": true,
       "quotesCreated": 7,
-      "inputTokens": 1195640,
-      "outputTokens": 10605,
-      "costUsd": 1.1734712,
-      "costPerQuoteUsd": 0.10012274285714287,
+      "inputTokens": 1527568,
+      "outputTokens": 11445,
+      "costUsd": 1.3550616,
+      "costPerQuoteUsd": 0.10008674285714284,
       "rows": [
         {
           "id": "landscaping/approve-and-schedule",
@@ -32,10 +32,10 @@
           ],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 289348,
-          "outputTokens": 1695,
-          "costUsd": 0.2053288,
-          "durationMs": 25637
+          "inputTokens": 265930,
+          "outputTokens": 1680,
+          "costUsd": 0.1157344,
+          "durationMs": 22766
         },
         {
           "id": "landscaping/customer-saved",
@@ -43,10 +43,10 @@
           "judgeScores": [],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 124835,
-          "outputTokens": 742,
-          "costUsd": 0.1412936,
-          "durationMs": 11776
+          "inputTokens": 151212,
+          "outputTokens": 882,
+          "costUsd": 0.0668064,
+          "durationMs": 15933
         },
         {
           "id": "landscaping/haul-away-process",
@@ -55,11 +55,11 @@
             1
           ],
           "failed": [],
-          "quotesCreated": 1,
-          "inputTokens": 73222,
-          "outputTokens": 604,
-          "costUsd": 0.126064,
-          "durationMs": 7491
+          "quotesCreated": 0,
+          "inputTokens": 74174,
+          "outputTokens": 1194,
+          "costUsd": 0.0541656,
+          "durationMs": 15706
         },
         {
           "id": "landscaping/interview-quantities",
@@ -71,10 +71,10 @@
             "judge.boolean"
           ],
           "quotesCreated": 0,
-          "inputTokens": 72758,
-          "outputTokens": 535,
-          "costUsd": 0.122828,
-          "durationMs": 28102
+          "inputTokens": 73954,
+          "outputTokens": 550,
+          "costUsd": 0.1249936,
+          "durationMs": 17843
         },
         {
           "id": "landscaping/minimum-charge",
@@ -82,49 +82,65 @@
           "judgeScores": [],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 96742,
-          "outputTokens": 390,
-          "costUsd": 0.0423104,
-          "durationMs": 6631
+          "inputTokens": 74063,
+          "outputTokens": 461,
+          "costUsd": 0.0390616,
+          "durationMs": 6539
         },
         {
           "id": "landscaping/no-invented-price",
           "verdict": "passed",
           "judgeScores": [
-            1
+            0.98
           ],
           "failed": [],
           "quotesCreated": 0,
-          "inputTokens": 47246,
-          "outputTokens": 422,
-          "costUsd": 0.1142952,
-          "durationMs": 6937
+          "inputTokens": 73977,
+          "outputTokens": 1032,
+          "costUsd": 0.0501376,
+          "durationMs": 18398
         },
         {
           "id": "landscaping/photo-describe",
           "verdict": "passed",
           "judgeScores": [
-            0.95
+            0.98
           ],
           "failed": [],
           "quotesCreated": 0,
-          "inputTokens": 75296,
-          "outputTokens": 621,
-          "costUsd": 0.0462208,
-          "durationMs": 13711
+          "inputTokens": 78034,
+          "outputTokens": 638,
+          "costUsd": 0.1323728,
+          "durationMs": 14347
         },
         {
           "id": "landscaping/photo-request",
           "verdict": "passed",
           "judgeScores": [
-            0.92
+            0.9
           ],
           "failed": [],
           "quotesCreated": 0,
-          "inputTokens": 47228,
-          "outputTokens": 539,
-          "costUsd": 0.1165632,
-          "durationMs": 12524
+          "inputTokens": 74028,
+          "outputTokens": 646,
+          "costUsd": 0.1272096,
+          "durationMs": 11380
+        },
+        {
+          "id": "landscaping/priced-photo",
+          "verdict": "failed",
+          "judgeScores": [
+            0.75
+          ],
+          "failed": [
+            "calledTool(price_photo)",
+            "located lines"
+          ],
+          "quotesCreated": 1,
+          "inputTokens": 133766,
+          "outputTokens": 825,
+          "costUsd": 0.1514392,
+          "durationMs": 20580
         },
         {
           "id": "landscaping/quote-direct",
@@ -134,10 +150,10 @@
           ],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 99535,
-          "outputTokens": 820,
-          "costUsd": 0.0543,
-          "durationMs": 8081
+          "inputTokens": 181063,
+          "outputTokens": 1059,
+          "costUsd": 0.1421288,
+          "durationMs": 15149
         },
         {
           "id": "landscaping/rush-rule",
@@ -147,10 +163,10 @@
           ],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 100970,
-          "outputTokens": 1538,
-          "costUsd": 0.0714816,
-          "durationMs": 27152
+          "inputTokens": 125213,
+          "outputTokens": 832,
+          "costUsd": 0.1441192,
+          "durationMs": 11744
         },
         {
           "id": "landscaping/slope-rule",
@@ -158,10 +174,10 @@
           "judgeScores": [],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 73970,
-          "outputTokens": 1336,
-          "costUsd": 0.0600808,
-          "durationMs": 11191
+          "inputTokens": 74272,
+          "outputTokens": 532,
+          "costUsd": 0.0413176,
+          "durationMs": 9751
         },
         {
           "id": "landscaping/sod-by-sqft",
@@ -173,23 +189,23 @@
             "quote total cents"
           ],
           "quotesCreated": 0,
-          "inputTokens": 47251,
-          "outputTokens": 874,
-          "costUsd": 0.0402264,
-          "durationMs": 6187
+          "inputTokens": 73947,
+          "outputTokens": 644,
+          "costUsd": 0.1268456,
+          "durationMs": 6845
         },
         {
           "id": "landscaping/vocabulary",
           "verdict": "passed",
           "judgeScores": [
-            0.9
+            0.95
           ],
           "failed": [],
           "quotesCreated": 0,
-          "inputTokens": 47239,
-          "outputTokens": 489,
-          "costUsd": 0.0324784,
-          "durationMs": 7474
+          "inputTokens": 73935,
+          "outputTokens": 470,
+          "costUsd": 0.0387296,
+          "durationMs": 10007
         }
       ]
     },
@@ -204,17 +220,17 @@
       "judgeModels": [
         "muse-wonder-1.0"
       ],
-      "evals": 13,
-      "passed": 12,
+      "evals": 14,
+      "passed": 14,
       "skipped": 0,
-      "passRate": 0.9230769230769231,
-      "judgeMean": 0.9833333333333333,
+      "passRate": 1,
+      "judgeMean": 0.9640000000000001,
       "completed": true,
-      "quotesCreated": 8,
-      "inputTokens": 1302671,
-      "outputTokens": 11191,
-      "costUsd": 1.0595336,
-      "costPerQuoteUsd": 0.09947809999999999,
+      "quotesCreated": 9,
+      "inputTokens": 1638835,
+      "outputTokens": 10591,
+      "costUsd": 1.4902824000000001,
+      "costPerQuoteUsd": 0.11360106666666667,
       "rows": [
         {
           "id": "landscaping/approve-and-schedule",
@@ -224,10 +240,10 @@
           ],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 270491,
-          "outputTokens": 1999,
-          "costUsd": 0.1267392,
-          "durationMs": 23966
+          "inputTokens": 247019,
+          "outputTokens": 1713,
+          "costUsd": 0.199712,
+          "durationMs": 33356
         },
         {
           "id": "landscaping/customer-saved",
@@ -235,10 +251,10 @@
           "judgeScores": [],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 127669,
-          "outputTokens": 856,
-          "costUsd": 0.1466408,
-          "durationMs": 10731
+          "inputTokens": 154550,
+          "outputTokens": 765,
+          "costUsd": 0.0661448,
+          "durationMs": 20463
         },
         {
           "id": "landscaping/haul-away-process",
@@ -248,23 +264,23 @@
           ],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 74745,
-          "outputTokens": 729,
-          "costUsd": 0.0456904,
-          "durationMs": 8535
+          "inputTokens": 100871,
+          "outputTokens": 704,
+          "costUsd": 0.137048,
+          "durationMs": 11626
         },
         {
           "id": "landscaping/interview-quantities",
           "verdict": "passed",
           "judgeScores": [
-            1
+            0.97
           ],
           "failed": [],
           "quotesCreated": 0,
-          "inputTokens": 48352,
-          "outputTokens": 420,
-          "costUsd": 0.0316592,
-          "durationMs": 22584
+          "inputTokens": 75664,
+          "outputTokens": 428,
+          "costUsd": 0.1255024,
+          "durationMs": 16026
         },
         {
           "id": "landscaping/minimum-charge",
@@ -272,10 +288,10 @@
           "judgeScores": [],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 74601,
-          "outputTokens": 464,
-          "costUsd": 0.0398144,
-          "durationMs": 6076
+          "inputTokens": 100797,
+          "outputTokens": 446,
+          "costUsd": 0.131592,
+          "durationMs": 5999
         },
         {
           "id": "landscaping/no-invented-price",
@@ -285,49 +301,62 @@
           ],
           "failed": [],
           "quotesCreated": 0,
-          "inputTokens": 48312,
-          "outputTokens": 481,
-          "costUsd": 0.0327192,
-          "durationMs": 7297
+          "inputTokens": 49074,
+          "outputTokens": 346,
+          "costUsd": 0.1166824,
+          "durationMs": 9833
         },
         {
           "id": "landscaping/photo-describe",
           "verdict": "passed",
           "judgeScores": [
-            0.97
+            0.95
           ],
           "failed": [],
           "quotesCreated": 0,
-          "inputTokens": 51052,
-          "outputTokens": 696,
-          "costUsd": 0.0426288,
-          "durationMs": 13531
+          "inputTokens": 79873,
+          "outputTokens": 743,
+          "costUsd": 0.1374512,
+          "durationMs": 14447
         },
         {
           "id": "landscaping/photo-request",
           "verdict": "passed",
           "judgeScores": [
-            1
+            0.9
           ],
           "failed": [],
           "quotesCreated": 0,
-          "inputTokens": 48280,
-          "outputTokens": 505,
-          "costUsd": 0.1181456,
-          "durationMs": 8189
+          "inputTokens": 75666,
+          "outputTokens": 699,
+          "costUsd": 0.0439104,
+          "durationMs": 14521
+        },
+        {
+          "id": "landscaping/priced-photo",
+          "verdict": "passed",
+          "judgeScores": [
+            0.92
+          ],
+          "failed": [],
+          "quotesCreated": 1,
+          "inputTokens": 164352,
+          "outputTokens": 1073,
+          "costUsd": 0.1654576,
+          "durationMs": 24722
         },
         {
           "id": "landscaping/quote-direct",
           "verdict": "passed",
           "judgeScores": [
-            0.96
+            1
           ],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 126085,
-          "outputTokens": 837,
-          "costUsd": 0.1457616,
-          "durationMs": 12103
+          "inputTokens": 156428,
+          "outputTokens": 794,
+          "costUsd": 0.0674272,
+          "durationMs": 13561
         },
         {
           "id": "landscaping/rush-rule",
@@ -337,10 +366,10 @@
           ],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 156596,
-          "outputTokens": 1309,
-          "costUsd": 0.1649328,
-          "durationMs": 14472
+          "inputTokens": 102900,
+          "outputTokens": 878,
+          "costUsd": 0.0557872,
+          "durationMs": 12168
         },
         {
           "id": "landscaping/slope-rule",
@@ -348,37 +377,34 @@
           "judgeScores": [],
           "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 99428,
-          "outputTokens": 711,
-          "costUsd": 0.0512056,
-          "durationMs": 8645
+          "inputTokens": 76228,
+          "outputTokens": 661,
+          "costUsd": 0.044912,
+          "durationMs": 9504
         },
         {
           "id": "landscaping/sod-by-sqft",
-          "verdict": "failed",
+          "verdict": "passed",
           "judgeScores": [],
-          "failed": [
-            "sod square feet",
-            "quote total cents"
-          ],
+          "failed": [],
           "quotesCreated": 1,
-          "inputTokens": 102662,
-          "outputTokens": 1718,
-          "costUsd": 0.07504,
-          "durationMs": 12183
+          "inputTokens": 154789,
+          "outputTokens": 897,
+          "costUsd": 0.1543288,
+          "durationMs": 20351
         },
         {
           "id": "landscaping/vocabulary",
           "verdict": "passed",
           "judgeScores": [
-            0.92
+            0.9
           ],
           "failed": [],
           "quotesCreated": 0,
-          "inputTokens": 74398,
-          "outputTokens": 466,
-          "costUsd": 0.038556,
-          "durationMs": 9351
+          "inputTokens": 100624,
+          "outputTokens": 444,
+          "costUsd": 0.0443264,
+          "durationMs": 12558
         }
       ]
     }
