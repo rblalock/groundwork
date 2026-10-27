@@ -349,6 +349,35 @@ async function seedBusiness(n: 1 | 2, timeZone: string, extraDraft = false) {
   await ensureAgentSession(owner, "designer", "invoice", async () => `ses_design_${n}`);
 
   const detail = await getQuote(orgId, draft.quoteId);
+  // The owner's admitted turn, traced: the same session and turn ids in both businesses.
+  await db().insert(schema.turnTraces).values({
+    id: `trc_seed_${n}`,
+    orgId,
+    memberId: owner.memberId,
+    eveSessionId: `ses_${n}`,
+    turnId: "turn_seed",
+    source: "text",
+    modelId: "muse-wonder-1.0",
+    status: "completed",
+    steps: [],
+    startedAt: SEEDED_AT,
+    finishedAt: SEEDED_AT,
+  });
+  // The draft quote's photo, priced: the same source and output names in both businesses.
+  await db().insert(schema.pricedPhotos).values({
+    id: `ppho_seed_${n}`,
+    orgId,
+    quoteId: draft.quoteId,
+    revisionNumber: 1,
+    sourceKind: "quote_attachment",
+    sourceId: detail!.attachments[0].id,
+    sourceUrl: detail!.attachments[0].url,
+    url: `fake://priced/seed-${n}.png`,
+    width: 1024,
+    height: 1024,
+    regions: [],
+    memberId: owner.memberId,
+  });
   // A forwarding address the crew member asked for, waiting on its code.
   await startClaim({ orgId, memberId: crew.memberId, address: `crew${n}@example.test`, setByMemberId: crew.memberId });
   return {
