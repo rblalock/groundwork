@@ -422,7 +422,10 @@ export const conversations = pgTable(
     quoteId: text("quote_id").references((): AnyPgColumn => quotes.id),
     /** A job's customer, when it's about one. */
     customerId: text("customer_id").references((): AnyPgColumn => customers.id),
-    /** `email` for a thread an email the member forwarded started; null for the rest. */
+    /**
+     * `email` for a thread an email the member forwarded started, `web` for the member's thread Home
+     * started; null for the rest.
+     */
     source: text("source"),
     /**
      * An email thread's conversation: who wrote the original and its subject, without "Re:" or "Fwd:"

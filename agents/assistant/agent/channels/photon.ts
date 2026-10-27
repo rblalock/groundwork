@@ -178,7 +178,9 @@ const drain = POST<ChatSdkChannelState>("/eve/v1/photon/drain", async (request, 
  * The web app's Home starts a signed-in member's thread here on their first visit, before they ever
  * texted (lib/pages/assistant.ts, with their cookie). The session waits for its first message, which
  * comes from the web app like any web turn (lib/eve-auth.ts, `appWebAuth`). A member who already has
- * a thread gets it back, and so does one whose text started it meanwhile.
+ * a thread gets it back, and so does one whose text started it meanwhile. Two Home loads at once share
+ * one session: `create` hands a concurrent caller the session that won the member's address, and
+ * `startThread` keeps the first row.
  */
 const threadStart = POST<ChatSdkChannelState>("/eve/v1/photon/thread", async (request, { from }) => {
   const starter = await webThreadStarter(request);
