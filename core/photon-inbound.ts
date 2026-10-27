@@ -244,8 +244,15 @@ export function parseDelivery(
 
 /** What the handler needs from the channel. The channel module supplies the real ones; tests fake them. */
 export interface PhotonRuntime {
-  /** Starts or continues the turn on this thread's eve session (`from(sessionAddress(thread.id)).send`). */
-  send(thread: ThreadLike, content: string | UserContent, options: { auth: SessionAuthContext; context: string[]; turnPolicy: "queue" }): Promise<unknown>;
+  /**
+   * Starts or continues the turn on this thread's eve session (`from(sessionAddress(thread.id)).send`),
+   * or on `session`, the member's thread started on the web, when that's theirs.
+   */
+  send(
+    thread: ThreadLike,
+    content: string | UserContent,
+    options: { auth: SessionAuthContext; context: string[]; turnPolicy: "queue"; session?: string | null },
+  ): Promise<unknown>;
   post: DispatchDeps["post"];
   markRead: DispatchDeps["markRead"];
   parse(payload: PhotonWebhookPayload): ParsedDelivery;
@@ -340,6 +347,7 @@ export function photonDeliveryHandler(runtime: PhotonRuntime): DeliveryHandler {
           auth: { ...options.auth, attributes: { ...options.auth.attributes, deliveryId: delivery.id } },
           context: options.context,
           turnPolicy: options.turnPolicy,
+          session: options.session,
         }),
       post: runtime.post,
       markRead: runtime.markRead,

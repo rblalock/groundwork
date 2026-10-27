@@ -1,12 +1,15 @@
 import { createMemoryState } from "@chat-adapter/state-memory";
 import type { Thread } from "chat";
-import { POST, type ChannelFrom } from "eve/channels";
+import { POST, type ChannelFrom, type ChannelResolveSession } from "eve/channels";
+import type { SessionAuthContext } from "eve/context";
 import { chatSdkChannel, isNotImplemented, type ChatSdkChannelState } from "eve/channels/chat-sdk";
 import { handleAssistantMessage, handleFailure, markTurnStarted, repliesByText, trackSession } from "../../../../core/channel-dispatch";
+import { startThread, threadFor } from "../../../../core/conversations";
 import { drainDeliveries, processMember } from "../../../../core/deliveries";
 import { createAdapter, downloadAttachment, postText, registerBot } from "../../../../core/imessage";
 import { intakePhotonWebhook, parseDelivery, photonDeliveryHandler } from "../../../../core/photon-inbound";
 import { verifyDrainToken } from "../../../../core/worker-token";
+import { webThreadStarter } from "../../../../lib/eve-auth";
 
 // Members text the Photon iMessage line. Webhooks no longer run through the Chat SDK's in-memory
 // handlers: the route below stores each delivery in Postgres before Photon gets its 200, then works the
@@ -110,12 +113,34 @@ registerBot(bot);
  */
 const sessionAddress = (threadId: string) => `assistant:${threadId}`;
 
+/**
+ * The continuation address of a thread the member started on the web, before they ever texted
+ * (`threadStart` below). It's started here, not on the eve channel, so this channel's events run its
+ * turns: a text that joins it later is answered by text.
+ */
+const memberAddress = (memberId: string) => `assistant:member:${memberId}`;
+
+/**
+ * Where a text goes: into the member's thread when it started on the web (`session`, still at the
+ * member's address), carrying this iMessage thread so the reply is texted back; otherwise into this
+ * iMessage thread's own session, started by the text if it has none.
+ */
+async function addressFor(resolveSession: ChannelResolveSession, threadId: string, auth: SessionAuthContext, session: string | null | undefined) {
+  const memberId = auth.attributes.memberId;
+  if (session && typeof memberId === "string") {
+    const started = await resolveSession(memberAddress(memberId));
+    if (started?.id === session) return memberAddress(memberId);
+  }
+  return sessionAddress(threadId);
+}
+
 /** The queue's handler, bound to this request's continuation: what `send` did inside a Chat SDK handler. */
-function handlerFor(from: ChannelFrom<ChatSdkChannelState>) {
+function handlerFor(from: ChannelFrom<ChatSdkChannelState>, resolveSession: ChannelResolveSession) {
   return photonDeliveryHandler({
-    async send(thread, content, options) {
+    async send(thread, content, { session, ...options }) {
       const serialized = (thread as Thread).toJSON();
-      await from(sessionAddress(thread.id)).send(content, { ...options, state: { thread: serialized } });
+      const address = await addressFor(resolveSession, thread.id, options.auth, session);
+      await from(address).send(content, { ...options, state: { thread: serialized } });
     },
     post: postText,
     markRead: (threadId, messageId) => adapter.markRead(threadId, messageId),
@@ -128,14 +153,14 @@ function handlerFor(from: ChannelFrom<ChatSdkChannelState>) {
 }
 
 /** Photon's webhook: store, answer, then work this member's queue in the background. */
-const webhook = POST<ChatSdkChannelState>("/eve/v1/photon", async (request, { from, waitUntil }) => {
+const webhook = POST<ChatSdkChannelState>("/eve/v1/photon", async (request, { from, resolveSession, waitUntil }) => {
   const { response, queued } = await intakePhotonWebhook(request, {
     secret: process.env.IMESSAGE_WEBHOOK_SECRET?.trim(),
     encodeThreadId: (data) => adapter.encodeThreadId(data),
   });
   if (queued) {
     waitUntil(
-      processMember(queued.orgId, queued.memberId, handlerFor(from)).catch((error) =>
+      processMember(queued.orgId, queued.memberId, handlerFor(from, resolveSession)).catch((error) =>
         console.error("photon: the member's queue did not run; the backstop will", { deliveryId: queued.deliveryId, error }),
       ),
     );
@@ -144,9 +169,26 @@ const webhook = POST<ChatSdkChannelState>("/eve/v1/photon", async (request, { fr
 });
 
 /** The backstop's drain (agents/assistant/agent/schedules/texts.ts), with its signed token. */
-const drain = POST<ChatSdkChannelState>("/eve/v1/photon/drain", async (request, { from }) => {
+const drain = POST<ChatSdkChannelState>("/eve/v1/photon/drain", async (request, { from, resolveSession }) => {
   if (!verifyDrainToken(request.headers.get("authorization"))) return new Response("Unauthorized", { status: 401 });
-  return Response.json(await drainDeliveries(handlerFor(from)));
+  return Response.json(await drainDeliveries(handlerFor(from, resolveSession)));
 });
 
-export default { ...channel, routes: [webhook, drain] } satisfies typeof channel;
+/**
+ * The web app's Home starts a signed-in member's thread here on their first visit, before they ever
+ * texted (lib/pages/assistant.ts, with their cookie). The session waits for its first message, which
+ * comes from the web app like any web turn (lib/eve-auth.ts, `appWebAuth`). A member who already has
+ * a thread gets it back, and so does one whose text started it meanwhile.
+ */
+const threadStart = POST<ChatSdkChannelState>("/eve/v1/photon/thread", async (request, { from }) => {
+  const starter = await webThreadStarter(request);
+  if (!starter) return Response.json({ error: "Only a member of an open business can start a thread." }, { status: 403 });
+  const { orgId, memberId, auth } = starter;
+  const existing = await threadFor(orgId, memberId);
+  if (existing?.eveSessionId) return Response.json({ sessionId: existing.eveSessionId });
+  const { session } = await from(memberAddress(memberId)).create({ auth, state: { thread: null } });
+  const thread = await startThread(orgId, memberId, session.id);
+  return Response.json({ sessionId: thread.eveSessionId });
+});
+
+export default { ...channel, routes: [webhook, drain, threadStart] } satisfies typeof channel;
