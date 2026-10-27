@@ -12,8 +12,8 @@ withTestDb("applying the landscaping pack twice adds its items, rules, notes, an
   const other = await createMember({ orgId: TEST_ORG, name: "Other Owner", role: "owner" });
   const [otherItem] = await saveItems(TEST_ORG, [{ name: "Lawn mowing", unitKind: "visit", unitLabel: "visit", priceCents: 1 }], other.id);
 
-  const org = await createOrganization({ name: "LOX Landscape Co" });
-  const owner = await createMember({ orgId: org.id, name: "Pat Ortega", role: "owner" });
+  const org = await createOrganization({ name: "Landscape Test Co" });
+  const owner = await createMember({ orgId: org.id, name: "Test Owner", role: "owner" });
   const pack = VERTICALS.landscaping;
 
   const first = await applyVerticalPack(org.id, owner.id, pack);
