@@ -16,6 +16,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:check": "node scripts/migration-check.mjs",
     "provision": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/provision.ts",
+    "seed:vertical": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/seed-vertical.ts",
     "admin:create": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/admin-create.ts",
     "evals": "IMESSAGE_FAKE=1 PHOTON_ADMIN_FAKE=1 IMESSAGE_PROJECT_ID= IMESSAGE_PROJECT_SECRET= RESEND_API_KEY= EMAIL_FROM= EMAIL_FAKE=1 STRIPE_FAKE=1 STRIPE_SECRET_KEY= STRIPE_WEBHOOK_SECRET= AGENTMAIL_FAKE=1 AGENTMAIL_API_KEY= AGENTMAIL_WEBHOOK_SECRET= eve eval --agent assistant",
     "photon:webhook": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/photon-webhook.ts",

@@ -32,6 +32,7 @@ phone, inbox, or card. Then:
 node --env-file=.env.local node_modules/.bin/drizzle-kit migrate   # or: npm run db:migrate with DATABASE_URL set
 cp provision.example.json provision.json                           # a business and its owner
 npm run provision
+npm run seed:vertical -- landscaping                                # optional: the landscaping price book, rules, and notes
 npm run dev          # the web app at http://localhost:3000, agents at /eve/<name>/v1
 npm run dev:agent    # optional: the assistant alone, in eve's terminal UI
 ```
