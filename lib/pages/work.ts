@@ -4,6 +4,7 @@ import { readStoredFile, storeInboundAttachment } from "../../core/blob";
 import { db } from "../../core/db";
 import { invoicesForJobs, type InvoiceRef } from "../../core/invoices";
 import { isPrivileged } from "../../core/members";
+import { pricedPhotosForCustomer } from "../../core/priced-photo";
 import { getServiceJob, type ServiceJobView } from "../../core/scheduling";
 import { addUploadedWorkPhoto, listWorkPhotos, removeWorkPhoto, workPhoto, type WorkPhotoView } from "../../core/work-photos";
 import { sniffImage } from "../../core/logo";
@@ -11,7 +12,7 @@ import { memberCaller, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { notFound, refuse } from "./access";
 import { preparePhoto } from "./photo-upload";
-import type { StoredFile } from "./quotes";
+import { pricedPhotoHref, type StoredFile } from "./quotes";
 
 // A piece of work (a service job) on its own page: its customer, quote, invoice, visits, and photos.
 // Everyone on the team sees it and adds photos; the invoice opens for owners and admins only.
@@ -53,6 +54,12 @@ export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPag
 /** The photos on a customer's work, newest first, for their page. */
 export function customerWorkPhotos(caller: AppCaller, customerId: string): Promise<WorkPhotoView[]> {
   return listWorkPhotos(caller.orgId, { customerId }, 24);
+}
+
+/** The priced photos on a customer's quotes, newest first: their price guide, served by the app. */
+export async function customerPriceGuide(caller: AppCaller, customerId: string): Promise<Array<{ id: string; quoteId: string; quoteTitle: string; createdAt: Date; href: string }>> {
+  const photos = await pricedPhotosForCustomer(caller.orgId, customerId, 12);
+  return photos.map((photo) => ({ id: photo.id, quoteId: photo.quoteId, quoteTitle: photo.quoteTitle, createdAt: photo.createdAt, href: pricedPhotoHref(photo) }));
 }
 
 /** A photo uploaded on the work's page, stored and added, optionally on one of its visits. */

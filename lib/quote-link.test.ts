@@ -5,9 +5,13 @@ process.env.BETTER_AUTH_URL = "http://localhost:3000";
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { and, eq } from "drizzle-orm";
-import { payments, quotes } from "../schema/schema";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+import { payments, pricedPhotos, quotes } from "../schema/schema";
 import { saveCustomer } from "../core/customers";
-import { db } from "../core/db";
+import { db, newId } from "../core/db";
 import { setTransportForTests } from "../core/imessage";
 import { createInvoice, getInvoice, listPayments, recordPayment, sendInvoice, updateInvoice, voidInvoice } from "../core/invoices";
 import { addPhone, createMember, recordInbound, type Caller } from "../core/members";
@@ -16,7 +20,7 @@ import { approveFromLink, customerApprovedText, customerLinkFor, depositFor, dep
 import { approveQuote, createQuote, getQuote, quoteSummaryText, reviseQuote, setQuoteOutcome, type Poster } from "../core/quotes";
 import { quoteTimeline } from "../core/quote-timeline";
 import { TEST_ORG, withTestDb } from "../core/test-db";
-import { quoteLinkPage } from "./quote-page";
+import { quoteLinkPage, quoteLinkPricedPhoto } from "./quote-page";
 import {
   completeFakeCheckout,
   completeFakeOnboarding,
@@ -195,6 +199,43 @@ withTestDb("a draft has no link, a revised quote isn't the customer's until it's
   await setQuoteOutcome(quoteId, "lost", pat, { post: quiet });
   assert.equal((await quoteLinkPage(token)).kind, "closed");
   assert.deepEqual(await approveFromLink(token, { name: "Jane", revisionId: reopened.quote.revisionId }), { kind: "unavailable", reason: "closed" });
+});
+
+/** A priced photo of the quote's revision, stored as a little file, as core/priced-photo.ts records one. */
+async function pricedPhoto(quoteId: string, revisionNumber: number, bytes: Uint8Array): Promise<string> {
+  const file = join(mkdtempSync(join(tmpdir(), "priced-link-")), "priced.png");
+  writeFileSync(file, bytes);
+  const id = newId("ppho");
+  const url = pathToFileURL(file).href;
+  await db().insert(pricedPhotos).values({ id, orgId: TEST_ORG, quoteId, revisionNumber, sourceKind: "quote_attachment", sourceId: "att_x", sourceUrl: `${url}#${id}`, url, width: 10, height: 10, regions: [] });
+  return id;
+}
+
+withTestDb("a quote's link shows its own priced photo of the current revision, and nothing of another quote's", async () => {
+  const { pat, token, quoteId } = await seed({ stripe: false });
+  const other = await createQuote({ title: "Gutters", lines: [{ name: "Gutters", unitLabel: "job", quantity: 1, unitCents: 20000 }] }, pat, { post: quiet });
+  const otherApproved = await approveQuote(other.quoteId, pat, { post: quiet });
+  assert.ok(otherApproved.ok && otherApproved.quote.customerLink);
+  const otherToken = otherApproved.quote.customerLink.split("/q/")[1];
+  const mine = await pricedPhoto(quoteId, 1, new Uint8Array([1, 2, 3]));
+  const theirs = await pricedPhoto(other.quoteId, 1, new Uint8Array([4, 5, 6]));
+
+  const page = await quoteLinkPage(token);
+  assert.ok("quote" in page);
+  assert.equal(page.quote.pricedPhoto?.id, mine);
+  assert.deepEqual([...((await quoteLinkPricedPhoto(token, mine)) ?? [])], [1, 2, 3]);
+  assert.equal(await quoteLinkPricedPhoto(token, theirs), null, "another quote's priced photo isn't served through this link");
+  assert.equal(await quoteLinkPricedPhoto(otherToken, mine), null);
+  assert.equal(await quoteLinkPricedPhoto("not-a-real-token-at-all", mine), null);
+
+  // Revised, it's not the customer's until approved again; then the old revision's photo no longer shows.
+  await reviseQuote({ quoteId, lines: [{ name: "Back porch cleaning", unitLabel: "job", quantity: 1, unitCents: 45000 }] }, pat, { post: quiet });
+  assert.equal(await quoteLinkPricedPhoto(token, mine), null);
+  await approveQuote(quoteId, pat, { post: quiet });
+  const again = await quoteLinkPage(token);
+  assert.ok("quote" in again);
+  assert.equal(again.quote.pricedPhoto, null);
+  assert.equal(await quoteLinkPricedPhoto(token, mine), null);
 });
 
 withTestDb("an expired quote can't be approved on its link", async () => {

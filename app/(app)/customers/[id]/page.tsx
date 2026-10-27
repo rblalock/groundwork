@@ -33,7 +33,7 @@ import { customerInvoicesFor } from "@/lib/pages/invoices";
 import { InvoiceStatusPill } from "@/components/invoices/kit";
 import { jobsOn } from "@/lib/pages/jobs";
 import { workOn } from "@/lib/pages/schedule";
-import { customerWorkPhotos } from "@/lib/pages/work";
+import { customerPriceGuide, customerWorkPhotos } from "@/lib/pages/work";
 import { AskAssistantButton } from "@/components/threads/thread-rail";
 import { copyFor } from "@/lib/copy";
 
@@ -52,7 +52,7 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
   const shown: Tab[] = TABS.filter((t) => (t === "invoices" || t === "history" ? privileged : true));
   const tab: Tab = shown.find((t) => t === rawTab) ?? "quotes";
   // The rail's facts and the tabs' counts are read every time; a tab's records only when it's open.
-  const [profile, work, billing, counts, photos, notes, jobs] = await Promise.all([
+  const [profile, work, billing, counts, photos, notes, jobs, priceGuide] = await Promise.all([
     getProfile(caller.orgId),
     workOn(caller, { customerId: page.customer.id }),
     customerInvoicesFor(caller, page.customer.id),
@@ -60,6 +60,7 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
     customerWorkPhotos(caller, page.customer.id),
     tab === "notes" ? customerNotesFor(caller, page.customer.id) : null,
     tab === "threads" ? jobsOn(caller, { customerId: page.customer.id }) : null,
+    tab === "photos" ? customerPriceGuide(caller, page.customer.id) : null,
   ]);
   const { customer, quotes, history, mergedInto } = page;
   const { language } = caller;
@@ -218,6 +219,26 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
                         ))}
                       </Table>
                     )}
+                  </Card>
+                ) : null}
+
+                {tab === "photos" && priceGuide && priceGuide.length > 0 ? (
+                  <Card title={c.priceGuide}>
+                    <p className="mb-2.5 text-[13px] text-ink-3 text-pretty">{c.priceGuideHelp}</p>
+                    <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {priceGuide.map((photo) => (
+                        <li className="min-w-0" key={photo.id}>
+                          <Link className="block overflow-hidden rounded-[8px] bg-inset shadow-hairline transition-opacity hover:opacity-90" href={`/quotes/${photo.quoteId}`}>
+                            {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
+                            <img alt={c.priceGuideAlt(photo.quoteTitle)} className="block h-auto w-full" loading="lazy" src={photo.href} />
+                          </Link>
+                          <p className="mt-1 flex gap-2 text-[12px]">
+                            <span className="min-w-0 flex-1 truncate text-ink">{photo.quoteTitle}</span>
+                            <span className="shrink-0 text-ink-3">{formatDate(photo.createdAt, language, tz)}</span>
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
                   </Card>
                 ) : null}
 

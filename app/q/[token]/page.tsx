@@ -94,7 +94,7 @@ export default async function QuoteLinkRoute({
       {page.kind === "approved" && deposit && deposit.dueCents === 0 && deposit.paidCents > 0 ? <Notice icon="check">{q.depositPaid}</Notice> : null}
       <DepositReceipt page={page} />
 
-      <QuoteLinkDetails page={page} />
+      <QuoteLinkDetails page={page} token={token} />
 
       {page.kind === "expired" ? <Notice icon="x">{q.expired(business.name)}</Notice> : null}
       {page.kind === "open" ? (

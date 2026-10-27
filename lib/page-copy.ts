@@ -241,6 +241,9 @@ const en = {
     tabs: { quotes: "Quotes", work: "Work", invoices: "Invoices", photos: "Photos", notes: "Notes", threads: "Threads", history: "History" },
     nextVisit: "Next visit",
     latestPhotos: "Latest photos",
+    priceGuide: "Price guide",
+    priceGuideHelp: "Priced photos from this customer's quotes: what each line covered, at what price.",
+    priceGuideAlt: (title: string) => `Priced photo for ${title}`,
     system: "System",
     change: {
       created: "Added the customer",
@@ -1085,6 +1088,8 @@ const en = {
   },
   quoteLink: {
     title: "Quote",
+    pricedCaption: "What each line covers",
+    pricedAlt: "The yard photo with each quoted line outlined and priced",
     from: (business: string) => `From ${business}`,
     preparedFor: "Prepared for",
     service: "Service",
@@ -1364,6 +1369,9 @@ const es: PageCopy = {
     tabs: { quotes: "Cotizaciones", work: "Servicios", invoices: "Facturas", photos: "Fotos", notes: "Notas", threads: "Conversaciones", history: "Historial" },
     nextVisit: "Próxima visita",
     latestPhotos: "Fotos recientes",
+    priceGuide: "Guía de precios",
+    priceGuideHelp: "Fotos con precios de las cotizaciones de este cliente: lo que cubrió cada línea y a qué precio.",
+    priceGuideAlt: (title: string) => `Foto con precios de ${title}`,
     system: "Sistema",
     change: {
       created: "Agregó al cliente",
@@ -2209,6 +2217,8 @@ const es: PageCopy = {
   },
   quoteLink: {
     title: "Cotización",
+    pricedCaption: "Lo que cubre cada línea",
+    pricedAlt: "La foto del jardín con cada línea cotizada marcada y con precio",
     from: (business: string) => `De ${business}`,
     preparedFor: "Preparada para",
     service: "Servicio",

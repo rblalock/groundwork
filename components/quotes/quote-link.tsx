@@ -33,8 +33,8 @@ export function QuoteLinkHeader({ page, token }: { page: Shown; token: string })
   );
 }
 
-/** Who it's for, each priced line, the totals, how long it's good for, and the PDF. */
-export function QuoteLinkDetails({ page }: { page: Full }) {
+/** Who it's for, the priced photo when there is one, each priced line, the totals, how long it's good for, and the PDF. */
+export function QuoteLinkDetails({ page, token }: { page: Full; token: string }) {
   const { quote, language } = page;
   const q = pageCopyFor(language).quoteLink;
   const rows: Array<{ label: string; cents: number }> = [{ label: q.subtotal, cents: quote.subtotalCents }];
@@ -49,6 +49,17 @@ export function QuoteLinkDetails({ page }: { page: Full }) {
           {quote.customerName ? <p className="font-medium text-ink">{quote.customerName}</p> : null}
           {quote.address ? <p className="text-ink-2">{quote.address}</p> : null}
         </div>
+      ) : null}
+      {quote.pricedPhoto ? (
+        <figure className="space-y-1.5">
+          {/* eslint-disable-next-line @next/next/no-img-element -- served by this link's own route, no sign-in */}
+          <img
+            alt={q.pricedAlt}
+            className="block h-auto w-full rounded-card shadow-card"
+            src={`/q/${token}/priced/${quote.pricedPhoto.id}?v=${quote.pricedPhoto.version}`}
+          />
+          <figcaption className="px-1 text-[12px] text-ink-3">{q.pricedCaption}</figcaption>
+        </figure>
       ) : null}
       <ul className="divide-y divide-line rounded-card bg-surface shadow-card">
         {quote.lines.map((line, i) => (
