@@ -1,0 +1,237 @@
+// The landscaping scorecard: runs the evals tagged `landscaping` once per condition with `eve eval --json`
+// and writes docs/evals/scorecard.md and scorecard.json. The conditions differ only by the env the eval
+// server inherits: the baseline has the same prices, rules, and notes but no landscaping instructions.
+//   npm run scorecard             # baseline and landscaping, on the default model
+//   npm run scorecard -- --spark  # and the landscaping condition on Muse Spark
+// Needs the local test database evals use (DATABASE_URL in .env.local); every eval empties it.
+import { spawn } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { estimateCostUsd, ratesFor } from "../core/model-pricing";
+
+type Condition = { name: string; env: Record<string, string> };
+
+const CONDITIONS: Condition[] = [
+  { name: "Baseline (no landscaping pack)", env: { VERTICAL: "none" } },
+  { name: "Groundwork (landscaping pack)", env: { VERTICAL: "landscaping" } },
+];
+const SPARK: Condition = { name: "Groundwork on Muse Spark", env: { VERTICAL: "landscaping", EVAL_MODEL_ID: "muse-spark-1.3" } };
+
+// The eval that measures end-to-end completion: quoted, approved, and booked in three messages.
+const COMPLETION_EVAL = "landscaping/approve-and-schedule";
+
+// The same fake switches and blanked credentials the `evals` npm script sets.
+const OFFLINE: Record<string, string> = {
+  IMESSAGE_FAKE: "1",
+  PHOTON_ADMIN_FAKE: "1",
+  IMESSAGE_PROJECT_ID: "",
+  IMESSAGE_PROJECT_SECRET: "",
+  RESEND_API_KEY: "",
+  EMAIL_FROM: "",
+  EMAIL_FAKE: "1",
+  STRIPE_FAKE: "1",
+  STRIPE_SECRET_KEY: "",
+  STRIPE_WEBHOOK_SECRET: "",
+  AGENTMAIL_FAKE: "1",
+  AGENTMAIL_API_KEY: "",
+  AGENTMAIL_WEBHOOK_SECRET: "",
+};
+
+const OUT_DIR = resolve(process.cwd(), "docs/evals");
+
+// The parts of `eve eval --json` the scorecard reads.
+type Assertion = { name: string; key?: string; score: number; passed: boolean; metadata?: { judge?: string } };
+type Usage = { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number };
+type ToolCall = { name: string; status: string; output?: unknown };
+type EvalResult = {
+  id: string;
+  verdict: "passed" | "failed" | "scored" | "skipped" | "errored";
+  assertions?: Assertion[];
+  skipReason?: string;
+  startedAt?: string;
+  completedAt?: string;
+  result?: { derived?: { toolCalls?: ToolCall[]; usage?: Usage; models?: string[] } };
+};
+type Report = { results: EvalResult[] };
+
+type EvalRow = {
+  id: string;
+  verdict: EvalResult["verdict"];
+  judgeScores: number[];
+  failed: string[];
+  quotesCreated: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  durationMs: number | null;
+};
+
+type Summary = {
+  condition: string;
+  env: Record<string, string>;
+  models: string[];
+  judgeModels: string[];
+  evals: number;
+  passed: number;
+  skipped: number;
+  passRate: number;
+  judgeMean: number | null;
+  completed: boolean | null;
+  quotesCreated: number;
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  costPerQuoteUsd: number | null;
+  rows: EvalRow[];
+};
+
+function runEvals(condition: Condition): Promise<Report> {
+  const bin = resolve(process.cwd(), "node_modules/.bin/eve");
+  const args = ["eval", "--agent", "assistant", "--tag", "landscaping", "--json"];
+  console.error(`\n== ${condition.name}: eve ${args.join(" ")} (${Object.entries(condition.env).map(([k, v]) => `${k}=${v}`).join(" ")})`);
+  return new Promise((done, fail) => {
+    const child = spawn(bin, args, { env: { ...process.env, ...OFFLINE, ...condition.env }, stdio: ["ignore", "pipe", "inherit"] });
+    let stdout = "";
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => (stdout += chunk));
+    child.on("error", fail);
+    // A failed gate exits 1 and still prints the report; only a missing report is an error.
+    child.on("close", (code) => {
+      const start = stdout.search(/^\{/m);
+      if (start < 0) return fail(new Error(`eve eval exited ${code} without a JSON report`));
+      try {
+        done(JSON.parse(stdout.slice(start)) as Report);
+      } catch (error) {
+        fail(new Error(`eve eval's JSON report did not parse: ${String(error)}`));
+      }
+    });
+  });
+}
+
+const bareModel = (id: string) => id.replace(/^[^/]+\//, "");
+
+/** A create_quote call that finished without a tool error. */
+const quoteCreated = (call: ToolCall) =>
+  call.name === "create_quote" &&
+  call.status === "completed" &&
+  !(call.output && typeof call.output === "object" && "error" in call.output);
+
+function evalRow(result: EvalResult): EvalRow {
+  const derived = result.result?.derived;
+  const usage = derived?.usage ?? {};
+  // `inputTokens` is the whole prompt, cache reads included, as the price table expects.
+  const tokens = {
+    inputTokens: usage.inputTokens ?? 0,
+    cachedInputTokens: usage.cacheReadTokens ?? 0,
+    cacheWriteTokens: usage.cacheWriteTokens ?? 0,
+    outputTokens: usage.outputTokens ?? 0,
+  };
+  const model = derived?.models?.[0];
+  const assertions = result.assertions ?? [];
+  return {
+    id: result.id,
+    verdict: result.verdict,
+    judgeScores: assertions.filter((a) => a.name.startsWith("judge")).map((a) => a.score),
+    failed: assertions.filter((a) => !a.passed).map((a) => (a.key ? `${a.key}` : a.name)),
+    quotesCreated: (derived?.toolCalls ?? []).filter(quoteCreated).length,
+    inputTokens: tokens.inputTokens,
+    outputTokens: tokens.outputTokens,
+    costUsd: model ? estimateCostUsd(tokens, ratesFor(bareModel(model)).rates) : 0,
+    durationMs: result.startedAt && result.completedAt ? Date.parse(result.completedAt) - Date.parse(result.startedAt) : null,
+  };
+}
+
+function summarize(condition: Condition, report: Report): Summary {
+  const rows = report.results.map(evalRow).sort((a, b) => a.id.localeCompare(b.id));
+  const ran = rows.filter((row) => row.verdict !== "skipped");
+  const passed = ran.filter((row) => row.verdict === "passed").length;
+  const judged = ran.flatMap((row) => row.judgeScores);
+  const quoting = ran.filter((row) => row.quotesCreated > 0);
+  const quotesCreated = quoting.reduce((sum, row) => sum + row.quotesCreated, 0);
+  const completion = rows.find((row) => row.id === COMPLETION_EVAL);
+  const sum = (pick: (row: EvalRow) => number) => ran.reduce((total, row) => total + pick(row), 0);
+  const unique = (values: string[]) => [...new Set(values)].sort();
+  return {
+    condition: condition.name,
+    env: condition.env,
+    models: unique(report.results.flatMap((r) => r.result?.derived?.models ?? []).map(bareModel)),
+    judgeModels: unique(report.results.flatMap((r) => (r.assertions ?? []).map((a) => a.metadata?.judge ?? "")).filter(Boolean)),
+    evals: ran.length,
+    passed,
+    skipped: rows.length - ran.length,
+    passRate: ran.length ? passed / ran.length : 0,
+    judgeMean: judged.length ? judged.reduce((a, b) => a + b, 0) / judged.length : null,
+    completed: completion && completion.verdict !== "skipped" ? completion.verdict === "passed" : null,
+    quotesCreated,
+    inputTokens: sum((row) => row.inputTokens),
+    outputTokens: sum((row) => row.outputTokens),
+    costUsd: sum((row) => row.costUsd),
+    // Only the evals that made a quote count toward its cost; the rest are interviews and asks.
+    costPerQuoteUsd: quotesCreated ? quoting.reduce((total, row) => total + row.costUsd, 0) / quotesCreated : null,
+    rows,
+  };
+}
+
+const pct = (value: number) => `${Math.round(value * 100)}%`;
+const usd = (value: number | null) => (value === null ? "n/a" : `$${value.toFixed(value < 1 ? 4 : 2)}`);
+const count = (value: number) => value.toLocaleString("en-US");
+
+function cell(row: EvalRow | undefined): string {
+  if (!row) return "n/a";
+  if (row.verdict === "skipped") return "skip";
+  const scores = row.judgeScores.length ? ` (${row.judgeScores.map((s) => s.toFixed(2)).join(", ")})` : "";
+  return `${row.verdict === "passed" ? "pass" : row.verdict}${scores}`;
+}
+
+function render(summaries: Summary[], at: Date): string {
+  const lines = [
+    "# Landscaping eval scorecard",
+    "",
+    `Generated ${at.toISOString()} by \`npm run scorecard\`. Agent model: ${[...new Set(summaries.flatMap((s) => s.models))].join(", ") || "n/a"}. ` +
+      `Judge model: ${[...new Set(summaries.flatMap((s) => s.judgeModels))].join(", ") || "n/a"}.`,
+    "",
+    "Every condition runs the same evals against the same seeded business (LOX Landscape Co: prices, rules, minimum, " +
+      "and notes). The baseline leaves out only the landscaping instructions.",
+    "",
+    "| Condition | Pass rate | Judge mean | Completion | Quotes | Tokens (in / out) | Cost | Cost per quote |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...summaries.map(
+      (s) =>
+        `| ${s.condition} | ${pct(s.passRate)} (${s.passed}/${s.evals}${s.skipped ? `, ${s.skipped} skipped` : ""}) | ` +
+        `${s.judgeMean === null ? "n/a" : s.judgeMean.toFixed(2)} | ${s.completed === null ? "n/a" : s.completed ? "yes" : "no"} | ` +
+        `${s.quotesCreated} | ${count(s.inputTokens)} / ${count(s.outputTokens)} | ${usd(s.costUsd)} | ${usd(s.costPerQuoteUsd)} |`,
+    ),
+    "",
+    "Pass rate counts evals whose gates all held. Judge mean is the mean of every judge score. Completion is " +
+      `\`${COMPLETION_EVAL}\`: quoted, approved, and booked in three messages. Cost is estimated from token counts at ` +
+      "list prices (core/model-pricing.ts), agent only; cost per quote divides the cost of the evals that made a " +
+      "quote by the quotes they made.",
+    "",
+    "## Per eval",
+    "",
+    `| Eval | ${summaries.map((s) => s.condition).join(" | ")} |`,
+    `| --- | ${summaries.map(() => "---").join(" | ")} |`,
+  ];
+  const ids = [...new Set(summaries.flatMap((s) => s.rows.map((row) => row.id)))].sort();
+  for (const id of ids) {
+    lines.push(`| ${id.replace(/^landscaping\//, "")} | ${summaries.map((s) => cell(s.rows.find((row) => row.id === id))).join(" | ")} |`);
+  }
+  lines.push("", "Each cell is the verdict and, in parentheses, the judge scores.");
+  const failures = summaries.flatMap((s) =>
+    s.rows.filter((row) => row.failed.length).map((row) => `- ${s.condition}, ${row.id.replace(/^landscaping\//, "")}: ${row.failed.join("; ")}`),
+  );
+  if (failures.length) lines.push("", "## Failed assertions", "", ...failures);
+  return `${lines.join("\n")}\n`;
+}
+
+const conditions = process.argv.includes("--spark") ? [...CONDITIONS, SPARK] : CONDITIONS;
+const summaries: Summary[] = [];
+for (const condition of conditions) {
+  summaries.push(summarize(condition, await runEvals(condition)));
+}
+const at = new Date();
+await mkdir(OUT_DIR, { recursive: true });
+const markdown = render(summaries, at);
+await writeFile(resolve(OUT_DIR, "scorecard.md"), markdown);
+await writeFile(resolve(OUT_DIR, "scorecard.json"), `${JSON.stringify({ generatedAt: at.toISOString(), conditions: summaries }, null, 2)}\n`);
+console.log(markdown);
