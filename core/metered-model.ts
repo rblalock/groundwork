@@ -1,6 +1,6 @@
 // The model, metered. Every call through it (ordinary steps and eve's compaction summaries alike)
 // reports the provider's token counts once it finishes, streamed or not. agents/assistant/agent/agent.ts wraps the
-// Azure deployment with this for each step, bound to the turn the step belongs to, so each call
+// app's Meta model with this for each step, bound to the turn the step belongs to, so each call
 // becomes one usage receipt (core/usage.ts). A failure to record is logged, never thrown: a
 // receipt is bookkeeping, and the member's turn goes on.
 import { wrapLanguageModel, type LanguageModel } from "ai";

@@ -11,7 +11,6 @@
 // shown for a real message with the same words. Each text also goes to the model on its own, so one
 // message can't steer how another is translated.
 import { createHash } from "node:crypto";
-import { createAzure } from "@ai-sdk/azure";
 import { generateText, Output } from "ai";
 import { and, eq, inArray, lt } from "drizzle-orm";
 import { z } from "zod";
@@ -20,7 +19,7 @@ import { db, newId } from "./db";
 import { glossaryHash, glossaryInstructions, listGlossary } from "./glossary";
 import type { Language } from "./language";
 import { meteredModel, type CallUsage } from "./metered-model";
-import { currentDeployment } from "./model-pricing";
+import { languageModel, modelProviderOptions, modelReady } from "./model-provider";
 import { recordModelCall } from "./usage";
 import { admitModelCall, settleTurn } from "./usage-limits";
 
@@ -77,23 +76,27 @@ export type TranslatorRequest = {
 };
 export type Translator = (request: TranslatorRequest) => Promise<z.infer<typeof outputSchema>>;
 
-/** The Azure deployment, metered, with a structured answer. */
-const azureTranslator: Translator = async (request) => {
-  const azure = createAzure({ resourceName: process.env.AZURE_RESOURCE_NAME, apiKey: process.env.AZURE_API_KEY });
+/** The app's model, metered, with a structured answer. */
+const modelTranslator: Translator = async (request) => {
   const result = await generateText({
-    model: meteredModel(azure(currentDeployment()), request.onUsage),
+    model: meteredModel(languageModel(), request.onUsage),
     output: Output.object({ schema: outputSchema }),
     system: request.system,
     prompt: JSON.stringify({ message: request.text }),
     maxOutputTokens: request.maxOutputTokens,
     maxRetries: 1,
     abortSignal: AbortSignal.timeout(60_000),
-    providerOptions: { azure: { reasoningEffort: "low" } },
+    providerOptions: modelProviderOptions("low"),
   });
   return result.output;
 };
 
 let translatorForTests: Translator | null = null;
+
+/** Translation runs only when the Meta Model API key is set. */
+export function translationEnabled(): boolean {
+  return modelReady();
+}
 
 /** Tests stand in for the model; null puts the real one back. */
 export function setTranslatorForTests(translator: Translator | null): void {
@@ -164,7 +167,7 @@ export async function translateTexts(input: {
     .filter((item) => !byHash.has(item.hash) && item.text.trim() !== "");
 
   if (missing.length) {
-    const translator = translatorForTests ?? (process.env.AZURE_API_KEY && process.env.AZURE_RESOURCE_NAME ? azureTranslator : null);
+    const translator = translatorForTests ?? (translationEnabled() ? modelTranslator : null);
     if (!translator) throw new Error("TRANSLATION_UNAVAILABLE");
     const reserve = missing.reduce((sum, item) => sum + outputReserve(item.text), 0);
     const admission = await admitModelCall({ orgId: input.orgId, memberId: input.memberId, channel: "translation", outputTokens: reserve, now: input.now });

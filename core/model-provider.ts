@@ -18,7 +18,7 @@ export function modelReady(): boolean {
  * A model on the Meta Model API: the app's (`currentModel()`) unless one is named. `MODEL_API=chat` swaps
  * the Responses API for Chat Completions, a fallback in case the Responses path misbehaves.
  */
-export function languageModel(modelId: ModelId = currentModel()): LanguageModel {
+export function languageModel(modelId: ModelId = currentModel()): Exclude<LanguageModel, string> {
   const provider = createOpenAI({
     baseURL: process.env.MODEL_BASE_URL?.trim() || DEFAULT_BASE_URL,
     apiKey: process.env.META_MODEL_API_KEY,

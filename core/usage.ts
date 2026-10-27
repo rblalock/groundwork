@@ -7,7 +7,7 @@ import { conversations, usageReceipts } from "../schema/schema";
 import { db, newId } from "./db";
 import { APP_JOB, APP_WEB, resolveCaller } from "./members";
 import type { CallUsage } from "./metered-model";
-import { currentDeployment, estimateCostUsd, ratesFor } from "./model-pricing";
+import { currentModel, estimateCostUsd, ratesFor } from "./model-pricing";
 import { extendLease, type UsageChannel } from "./usage-limits";
 
 /** The auth a turn runs under, as eve gives it to hooks and resolvers. Structural, for tests. */
@@ -77,7 +77,7 @@ type Receipt = {
 };
 
 async function insertReceipt(who: Receipt, usage: CallUsage, options: { deployment?: string; now?: Date }): Promise<{ recorded: boolean }> {
-  const deployment = options.deployment ?? currentDeployment();
+  const deployment = options.deployment ?? currentModel();
   const { rates, source } = ratesFor(deployment);
   const now = options.now ?? new Date();
   const inserted = await db()

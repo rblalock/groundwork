@@ -24,7 +24,7 @@ npm install
 cp .env.example .env.local
 ```
 
-Fill in `.env.local`: at least `DATABASE_URL`, `MODEL_API_KEY`, and `BETTER_AUTH_SECRET`
+Fill in `.env.local`: at least `DATABASE_URL`, `META_MODEL_API_KEY`, and `BETTER_AUTH_SECRET`
 (`openssl rand -hex 32`). For local work, turn on the fake modes below so nothing reaches a real
 phone, inbox, or card. Then:
 

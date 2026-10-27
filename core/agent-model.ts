@@ -1,23 +1,21 @@
-import { createAzure } from "@ai-sdk/azure";
 import { meteredModel } from "./metered-model";
-import { currentDeployment } from "./model-pricing";
+import { contextTokens, currentModel, type ModelId } from "./model-pricing";
+import { languageModel, modelProviderOptions } from "./model-provider";
 import { recordUsage, turnMeter } from "./usage";
 
-const azure = createAzure({
-  resourceName: process.env.AZURE_RESOURCE_NAME,
-  apiKey: process.env.AZURE_API_KEY,
-});
-
 /**
- * An agent's model for one step: an Azure deployment (the app's, unless the agent names its own), metered.
+ * An agent's model for one step: a Meta model (the app's, unless the agent names its own), metered.
  * The step's model is bound to the turn it runs in, so every call (compaction summaries too) leaves a
- * usage receipt for its business, member, and channel (core/usage.ts). Custom Azure deployments aren't in
- * the AI Gateway catalog, so the context window is set explicitly.
+ * usage receipt for its business, member, and channel (core/usage.ts). Meta's models aren't in the AI
+ * Gateway catalog, so the context window is set explicitly, to the app's budget (`contextTokens()`).
  */
-export function stepModel(event: unknown, ctx: Parameters<typeof turnMeter>[1], deployment = currentDeployment()) {
+export function stepModel(event: unknown, ctx: Parameters<typeof turnMeter>[1], modelId: ModelId = currentModel()) {
   const turn = turnMeter(event, ctx);
+  const providerOptions = modelProviderOptions();
   return {
-    model: meteredModel(azure(deployment), (usage) => recordUsage(turn, usage, { deployment }).then(() => undefined)),
-    modelContextWindowTokens: 128_000,
+    model: meteredModel(languageModel(modelId), (usage) => recordUsage(turn, usage, { deployment: modelId }).then(() => undefined)),
+    modelContextWindowTokens: contextTokens(),
+    reasoning: providerOptions.openai.reasoningEffort,
+    modelOptions: { providerOptions },
   };
 }

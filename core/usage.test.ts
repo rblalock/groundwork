@@ -16,7 +16,7 @@ import { db } from "./db";
 import { processMember, recordDelivery } from "./deliveries";
 import { addPhone, createMember, recordInbound } from "./members";
 import { isCompactionPrompt, meteredModel, readUsage, type CallUsage } from "./metered-model";
-import { estimateCostUsd, ratesFor } from "./model-pricing";
+import { currentModel, estimateCostUsd, ratesFor } from "./model-pricing";
 import { createOrganization } from "./organizations";
 import { parseDelivery, photonDeliveryHandler, type PhotonRuntime, type PhotonWebhookPayload } from "./photon-inbound";
 import { updateProfile } from "./profile";
@@ -153,7 +153,7 @@ withTestDb("each model call of a turn leaves one receipt with its business, memb
   assert.equal(row.turnId, "turn_1");
   assert.equal(row.channel, "text");
   assert.equal(row.reservationId, admitted.reservationId);
-  assert.equal(row.deployment, process.env.AZURE_DEPLOYMENT_NAME?.trim() || "muse-wonder-1.0");
+  assert.equal(row.deployment, currentModel());
   assert.deepEqual([row.inputTokens, row.cachedInputTokens, row.outputTokens, row.reasoningTokens], [10_000, 8_000, 500, 200]);
   assert.ok(row.estimatedCostUsd > 0);
 

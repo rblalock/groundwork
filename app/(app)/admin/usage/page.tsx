@@ -18,7 +18,7 @@ export default async function AdminUsagePage() {
       <PageBody>
         <p className="text-sm text-ink-2">
           The last {DAYS} days, most expensive first: {formatUsd(total, "en")} estimated across every business. Costs are estimates at the model's list prices, not
-          the Azure bill.
+          the Meta bill.
         </p>
         <Card flush>
           {rows.length === 0 ? (

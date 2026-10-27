@@ -10,6 +10,7 @@ import { TEST_ORG, withTestDb } from "./test-db";
 import {
   outputReserve,
   setTranslatorForTests,
+  translationEnabled,
   translateTexts,
   TranslationLimitedError,
   translatorSystem,
@@ -56,6 +57,19 @@ test("the translator's instructions treat messages as data, keep the facts, and 
   assert.doesNotMatch(system, /window|clean|plumb|roof|lawn|pest|hvac|landscap|paint|pool/i);
   assert.match(translatorSystem("es", ""), /neutral Latin American Spanish/);
   assert.match(translatorSystem("en", "The business's glossary. …"), /into English\.\n[\s\S]*\nThe business's glossary/);
+});
+
+test("translation is on only with the Meta Model API key", () => {
+  const key = process.env.META_MODEL_API_KEY;
+  try {
+    process.env.META_MODEL_API_KEY = "test-key";
+    assert.equal(translationEnabled(), true);
+    delete process.env.META_MODEL_API_KEY;
+    assert.equal(translationEnabled(), false);
+  } finally {
+    if (key === undefined) delete process.env.META_MODEL_API_KEY;
+    else process.env.META_MODEL_API_KEY = key;
+  }
 });
 
 test("a call holds room for its translation, within bounds", () => {
@@ -167,12 +181,12 @@ withTestDb("a failed or missing model leaves the originals and frees what it hel
   assert.equal((await db().select().from(translations)).length, 1);
 
   setTranslatorForTests(null);
-  const key = process.env.AZURE_API_KEY;
-  process.env.AZURE_API_KEY = "";
+  const key = process.env.META_MODEL_API_KEY;
+  process.env.META_MODEL_API_KEY = "";
   try {
     await assert.rejects(ask(["See you at 9"]), /TRANSLATION_UNAVAILABLE/);
   } finally {
-    process.env.AZURE_API_KEY = key;
+    process.env.META_MODEL_API_KEY = key;
   }
 });
 

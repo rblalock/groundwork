@@ -1,7 +1,7 @@
 import { defineAgent, defineDynamic } from "eve";
 import { stepModel } from "../../../core/agent-model";
 
-// The app's Azure deployment, metered per turn (core/agent-model.ts).
+// The app's Meta model, metered per turn (core/agent-model.ts).
 export default defineAgent({
   model: defineDynamic({
     events: {
