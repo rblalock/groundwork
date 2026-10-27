@@ -654,12 +654,20 @@ async function withLiveSession<T>(job: Job, signal: AbortSignal, use: (sessionId
   } catch (error) {
     if (!sessionGone(error)) throw error;
     console.warn("jobs: the job's eve session is gone; starting a fresh one", { jobId: job.id, sessionId });
-    await db()
-      .update(conversations)
-      .set({ eveSessionId: null, updatedAt: new Date() })
-      .where(and(eq(conversations.orgId, job.orgId), eq(conversations.id, job.id), eq(conversations.eveSessionId, sessionId)));
-    return use(await ensureSession({ ...job, eveSessionId: null }, signal));
+    return use(await replaceJobSession(job, sessionId, signal));
   }
+}
+
+/**
+ * Moves the job off `lost`, a session eve no longer runs, to a fresh one, and returns that. A job that
+ * has meanwhile moved on keeps the session it has.
+ */
+export async function replaceJobSession(job: Job, lost: string, signal: AbortSignal = AbortSignal.timeout(30_000)): Promise<string> {
+  await db()
+    .update(conversations)
+    .set({ eveSessionId: null, updatedAt: new Date() })
+    .where(and(eq(conversations.orgId, job.orgId), eq(conversations.id, job.id), eq(conversations.eveSessionId, lost)));
+  return ensureSession({ ...job, eveSessionId: null }, signal);
 }
 
 /**

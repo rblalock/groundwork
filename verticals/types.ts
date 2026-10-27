@@ -23,6 +23,9 @@ export type PackRule = {
 
 export type PackNote = { title: string; body: string; tags?: string[] };
 
+/** Business settings the pack starts a business with: days a quote stays open, deposit percent, days to a follow-up. */
+export type PackProfile = { quoteValidityDays?: number; depositPercent?: number; followUpDays?: number };
+
 export type VerticalPack = {
   id: string;
   label: string;
@@ -30,5 +33,6 @@ export type VerticalPack = {
   items: PackItem[];
   rules: PackRule[];
   notes: PackNote[];
+  profile?: PackProfile;
   instructions: string;
 };

@@ -1,11 +1,12 @@
 import { and, desc, eq, inArray, notLike } from "drizzle-orm";
 import { Client } from "eve/client";
 import { messages } from "../../schema/schema";
-import { threadFor, type Conversation } from "../../core/conversations";
+import { memberConversationForSession, moveThreadSession, threadFor, type Conversation } from "../../core/conversations";
 import { db } from "../../core/db";
-import { agentHost } from "../../core/jobs";
+import { agentHost, replaceJobSession } from "../../core/jobs";
 import { memberCaller, type AppCaller } from "../guards";
 import { CODE_MASK } from "../login-codes";
+import { probeSaysLost } from "../session-recovery";
 
 // The Assistant page's other half: what the assistant texted the member on its own (the morning line,
 // nudges, booking notices, approval requests, quote and invoice PDFs, fixed replies). Those are logged
@@ -122,4 +123,47 @@ export async function threadWithSession(caller: AppCaller, cookie: string): Prom
     return null;
   }
   return threadFor(member.orgId, member.memberId);
+}
+
+/**
+ * A fresh session for the member's thread or job on `lost`, after a send there was refused as if eve no
+ * longer runs it (lib/session-recovery.ts). The old session is probed first, with the member's own
+ * sign-in (`cookie`): one eve still runs is kept, and so is anything not one of their writable
+ * conversations. Null when it's kept or can't be replaced.
+ *
+ * A job takes a fresh session as the assistant gives one (core/jobs.ts). The thread is the member's
+ * iMessage session too, held at their address on the Photon channel, so it's only replaced in
+ * development: there a run the dev server won't resume keeps that address, and the thread moves to a
+ * session started here, for the web. Texts reach the old one again only once the dev store is cleared.
+ * In production eve hands an idle session to each new deployment, so a redeploy loses none.
+ */
+export async function replaceLostSession(caller: AppCaller, lost: string, cookie: string): Promise<string | null> {
+  const member = memberCaller(caller);
+  const conversation = await memberConversationForSession(member.orgId, member.memberId, lost);
+  if (!conversation || (conversation.kind === "job" && conversation.status === "archived")) return null;
+  const development = process.env.NODE_ENV === "development";
+  if (conversation.kind === "thread" && !development) return null;
+  if (!(await sessionLost(lost, cookie, development))) return null;
+  if (conversation.kind === "job") return replaceJobSession(conversation, lost);
+  console.warn("assistant: the dev server no longer runs the member's thread; starting a fresh one", { memberId: member.memberId, sessionId: lost });
+  // No cookie: eve's local-dev sign-in, which runs the thread's turns as its member (lib/eve-auth.ts).
+  const { session } = await new Client({ host: agentHost(), redirect: "error" }).sessions.create({ signal: AbortSignal.timeout(20_000) });
+  const thread = await moveThreadSession(member.orgId, member.memberId, lost, session.state.sessionId);
+  return thread?.eveSessionId ?? null;
+}
+
+/** Cancels a turn the session never had: a session eve runs ignores it, and one it can't fails as a send did. */
+async function sessionLost(sessionId: string, cookie: string, development: boolean): Promise<boolean> {
+  const client = new Client({ host: agentHost(), redirect: "error", headers: { cookie } });
+  const response = await client
+    .fetch(`/eve/v1/session/${encodeURIComponent(sessionId)}/cancel`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ turnId: "turn_none" }),
+      signal: AbortSignal.timeout(10_000),
+    })
+    .catch(() => null);
+  if (!response) return false;
+  const body = (await response.json().catch(() => null)) as { code?: unknown } | null;
+  return probeSaysLost(response.status, typeof body?.code === "string" ? body.code : undefined, development);
 }

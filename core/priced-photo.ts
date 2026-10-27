@@ -20,6 +20,7 @@ import { listItems } from "./pricebook";
 import { selectRegions, type PhotoLine } from "./priced-photo-select";
 import { getQuote } from "./quotes";
 import { segmentMany, type SamObject } from "./sam";
+import { pluralUnit } from "./units";
 
 export type PricedPhoto = typeof pricedPhotos.$inferSelect;
 export type PricedPhotoSource = { kind: "quote_attachment" | "work_photo"; id: string };
@@ -242,9 +243,9 @@ async function textImage(text: string, px: number, maxWidth: number, color = "#f
   return { input: data, width: info.width, height: info.height };
 }
 
-/** "Mulch installed · 3 cubic yard · $285.00", as the customer page writes a line. */
+/** "Mulch installed · 3 cubic yards · $285.00", as the customer page writes a line. */
 function lineLabel(region: PricedRegion, language: Language): string {
-  const amount = `${quantityText(region.quantity)}${region.unitLabel ? ` ${region.unitLabel}` : ""}`;
+  const amount = `${quantityText(region.quantity)}${region.unitLabel ? ` ${pluralUnit(region.quantity, region.unitLabel, language)}` : ""}`;
   return [region.name, amount, ...(region.totalCents === null ? [] : [formatCents(region.totalCents, language)])].join(" · ");
 }
 

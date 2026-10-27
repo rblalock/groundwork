@@ -5,6 +5,7 @@
 // filling with a sample or one of the business's own documents.
 import { BLOCK_BASE_CSS, CUSTOMER_PAGE_CSP, escapeHtml, renderTemplate, type CustomerPageKind, type SlotValues } from "../core/customer-page-template";
 import type { Language } from "../core/language";
+import { pluralUnit } from "../core/units";
 import { formatDateOnlyShort, money, quantity } from "./format";
 import { pageCopyFor } from "./page-copy";
 import type { QuoteLinkPage } from "./quote-page";
@@ -66,7 +67,7 @@ export function quoteSlots(page: QuoteShown, target: PageTarget): SlotValues {
 
   const lines = [
     ...quote.lines.map((line) => {
-      const detail = `${quantity(line.quantity)}${line.unitLabel ? ` ${line.unitLabel}` : ""}${line.unitCents !== null ? ` × ${money(line.unitCents, language)}` : ""}`;
+      const detail = `${quantity(line.quantity)}${line.unitLabel ? ` ${pluralUnit(line.quantity, line.unitLabel, language)}` : ""}${line.unitCents !== null ? ` × ${money(line.unitCents, language)}` : ""}`;
       return `<tr><td><span class="gw-line-name">${e(line.name)}</span><span class="gw-line-detail">${e(detail)}</span></td><td class="gw-num">${e(line.totalCents === null ? "—" : money(line.totalCents, language))}</td></tr>`;
     }),
     ...quote.ruleLines.map((rule) => `<tr class="gw-line-rule"><td><span class="gw-line-name">${e(rule.label)}</span></td><td class="gw-num">${e(money(rule.cents, language))}</td></tr>`),

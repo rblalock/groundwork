@@ -1,4 +1,5 @@
 import { CircleCheck, Download } from "lucide-react";
+import { pluralUnit } from "@/core/units";
 import { formatDateOnlyShort, money, quantity } from "@/lib/format";
 import { pageCopyFor } from "@/lib/page-copy";
 import type { QuoteLinkPage } from "@/lib/quote-page";
@@ -68,7 +69,7 @@ export function QuoteLinkDetails({ page, token }: { page: Full; token: string })
               <p className="font-medium text-ink text-pretty">{line.name}</p>
               <p className="text-[12px] text-ink-3 tabular-nums">
                 {quantity(line.quantity)}
-                {line.unitLabel ? ` ${line.unitLabel}` : ""}
+                {line.unitLabel ? ` ${pluralUnit(line.quantity, line.unitLabel, language)}` : ""}
                 {line.unitCents !== null ? ` × ${money(line.unitCents, language)}` : ""}
               </p>
             </div>

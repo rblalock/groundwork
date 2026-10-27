@@ -47,6 +47,25 @@ export async function startThread(orgId: string, memberId: string, eveSessionId:
   return thread;
 }
 
+/**
+ * Moves the member's thread from `from`, a session eve no longer runs, to `to`, and returns the thread.
+ * A thread that has meanwhile moved on (a text started a new session) keeps the session it has.
+ */
+export async function moveThreadSession(orgId: string, memberId: string, from: string, to: string): Promise<Conversation | null> {
+  await db()
+    .update(conversations)
+    .set({ eveSessionId: to, updatedAt: new Date() })
+    .where(
+      and(
+        eq(conversations.orgId, orgId),
+        eq(conversations.memberId, memberId),
+        eq(conversations.kind, "thread"),
+        eq(conversations.eveSessionId, from),
+      ),
+    );
+  return threadFor(orgId, memberId);
+}
+
 /** The member's thread, or null before it starts: their first text, or their first visit to Home. */
 export async function threadFor(orgId: string, memberId: string): Promise<Conversation | null> {
   const [row] = await db()

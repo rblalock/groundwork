@@ -7,6 +7,7 @@ export const landscaping: VerticalPack = {
   id: "landscaping",
   label: "Landscaping",
   minimumChargeCents: 15000,
+  profile: { quoteValidityDays: 14, depositPercent: 30 },
   items: [
     { name: "Lawn mowing", unitKind: "visit", unitLabel: "visit", priceCents: 6500, group: "Maintenance", photoPrompt: "lawn" },
     { name: "Mulch installed", unitKind: "each", unitLabel: "cubic yard", priceCents: 9500, group: "Beds", photoPrompt: "mulch bed" },
