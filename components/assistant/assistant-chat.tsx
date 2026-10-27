@@ -5,7 +5,7 @@ import { useEveAgent } from "eve/react";
 import type { AgentName } from "@/core/agent-name";
 import { Eye, FileText, Layers, Mail, MessageSquareText, Paperclip, RotateCw, Smartphone, X } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { parseForwardedEmailText, type ForwardedEmailParts } from "@/core/forwarded-email";
 import { localeFor, type Language } from "@/core/language";
 import type { TextedJson } from "@/lib/pages/assistant";
@@ -23,6 +23,7 @@ import { ChatLink, QuoteCard, ToolSteps } from "@/components/assistant/reply-ext
 import { UnderTheHood } from "@/components/assistant/under-the-hood";
 import { linkRecords, type RecordLink } from "@/lib/chat-tools";
 import { ON_SCREEN_HEADER, onScreenHeader, type OnScreenRecord } from "@/lib/on-screen";
+import { sendMayHaveLostSession, sessionEnded } from "@/lib/session-recovery";
 import { replyExtras, type ReplyExtras } from "@/lib/chat-tools";
 import { InHeader } from "@/components/header-slot";
 import { Button } from "@/ui/beautiful/atoms/Button";
@@ -434,9 +435,10 @@ type AssistantChatProps = {
   /** Sees the conversation as it streams, tool calls being written included (a page's designer previews them). */
   onMessages?: (messages: readonly EveMessage[]) => void;
   /**
-   * A send eve refused because it no longer runs this session (409 `session_not_active` or
+   * A send eve refused because it no longer runs this session (404, or 409 `session_not_active` or
    * `session_stranded`): handed back, with what was being sent, so the page can open a fresh one. It
-   * answers false when it couldn't, and the send shows as failed, as it does without it.
+   * answers false when it couldn't, and the send shows as failed. Without it, a member's own thread or
+   * job asks the server for its session again (lib/session-recovery.ts).
    */
   onSessionEnded?: (content: ChatContent) => Promise<boolean>;
   /** Sent once as soon as the conversation opens: what an ended session couldn't take. */
@@ -445,8 +447,6 @@ type AssistantChatProps = {
 
 /** What one send carries: the text, or the text and its attached files. */
 export type ChatContent = string | Array<{ type: "text"; text: string } | { type: "file"; data: string; mediaType: string; filename: string }>;
-
-const ENDED_CODES = new Set(["session_not_active", "session_stranded"]);
 
 /**
  * One of the member's conversations with the assistant: their thread (texts and web turns together)
@@ -461,7 +461,33 @@ function chatCopy(all: ReturnType<typeof copyFor>, variant: NonNullable<Assistan
 }
 
 export function AssistantChat(props: AssistantChatProps) {
-  const { sessionId, agent = "assistant" } = props;
+  const { agent = "assistant" } = props;
+  // A session eve stopped running, replaced from the server: the fresh one, and the send it refused.
+  const [moved, setMoved] = useState<{ from: string; sessionId: string; pending: ChatContent } | null>(null);
+  const current = moved?.from === props.sessionId ? moved : null;
+  const sessionId = current?.sessionId ?? props.sessionId;
+  const recover = useCallback(
+    async (content: ChatContent) => {
+      // Once: a send refused on the fresh session shows as failed.
+      if (current) return false;
+      const response = await fetch("/api/assistant/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ended: props.sessionId }),
+      }).catch(() => null);
+      const body = (await response?.json().catch(() => null)) as { sessionId?: string | null } | null;
+      if (!response?.ok || !body?.sessionId || body.sessionId === props.sessionId) return false;
+      setMoved({ from: props.sessionId, sessionId: body.sessionId, pending: content });
+      return true;
+    },
+    [current, props.sessionId],
+  );
+  const ownConversation = agent === "assistant" && props.variant !== "designer" && props.readOnlyNote === undefined;
+  const ended = props.onSessionEnded
+    ? { onSessionEnded: props.onSessionEnded, endedWhen: sessionEnded }
+    : ownConversation
+      ? { onSessionEnded: recover, endedWhen: sendMayHaveLostSession }
+      : { onSessionEnded: undefined, endedWhen: sessionEnded };
   // From memory only on the first render: what the server rendered (nothing kept) must match on a fresh load.
   const [initial, setInitial] = useState<{ sessionId: string; events: readonly MessageStreamEvent[] } | null>(() => {
     const events = typeof window === "undefined" ? null : sessionInMemory(sessionId);
@@ -484,7 +510,7 @@ export function AssistantChat(props: AssistantChatProps) {
     const copy = chatCopy(copyFor(props.language), props.variant ?? "thread");
     return <LoadingState className="flex-1 justify-center pt-16 text-ink-3" label={copy.loading} />;
   }
-  return <ChatSession {...props} initialEvents={ready} key={sessionId} />;
+  return <ChatSession {...props} {...ended} initialEvents={ready} initialSend={current?.pending ?? props.initialSend} key={sessionId} sessionId={sessionId} />;
 }
 
 function ChatSession({
@@ -504,7 +530,8 @@ function ChatSession({
   onSessionEnded,
   initialSend,
   initialEvents,
-}: AssistantChatProps & { initialEvents: readonly MessageStreamEvent[] }) {
+  endedWhen,
+}: AssistantChatProps & { initialEvents: readonly MessageStreamEvent[]; endedWhen: (status: number, code: string | undefined) => boolean }) {
   const all = copyFor(language);
   const copy = chatCopy(all, variant);
   const toolLabels = toolLabelsFor(language);
@@ -519,7 +546,7 @@ function ChatSession({
     initialEvents,
     resume: true,
     onError: (error) => {
-      if (!onSessionEnded || !lastSent.current || !(error instanceof ClientError) || error.status !== 409 || !ENDED_CODES.has(error.code ?? "")) return;
+      if (!onSessionEnded || !lastSent.current || !(error instanceof ClientError) || !endedWhen(error.status, error.code)) return;
       const content = lastSent.current;
       lastSent.current = null;
       setHandedOff(true);
