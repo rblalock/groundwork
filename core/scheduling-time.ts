@@ -1,5 +1,5 @@
-// Wall-clock time for the schedule, in the business's time zone, never the server's. The rules:
-// a local time in a clock-change gap doesn't exist, one in the repeated
+// Wall-clock time for the schedule, in the business's time zone, never the server's. The rules: a
+// local time in a clock-change gap doesn't exist, one in the repeated
 // hour needs its UTC offset, and a visit fits working hours only if every minute of it does.
 import { z } from "zod";
 import type { WorkingInterval } from "../schema/types";
