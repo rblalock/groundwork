@@ -51,7 +51,14 @@ export type SessionAuthContext = NonNullable<ChatSdkSendOptions["auth"]>;
 export interface DispatchDeps {
   send: (
     content: string | UserContent,
-    options: { thread: unknown; auth: SessionAuthContext; context: string[]; turnPolicy: "queue" },
+    options: {
+      thread: unknown;
+      auth: SessionAuthContext;
+      context: string[];
+      turnPolicy: "queue";
+      /** The member's thread's eve session, when they have one: the text joins it, even one started on the web. */
+      session?: string | null;
+    },
   ) => Promise<unknown>;
   /** Posts plain text to a thread; returns the provider ids, one per chunk. */
   post: (threadId: string, text: string) => Promise<string[]>;
@@ -555,6 +562,11 @@ export async function hold(deps: DispatchDeps, member: Member, phone: MemberPhon
   return { kind: "held", retryAt };
 }
 
+/** The member's thread's eve session, or null before their thread starts. */
+async function threadSession(member: Member): Promise<string | null> {
+  return (await threadFor(member.orgId, member.id))?.eveSessionId ?? null;
+}
+
 export async function handleInbound(message: InboundMessage, deps: DispatchDeps): Promise<InboundDecision> {
   const found = await memberFor(message.authorUserId);
   const sources = message.attachmentSources ?? [];
@@ -645,6 +657,7 @@ export async function handleInbound(message: InboundMessage, deps: DispatchDeps)
       auth: memberAuth(member, phone),
       context,
       turnPolicy: "queue",
+      session: await threadSession(member),
     });
     if (handed) return await hold(deps, member, phone, message.threadId, handed.held);
   } catch (error) {
@@ -708,6 +721,7 @@ export async function handleReaction(reaction: InboundReaction, deps: DispatchDe
     auth: memberAuth(member, phone),
     context,
     turnPolicy: "queue",
+    session: await threadSession(member),
   });
   if (handed) return hold(deps, member, phone, reaction.threadId, handed.held);
   return { kind: "dispatch", welcome: false };
@@ -887,7 +901,8 @@ export async function handleFailure(
 /**
  * Remembers the member's eve session as their thread conversation: the session their texts run in,
  * which the web app's Assistant page resumes. A new Photon session (a new iMessage thread) moves the
- * thread to it; the old session's history stays in eve but the web app no longer shows it.
+ * thread to it; the old session's history stays in eve but the web app no longer shows it. A thread
+ * started on the web never moves this way: texts join its session (`threadSession`).
  */
 export async function trackSession(auth: SessionAuthContext | null | undefined, eveSessionId: string): Promise<void> {
   const orgId = attribute(auth, "orgId");

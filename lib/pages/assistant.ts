@@ -1,6 +1,9 @@
 import { and, desc, eq, inArray, notLike } from "drizzle-orm";
+import { Client } from "eve/client";
 import { messages } from "../../schema/schema";
+import { threadFor, type Conversation } from "../../core/conversations";
 import { db } from "../../core/db";
+import { agentHost } from "../../core/jobs";
 import { memberCaller, type AppCaller } from "../guards";
 import { CODE_MASK } from "../login-codes";
 
@@ -98,4 +101,25 @@ export async function textedFor(caller: AppCaller, input: { limit?: number } = {
     .limit(input.limit ?? TEXTED_LIMIT);
   rows.reverse();
   return presentTexted(rows);
+}
+
+/**
+ * The signed-in member's thread, started on their first visit when they haven't texted yet. The agent
+ * starts it on the Photon channel (agents/assistant/agent/channels/photon.ts), so a text from them later
+ * joins it, and checks the member by their own sign-in (`cookie`). Null when it couldn't be started.
+ */
+export async function threadWithSession(caller: AppCaller, cookie: string): Promise<Conversation | null> {
+  const member = memberCaller(caller);
+  const thread = await threadFor(member.orgId, member.memberId);
+  if (thread?.eveSessionId) return thread;
+  try {
+    const client = new Client({ host: agentHost(), redirect: "error", headers: { cookie } });
+    const response = await client.fetch("/eve/v1/photon/thread", { method: "POST", signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) throw new Error(`the thread route answered ${response.status}`);
+    await response.body?.cancel().catch(() => undefined);
+  } catch (error) {
+    console.error("assistant: the member's thread did not start", { orgId: member.orgId, memberId: member.memberId, error });
+    return null;
+  }
+  return threadFor(member.orgId, member.memberId);
 }

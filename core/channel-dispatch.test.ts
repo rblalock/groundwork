@@ -19,6 +19,7 @@ import {
   type InboundMessage,
   type InboundReaction,
 } from "./channel-dispatch";
+import { startThread } from "./conversations";
 import { db } from "./db";
 import { setTransportForTests } from "./imessage";
 import { addPhone, createMember, recordInbound, removeMember, type Member } from "./members";
@@ -861,6 +862,20 @@ withTestDb("assistant replies are not posted to a phone that stopped mid-turn", 
   );
   assert.deepEqual(result, { posted: false });
   assert.equal(posts.length, 0);
+});
+
+withTestDb("a text joins the thread the member started on the web, instead of starting another session", async () => {
+  const { member } = await owner({ verified: true });
+  const { sends, deps } = recorder();
+  await handleInbound(text("before any thread"), deps);
+  assert.equal(sends[0][1].session, null);
+  const started = await startThread(TEST_ORG, member.id, "ses_web");
+  assert.equal(started.eveSessionId, "ses_web");
+  await handleInbound(text("hi from my phone"), deps);
+  assert.equal(sends[1][1].session, "ses_web");
+  // A second start (another tab, or a text that got there first) keeps the thread's session.
+  assert.equal((await startThread(TEST_ORG, member.id, "ses_other")).eveSessionId, "ses_web");
+  assert.deepEqual((await db().select().from(conversations)).map((c) => [c.id, c.kind, c.eveSessionId]), [[started.id, "thread", "ses_web"]]);
 });
 
 withTestDb("trackSession keeps the member's thread on their latest session, and only for a photon member", async () => {

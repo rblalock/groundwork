@@ -104,11 +104,11 @@ export function withUsageAdmission<T extends { routes: readonly unknown[] }>(cha
 /**
  * The eve channel's auth for signed-in members. Skips (null) a request with no app session, so the
  * walk moves on (`localDev()` in development, a 401 in production). Refuses a signed-in caller who is
- * not a member (a super admin's read-only view included), any brand-new session (the thread always
- * exists, since signing in needs a prior text, and jobs are opened by the assistant), clearing or
- * resetting a conversation, writing in an archived job, and a session that isn't one of the member's
- * conversations. An owner or admin may read (stream, nothing else) a crew member's job about a quote
- * or customer.
+ * not a member (a super admin's read-only view included), any brand-new session (a member's thread is
+ * started by their first text, or by Home on the Photon channel, `webThreadStarter`; jobs are opened by
+ * the assistant), clearing or resetting a conversation, writing in an archived job, and a session
+ * that isn't one of the member's conversations. An owner or admin may read (stream, nothing else) a
+ * crew member's job about a quote or customer.
  */
 export function appWebAuth(): AuthFn<Request> {
   return async (request) => {
@@ -167,6 +167,24 @@ export function appWebAuth(): AuthFn<Request> {
     }
     return auth;
   };
+}
+
+/**
+ * Who may start their thread from the web app (the Photon channel's thread route): a signed-in member
+ * of an open business, as the principal their web turns run as. Null for anyone else.
+ */
+export async function webThreadStarter(request: Request): Promise<{ orgId: string; memberId: string; auth: SessionAuthContext } | null> {
+  if (!request.headers.get("cookie")) return null;
+  const viewer = await getViewer(request.headers);
+  const caller = viewer && (await resolveAppCaller(viewer));
+  if (!viewer || !caller?.memberId || caller.suspended) return null;
+  const auth: SessionAuthContext = {
+    authenticator: APP_WEB,
+    principalId: viewer.userId,
+    principalType: "user",
+    attributes: { orgId: caller.orgId, memberId: caller.memberId, conversationKind: "thread" },
+  };
+  return { orgId: caller.orgId, memberId: caller.memberId, auth };
 }
 
 /** Names the customer page a new designer session is for (`designerWebAuth`). */
