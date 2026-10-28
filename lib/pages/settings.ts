@@ -30,6 +30,7 @@ export function settingsValues(profile: Profile): SettingsValues {
     taxRateBp: profile.taxRateBp,
     paymentTermsDays: profile.paymentTermsDays,
     depositPercent: profile.depositPercent,
+    customerLinePrices: profile.customerLinePrices,
     language: profile.language === "es" ? "es" : "en",
   };
 }
@@ -55,6 +56,7 @@ const FIELDS = [
   "taxRateBp",
   "paymentTermsDays",
   "depositPercent",
+  "customerLinePrices",
   "language",
 ] as const satisfies readonly (keyof ProfilePatch)[];
 

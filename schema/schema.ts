@@ -296,6 +296,11 @@ export const businessProfile = pgTable("business_profile", {
   paymentTermsDays: integer("payment_terms_days").notNull().default(0),
   /** The share of a quote's total asked as a deposit when the customer approves it online, 0 to 100. 0 asks none. */
   depositPercent: integer("deposit_percent").notNull().default(0),
+  /**
+   * Whether customers see each line's price. Off, the quote link, its PDF, and its priced photo show each
+   * line's scope (name and quantity) and only the totals; the business still sees every price.
+   */
+  customerLinePrices: boolean("customer_line_prices").notNull().default(true),
   /** The number the business's next invoice gets (INV-0001 is 1). Taken under the row's lock, so two can't share one. */
   nextInvoiceNumber: integer("next_invoice_number").notNull().default(1),
   /**

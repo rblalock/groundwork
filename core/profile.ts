@@ -23,6 +23,7 @@ export type ProfilePatch = Partial<
     | "taxRateBp"
     | "paymentTermsDays"
     | "depositPercent"
+    | "customerLinePrices"
     | "language"
   >
 >;

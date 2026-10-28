@@ -24,6 +24,7 @@ export type SettingsValues = {
   taxRateBp: number | null;
   paymentTermsDays: number;
   depositPercent: number;
+  customerLinePrices: boolean;
   language: Language;
 };
 
@@ -119,7 +120,7 @@ export function SettingsForm({
       if (minimumRaw !== "" && minimumChargeCents === null) errors.minimumCharge = s.errors.money;
       const taxRateBp = parsePercent(String(form.get("taxRate") ?? ""));
       if (taxRateBp === undefined) errors.taxRate = s.errors.percent;
-      body = { ...body, minimumChargeCents, taxRateBp };
+      body = { ...body, minimumChargeCents, taxRateBp, customerLinePrices: form.get("customerLinePrices") === "on" };
     }
     setFieldErrors(errors);
     if (Object.keys(errors).length) {
@@ -250,6 +251,19 @@ export function SettingsForm({
                 label={s.tax}
                 placeholder="7.25"
               />
+              <div className="grid gap-1.5 sm:col-span-2">
+                <label className="flex items-center gap-2 text-[13px] text-ink">
+                  <input
+                    className="size-4 accent-[var(--color-ink)]"
+                    defaultChecked={values.customerLinePrices}
+                    id="customerLinePrices"
+                    name="customerLinePrices"
+                    type="checkbox"
+                  />
+                  {s.linePrices}
+                </label>
+                <p className="text-[12px] text-ink-3 text-pretty">{s.linePricesHelp}</p>
+              </div>
             </div>
           </Card>
         ) : null}

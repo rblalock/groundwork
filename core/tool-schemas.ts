@@ -120,6 +120,10 @@ export const profilePatchSchema = z
       .max(100)
       .optional()
       .describe("The share of a quote's total a customer pays as a deposit when they approve it on its link (\"25% down\" is 25). 0 asks none."),
+    customerLinePrices: z
+      .boolean()
+      .optional()
+      .describe("Whether customers see each line's price on the quote link, its PDF, and the priced photo. false shows them each line's quantity and only the total."),
     language: languageSchema.optional(),
   })
   .refine((patch) => Object.values(patch).some((v) => v !== undefined), "Pass at least one fact.");

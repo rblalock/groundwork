@@ -1,0 +1,1 @@
+ALTER TABLE "business_profile" ADD COLUMN "customer_line_prices" boolean DEFAULT true NOT NULL;

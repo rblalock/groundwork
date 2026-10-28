@@ -5,7 +5,7 @@ import { pagePrivileged } from "@/lib/page-session";
 import { settingsFor, settingsValues } from "@/lib/pages/settings";
 import { stripeSettings } from "@/lib/stripe";
 
-/** Settings → Payments: invoice terms, the deposit, the minimum and tax, and card payments through Stripe (the owner's). */
+/** Settings → Payments: invoice terms, the deposit, the minimum and tax, whether customers see line prices, and card payments through Stripe (the owner's). */
 export default async function PaymentsSettingsPage() {
   const caller = await pagePrivileged();
   const [profile, stripe] = await Promise.all([settingsFor(caller), stripeSettings(caller.orgId)]);
