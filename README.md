@@ -64,6 +64,15 @@ one pack today.
   handling) to the assistant every turn. Unset or `none`, the assistant stays trade-agnostic; an
   unknown name is an error.
 
+## Line prices for customers
+
+Each business chooses whether its customers see line prices (Settings → Payments, or text the
+assistant "hide line prices from customers"). Off, the quote link, its PDF, and the priced photo show
+each line's name and quantity and only the totals; the business still sees every price. It's on by
+default, and a trade pack may set it with `profile.customerLinePrices`. The priced photo's
+quantity-only copy is drawn when the photo is made, so one made while prices were shown is left off the
+link until it's made again.
+
 ## Environment
 
 Everything is listed with comments in `.env.example`.

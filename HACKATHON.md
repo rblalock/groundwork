@@ -40,6 +40,8 @@ What a judge sees, in order. The demo business is LOX Landscape Co, its owner is
    with her name. Once approved, and when the business asks for a deposit (a percentage in
    Settings), she pays it by card through Stripe Checkout on the business's connected account. The
    owner gets a text that Maria approved, the total, the deposit asked, and "Want me to book the work?"
+   The business can choose to show customers each line's scope and a single total instead of line
+   prices, on the link, its PDF, and the priced photo.
 7. **Scheduling.** "Schedule it for next Tuesday at 8am." `book_visit` checks the crew's work
    hours, time off, and other visits, and replies with the booking and its end time. On a conflict
    the assistant offers two or three open times from `find_availability`.
