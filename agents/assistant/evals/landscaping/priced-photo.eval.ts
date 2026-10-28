@@ -27,7 +27,7 @@ export default defineEval<typeof config>({
     });
     const session = await t.session();
 
-    const turn = await session.sendFile("Maria at 412 Oak St: 3 yards of mulch in the beds, trim the hedge about 1 hour, and mow the front", PHOTO, "image/jpeg");
+    const turn = await session.sendFile("Maria at 412 Oak St: 3 yards of mulch in the beds, trim 150 cubic feet of hedge, and mow the front", PHOTO, "image/jpeg");
     // With a photo, the assistant may confirm what it sees before quoting; the owner says go.
     if (!turn.toolCalls.some((call) => call.name === "create_quote")) await session.send("yes, quote it");
     t.succeeded();

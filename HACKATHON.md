@@ -22,10 +22,10 @@ What a judge sees, in order. The demo business is LOX Landscape Co, its owner is
    their iMessage thread with the business's line (locally, `LOGIN_CODE_LOG=1` prints it to the
    server console). There is no web sign-up.
 2. **Text a messy job and a yard photo.** In the web chat: "Maria Alvarez at 412 Oak St, 3 yards of
-   mulch in the beds, trim the hedge about an hour, mow the front", with a photo of the front yard.
+   mulch in the beds, trim 150 cubic feet of hedge, mow the front", with a photo of the front yard.
    The assistant says in a line what it sees in the photo and sends one numbered message that
    confirms the quantities, or asks for a missing one in the trade's unit (cubic yards of mulch,
-   linear feet of edging, hours of hedge work).
+   linear feet of edging, cubic feet of hedge).
 3. **The quote.** After the owner confirms, the assistant calls `create_quote`. The calculator in
    `core/calculator.ts` prices every line from the saved price book and applies the saved rules: the
    rush rule for same-week work, the slope rule, a haul-away load when cleanup runs over 2 hours, and

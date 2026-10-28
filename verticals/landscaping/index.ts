@@ -12,7 +12,7 @@ export const landscaping: VerticalPack = {
     { name: "Lawn mowing", unitKind: "visit", unitLabel: "visit", priceCents: 6500, group: "Maintenance", photoPrompt: "lawn" },
     { name: "Mulch installed", unitKind: "each", unitLabel: "cubic yard", priceCents: 9500, group: "Beds", photoPrompt: "mulch bed" },
     { name: "Bed edging", unitKind: "linear_ft", unitLabel: "linear foot", priceCents: 250, group: "Beds", photoPrompt: "mulch bed" },
-    { name: "Hedge trimming", unitKind: "hour", unitLabel: "hour", priceCents: 7500, group: "Trimming", photoPrompt: "hedge" },
+    { name: "Hedge trimming", unitKind: "other", unitLabel: "cubic foot", priceCents: 250, group: "Trimming", photoPrompt: "hedge" },
     { name: "Palm trimming", unitKind: "each", unitLabel: "palm", priceCents: 4500, group: "Trimming", photoPrompt: "palm tree" },
     {
       name: "Shrub planting",
@@ -68,6 +68,7 @@ export const landscaping: VerticalPack = {
       body: [
         "Mulch goes down 3 inches deep: about 1 cubic yard per 100 sq ft of bed.",
         "Edging is measured in linear feet along the bed line.",
+        "Hedges are measured in cubic feet: length times height times depth of the hedge. Customers can argue with an hour, not with a measurement.",
         "Sod is priced by the square foot the member gives; it comes on 450 sq ft pallets, so mention the pallet count in the confirm but quote the square feet as stated.",
         "Ask for a front and a back photo before quoting.",
         "30% deposit to book. Quotes are good for 14 days.",

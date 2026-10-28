@@ -41,7 +41,7 @@ test("draws the regions and a legend under the photo; two lines on one bed share
   const regions = [
     region(0, "Mulch installed", 3, "cubic yard", 28500, [bed]),
     region(1, "Bed edging", 40, "linear foot", 10000, [bed]),
-    region(2, "Hedge trimming", 1, "hour", 7500, [[0, 494, 444, 645]]),
+    region(2, "Hedge trimming", 150, "cubic foot", 37500, [[0, 494, 444, 645]]),
     region(3, "Sprinkler head replacement", 2, "head", 7000, []),
   ];
   const { png, width, height } = await renderOverlay({ bytes: new Uint8Array(YARD), width: 1024, height: 1024 }, regions, new Map(), 53000, "en");
@@ -141,7 +141,7 @@ live("priced photo: the yard fixture with mulch, edging, hedge and mowing (live)
     owner,
     [
       { itemId: items.get("Mulch installed")!.id, quantity: 3 },
-      { itemId: items.get("Hedge trimming")!.id, quantity: 1 },
+      { itemId: items.get("Hedge trimming")!.id, quantity: 150 },
       { itemId: items.get("Lawn mowing")!.id, quantity: 1 },
       { itemId: items.get("Bed edging")!.id, quantity: 40 },
     ],
