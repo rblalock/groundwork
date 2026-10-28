@@ -651,7 +651,7 @@ export async function renderInvoicePdf(doc: InvoicePdfDocument): Promise<Uint8Ar
     copy,
     language: doc.language,
     watermark: watermark ? safeText(watermark, bold) : null,
-    linePrices: true,
+    linePrices: doc.profile.customerLinePrices,
     pages: [],
     ...(await brandingOf(pdf, doc.profile, doc.logo)),
   };
@@ -664,11 +664,15 @@ export async function renderInvoicePdf(doc: InvoicePdfDocument): Promise<Uint8Ar
     drawRow(ctx, {
       service: line.name,
       qty: `${formatQuantity(line.quantity, doc.language)}${line.unitLabel ? ` ${clean(ctx, pluralUnit(line.quantity, line.unitLabel, doc.language))}` : ""}`,
-      unit: line.unitCents === null ? "-" : formatCents(line.unitCents, doc.language),
-      amount: line.totalCents === null ? "-" : formatCents(line.totalCents, doc.language),
+      ...(ctx.linePrices
+        ? {
+            unit: line.unitCents === null ? "-" : formatCents(line.unitCents, doc.language),
+            amount: line.totalCents === null ? "-" : formatCents(line.totalCents, doc.language),
+          }
+        : {}),
     });
   }
-  for (const rule of doc.ruleLines) drawRow(ctx, { service: rule.label, amount: formatCents(rule.cents, doc.language), muted: true });
+  for (const rule of doc.ruleLines) drawRow(ctx, { service: rule.label, ...(ctx.linePrices ? { amount: formatCents(rule.cents, doc.language) } : {}), muted: true });
   drawInvoiceTotals(ctx, doc);
 
   const balance = doc.totalCents - doc.amountPaidCents;

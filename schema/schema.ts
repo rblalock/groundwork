@@ -298,7 +298,7 @@ export const businessProfile = pgTable("business_profile", {
   depositPercent: integer("deposit_percent").notNull().default(0),
   /**
    * Whether customers see each line's price. Off, the quote link, its PDF, and its priced photo show each
-   * line's scope (name and quantity) and only the totals; the business still sees every price.
+   * line's scope (name and quantity) and only the totals, and so does its invoice PDF; the business still sees every price.
    */
   customerLinePrices: boolean("customer_line_prices").notNull().default(true),
   /** The number the business's next invoice gets (INV-0001 is 1). Taken under the row's lock, so two can't share one. */
@@ -748,7 +748,7 @@ export const pricedPhotos = pgTable(
     url: text("url").notNull(),
     /**
      * The copy customers see when the business hides line prices: each region labeled with its quantity
-     * only. Drawn beside `url` from the same masks; null when the photo was made with prices shown.
+     * only. Drawn beside `url` from the same masks; null only on photos made before it was drawn.
      */
     customerUrl: text("customer_url"),
     width: integer("width").notNull(),

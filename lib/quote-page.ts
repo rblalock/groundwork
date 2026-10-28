@@ -92,7 +92,7 @@ export async function quoteLinkPage(token: string, deps?: { now?: Date }): Promi
   // Once it's invoiced, the invoice's pay link takes the money: the deposit isn't asked here anymore.
   const invoiced = approved && asked ? Boolean(await invoiceForQuote(quote.orgId, quote.id)) : false;
   // Only one drawn from this revision: an older one's labels would show old prices. With line prices
-  // hidden, only one that has its quantity-only copy (one made while prices were shown has none).
+  // hidden, only one that has its quantity-only copy (older photos may have none).
   const priced =
     (await pricedPhotosFor(quote.orgId, quote.id)).find(
       (p) => p.revisionNumber === revision.number && (profile.customerLinePrices || p.customerUrl !== null),

@@ -2,8 +2,8 @@
 // quantity and price, and a legend of every line under it. Nothing here measures anything: quantities
 // and prices come from the quote. One per quote per source photo; making it again replaces it, except
 // within `RERENDER_MS` of the last render of the same revision, which comes back instead. When the
-// business hides line prices from customers, a second copy labeled with quantities only is drawn from the
-// same masks for the quote's link; the masks aren't kept, so it can't be drawn later without SAM.
+// business hides line prices from customers, the quote's link shows a second copy labeled with quantities
+// only, drawn beside the first from the same masks (which aren't kept, so it can't be drawn later without SAM).
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,7 +20,6 @@ import type { Caller } from "./members";
 import { NOTO_SANS_BOLD_BASE64 } from "./fonts/noto-sans-bold";
 import { formatCents } from "./money";
 import { listItems } from "./pricebook";
-import { getProfile } from "./profile";
 import { selectRegions, type PhotoLine } from "./priced-photo-select";
 import { getQuote } from "./quotes";
 import { SAM_MODEL, segmentMany, type SamObject } from "./sam";
@@ -94,14 +93,13 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
   const paths = maskPaths(regions, found);
   const png = await renderOverlay(photo, regions, paths, quote.totalCents, quote.customerLanguage);
   const url = await storeInboundAttachment(`priced-${quote.quoteId}.png`, "image/png", png.png);
-  const { customerLinePrices } = await getProfile(orgId);
-  const customerUrl = customerLinePrices
-    ? null
-    : await storeInboundAttachment(
-        `priced-${quote.quoteId}-customer.png`,
-        "image/png",
-        (await renderOverlay(photo, regions, paths, quote.totalCents, quote.customerLanguage, { linePrices: false })).png,
-      );
+  // The quantity-only copy is drawn every time, while the masks are in memory, so the business can hide
+  // line prices later and the link still has a photo to show.
+  const customerUrl = await storeInboundAttachment(
+    `priced-${quote.quoteId}-customer.png`,
+    "image/png",
+    (await renderOverlay(photo, regions, paths, quote.totalCents, quote.customerLanguage, { linePrices: false })).png,
+  );
 
   const values = {
     revisionNumber: quote.revisionNumber,

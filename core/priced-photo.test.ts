@@ -112,8 +112,9 @@ withTestDb("priced photo: making it again replaces the one for that photo", asyn
   const first = await createPricedPhoto(owner, { quoteId: quote.quoteId });
   assert.ok(first.pricedPhotoId);
   assert.deepEqual([first.located, first.notLocated], [0, ["Cleanup labor"]]);
-  assert.equal((await pricedPhotosFor(TEST_ORG, quote.quoteId))[0].customerUrl, null, "prices shown: no quantity-only copy");
-  // Past the re-render window, so this one renders again; with line prices hidden, a quantity-only copy beside it.
+  const [shown] = await pricedPhotosFor(TEST_ORG, quote.quoteId);
+  assert.ok(shown.customerUrl && shown.customerUrl !== shown.url, "a quantity-only copy beside the priced one");
+  // Past the re-render window, so this one renders again, with line prices hidden now.
   await db().update(pricedPhotos).set({ createdAt: new Date(Date.now() - RERENDER_MS - 1) });
   await updateProfile(TEST_ORG, { customerLinePrices: false }, owner.memberId);
   const again = await createPricedPhoto(owner, { quoteId: quote.quoteId });
