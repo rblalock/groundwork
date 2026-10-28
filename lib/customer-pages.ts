@@ -65,19 +65,21 @@ export function quoteSlots(page: QuoteShown, target: PageTarget): SlotValues {
   const q = pageCopyFor(language).quoteLink;
   const p = pageCopyFor(language).pay;
 
+  // With line prices hidden, a line is its name and quantity, and the Amount column goes.
+  const amountCell = (cents: number | null) => (quote.linePrices ? `<td class="gw-num">${e(cents === null ? "—" : money(cents, language))}</td>` : "");
   const lines = [
     ...quote.lines.map((line) => {
       const detail = `${quantity(line.quantity)}${line.unitLabel ? ` ${pluralUnit(line.quantity, line.unitLabel, language)}` : ""}${line.unitCents !== null ? ` × ${money(line.unitCents, language)}` : ""}`;
-      return `<tr><td><span class="gw-line-name">${e(line.name)}</span><span class="gw-line-detail">${e(detail)}</span></td><td class="gw-num">${e(line.totalCents === null ? "—" : money(line.totalCents, language))}</td></tr>`;
+      return `<tr><td><span class="gw-line-name">${e(line.name)}</span><span class="gw-line-detail">${e(detail)}</span></td>${amountCell(line.totalCents)}</tr>`;
     }),
-    ...quote.ruleLines.map((rule) => `<tr class="gw-line-rule"><td><span class="gw-line-name">${e(rule.label)}</span></td><td class="gw-num">${e(money(rule.cents, language))}</td></tr>`),
+    ...quote.ruleLines.map((rule) => `<tr class="gw-line-rule"><td><span class="gw-line-name">${e(rule.label)}</span></td>${amountCell(rule.cents)}</tr>`),
   ].join("");
   const rows: Array<{ label: string; value: string; total?: boolean }> = [{ label: q.subtotal, value: money(quote.subtotalCents, language) }];
   if (quote.minimumAppliedCents !== 0) rows.push({ label: q.minimum, value: money(quote.minimumAppliedCents, language) });
   if (quote.adjustmentCents !== 0) rows.push({ label: quote.override ? q.override : q.discount, value: money(quote.adjustmentCents, language) });
   if (quote.taxRateBp !== null) rows.push({ label: q.tax(rateText(quote.taxRateBp, language)), value: money(quote.taxCents, language) });
   rows.push({ label: q.total, value: money(quote.totalCents, language), total: true });
-  const items = `<div class="gw-items"><table class="gw-lines"><thead><tr><th>${e(q.service)}</th><th class="gw-num">${e(q.amount)}</th></tr></thead><tbody>${lines}</tbody></table>${totalsList(rows)}</div>`;
+  const items = `<div class="gw-items"><table class="gw-lines"><thead><tr><th>${e(q.service)}</th>${quote.linePrices ? `<th class="gw-num">${e(q.amount)}</th>` : ""}</tr></thead><tbody>${lines}</tbody></table>${totalsList(rows)}</div>`;
 
   const parts: string[] = [];
   if (page.kind === "approved") {

@@ -137,9 +137,10 @@ async function recentToken(orgId: string, page: CustomerPageKind): Promise<strin
 const SAMPLE_TOKEN = "sample";
 
 /** Obviously made-up documents, in the business's own name, for a preview. */
-function sampleQuote(business: QuoteShown["business"], orgId: string, state: string, language: Language): QuoteShown {
+function sampleQuote(business: QuoteShown["business"], orgId: string, state: string, language: Language, linePrices: boolean): QuoteShown {
   const kind = state === "approved" || state === "expired" ? state : "open";
   const es = language === "es";
+  const price = (cents: number) => (linePrices ? cents : null);
   return {
     kind,
     orgId,
@@ -150,10 +151,11 @@ function sampleQuote(business: QuoteShown["business"], orgId: string, state: str
       revisionId: "sample",
       customerName: es ? "Cliente de muestra" : "Sample Customer",
       address: "123 Example St",
+      linePrices,
       lines: [
-        { name: es ? "Visita de servicio" : "Service visit", quantity: 1, unitLabel: null, unitCents: 9500, totalCents: 9500 },
-        { name: es ? "Mano de obra" : "Labor", quantity: 3, unitLabel: es ? "h" : "hr", unitCents: 8500, totalCents: 25500 },
-        { name: es ? "Materiales" : "Materials", quantity: 1, unitLabel: null, unitCents: 14200, totalCents: 14200 },
+        { name: es ? "Visita de servicio" : "Service visit", quantity: 1, unitLabel: null, unitCents: price(9500), totalCents: price(9500) },
+        { name: es ? "Mano de obra" : "Labor", quantity: 3, unitLabel: es ? "h" : "hr", unitCents: price(8500), totalCents: price(25500) },
+        { name: es ? "Materiales" : "Materials", quantity: 1, unitLabel: null, unitCents: price(14200), totalCents: price(14200) },
       ],
       ruleLines: [],
       subtotalCents: 49200,
@@ -210,7 +212,7 @@ async function previewValues(orgId: string, page: CustomerPageKind, input: Previ
   const profile = await getProfile(orgId);
   const business = pageBusiness(profile, null);
   return page === "quote"
-    ? quoteSlots(sampleQuote(business, orgId, input.state ?? "open", input.language), target)
+    ? quoteSlots(sampleQuote(business, orgId, input.state ?? "open", input.language, profile.customerLinePrices), target)
     : invoiceSlots(sampleInvoice(business, orgId, input.state ?? "payable", input.language), target);
 }
 

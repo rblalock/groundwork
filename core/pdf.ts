@@ -1,7 +1,8 @@
 // Renders the customer-facing quote PDF. Standard Helvetica (WinAnsi) only: every piece of
 // user-provided text goes through `safeText` so an emoji or odd symbol is replaced, never thrown.
 // A business's branding (its logo, and from its profile an accent colour, closing lines, and which
-// contact facts print) changes the look; without any, the PDF is exactly the plain one.
+// contact facts print) changes the look; without any, the PDF is exactly the plain one. A business that
+// hides line prices from customers gets a quote whose table is each line's scope, with only the totals priced.
 import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import type { Adjustment, LineResult, RuleLine } from "./calculator";
 import { formatCents } from "./money";
@@ -101,6 +102,8 @@ interface Ctx {
   copy: PdfCopy;
   language: Language;
   watermark: string | null;
+  /** False when the table leaves out the Unit and Amount columns: each line is its name and quantity. */
+  linePrices: boolean;
   pages: PDFPage[];
   /** The business's accent, or null for the plain look. */
   accent: Record<keyof AccentColors, ReturnType<typeof rgb>> | null;
@@ -232,6 +235,11 @@ function tableHeader(ctx: Ctx): void {
   const size = 9;
   const color = ctx.accent?.onFill ?? MUTED;
   drawText(ctx, clean(ctx, ctx.copy.service, true), LEFT + 6, y, size, { strong: true, color });
+  if (!ctx.linePrices) {
+    drawText(ctx, clean(ctx, ctx.copy.qty, true), AMOUNT_RIGHT - 6, y, size, { strong: true, color, align: "right" });
+    ctx.y = top - 28;
+    return;
+  }
   drawText(ctx, clean(ctx, ctx.copy.qty, true), QTY_RIGHT, y, size, { strong: true, color, align: "right" });
   drawText(ctx, clean(ctx, ctx.copy.unit, true), UNIT_RIGHT, y, size, { strong: true, color, align: "right" });
   drawText(ctx, clean(ctx, ctx.copy.amount, true), AMOUNT_RIGHT - 6, y, size, { strong: true, color, align: "right" });
@@ -250,7 +258,9 @@ function drawRow(
   const top = ctx.y;
   lines.forEach((text, i) => drawText(ctx, text, LEFT + 6, top - 11 - i * LEADING, BODY, { color }));
   const y = top - 11;
-  if (row.qty) drawText(ctx, fit(ctx.regular, row.qty, BODY, QTY_RIGHT - (LEFT + SERVICE_WIDTH + 12)), QTY_RIGHT, y, BODY, { align: "right" });
+  // Without prices, the quantity takes the right-hand column.
+  const qtyRight = ctx.linePrices ? QTY_RIGHT : AMOUNT_RIGHT - 6;
+  if (row.qty) drawText(ctx, fit(ctx.regular, row.qty, BODY, qtyRight - (LEFT + SERVICE_WIDTH + 12)), qtyRight, y, BODY, { align: "right" });
   if (row.unit) drawText(ctx, fit(ctx.regular, row.unit, BODY, UNIT_RIGHT - QTY_RIGHT - 6), UNIT_RIGHT, y, BODY, { align: "right" });
   if (row.amount) drawText(ctx, row.amount, AMOUNT_RIGHT - 6, y, BODY, { align: "right", color });
   ctx.y = top - height;
@@ -407,6 +417,7 @@ export async function renderQuotePdf(doc: QuotePdfDocument): Promise<Uint8Array>
     copy,
     language: doc.language,
     watermark: isDraft ? safeText(copy.draftWatermark, bold) : null,
+    linePrices: doc.profile.customerLinePrices,
     pages: [],
     ...(await brandingOf(pdf, doc.profile, doc.logo)),
   };
@@ -418,16 +429,19 @@ export async function renderQuotePdf(doc: QuotePdfDocument): Promise<Uint8Array>
   tableHeader(ctx);
   const rev = doc.revision;
   for (const line of rev.lines) {
-    const unitPrice = line.unitCents === null ? "-" : formatCents(line.unitCents, doc.language);
     drawRow(ctx, {
       service: line.name,
       qty: `${formatQuantity(line.quantity, doc.language)}${line.unitLabel ? ` ${clean(ctx, pluralUnit(line.quantity, line.unitLabel, doc.language))}` : ""}`,
-      unit: unitPrice,
-      amount: line.totalCents === null ? "-" : formatCents(line.totalCents, doc.language),
+      ...(ctx.linePrices
+        ? {
+            unit: line.unitCents === null ? "-" : formatCents(line.unitCents, doc.language),
+            amount: line.totalCents === null ? "-" : formatCents(line.totalCents, doc.language),
+          }
+        : {}),
     });
   }
   for (const rule of rev.ruleLines) {
-    drawRow(ctx, { service: rule.label, amount: formatCents(rule.cents, doc.language), muted: true });
+    drawRow(ctx, { service: rule.label, ...(ctx.linePrices ? { amount: formatCents(rule.cents, doc.language) } : {}), muted: true });
   }
 
   drawTotals(ctx, doc);
@@ -637,6 +651,7 @@ export async function renderInvoicePdf(doc: InvoicePdfDocument): Promise<Uint8Ar
     copy,
     language: doc.language,
     watermark: watermark ? safeText(watermark, bold) : null,
+    linePrices: true,
     pages: [],
     ...(await brandingOf(pdf, doc.profile, doc.logo)),
   };
@@ -749,6 +764,7 @@ export async function renderReceiptPdf(doc: ReceiptPdfDocument): Promise<Uint8Ar
     copy,
     language: doc.language,
     watermark: null,
+    linePrices: true,
     pages: [],
     ...(await brandingOf(pdf, doc.profile, doc.logo)),
   };

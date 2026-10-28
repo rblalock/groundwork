@@ -1,6 +1,7 @@
 // The customer's quote link (`app/q/`), as the page shows it: the business, the quote's priced lines and
 // totals, and where it stands (open to approve, approved with its deposit, or not available). A draft and
-// a closed quote show nothing of their lines: the token alone gets no more than the PDF would.
+// a closed quote show nothing of their lines: the token alone gets no more than the PDF would. A business
+// that hides line prices from customers sends each line's scope and the totals, never a line's price.
 import { and, eq } from "drizzle-orm";
 import { quoteRevisions } from "../schema/schema";
 import { logoVersionFor, pageBusiness, type PageBusiness } from "../core/branding";
@@ -35,8 +36,10 @@ export type QuoteLinkPage =
         revisionId: string;
         customerName: string | null;
         address: string | null;
+        /** False when the business hides line prices: every line's and rule's price is null, and only the totals show. */
+        linePrices: boolean;
         lines: QuoteLinkLine[];
-        ruleLines: { label: string; cents: number }[];
+        ruleLines: { label: string; cents: number | null }[];
         subtotalCents: number;
         minimumAppliedCents: number;
         adjustmentCents: number;
@@ -100,8 +103,15 @@ export async function quoteLinkPage(token: string, deps?: { now?: Date }): Promi
       revisionId: revision.id,
       customerName: customer?.name ?? null,
       address: property?.address ?? null,
-      lines: revision.lines.map((l) => ({ name: l.name, quantity: l.quantity, unitLabel: l.unitLabel || null, unitCents: l.unitCents, totalCents: l.totalCents })),
-      ruleLines: revision.ruleLines.map((r) => ({ label: r.label, cents: r.cents })),
+      linePrices: profile.customerLinePrices,
+      lines: revision.lines.map((l) => ({
+        name: l.name,
+        quantity: l.quantity,
+        unitLabel: l.unitLabel || null,
+        unitCents: profile.customerLinePrices ? l.unitCents : null,
+        totalCents: profile.customerLinePrices ? l.totalCents : null,
+      })),
+      ruleLines: revision.ruleLines.map((r) => ({ label: r.label, cents: profile.customerLinePrices ? r.cents : null })),
       subtotalCents: revision.subtotalCents,
       minimumAppliedCents: revision.minimumAppliedCents,
       adjustmentCents: revision.adjustmentCents,

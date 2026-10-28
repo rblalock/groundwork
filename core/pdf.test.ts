@@ -28,6 +28,7 @@ const profile = {
   followUpDays: 3,
   minimumChargeCents: null,
   taxRateBp: null,
+  customerLinePrices: true,
   language: "en",
   version: 1,
   pricebookVersion: 0,
@@ -274,6 +275,21 @@ test("with no branding saved, a quote PDF is exactly the plain one", async (t) =
   assert.ok(text.includes(hexOf(pdfCopy("en").thanks)));
   assert.ok(text.includes(hexOf("555-0100")));
   assert.doesNotMatch(text, /\/IMAGE-\d+ DO/);
+});
+
+test("with line prices hidden, a quote PDF prints each line's quantity and only the totals", async () => {
+  const d = doc({ profile: { ...profile, customerLinePrices: false } });
+  d.revision = { ...d.revision, ruleLines: [{ ruleId: "rule_1", label: "Slope surcharge", cents: 4_000 }], subtotalCents: 54_000, totalCents: 54_000 };
+  const text = contentOf(await render(d));
+  assert.ok(text.includes(hexOf("Widget service 1")));
+  assert.ok(text.includes(hexOf("2 each")), "the quantity");
+  assert.ok(text.includes(hexOf("Slope surcharge")));
+  assert.ok(text.includes(hexOf("$540.00")), "the total");
+  for (const price of ["$125.00", "$250.00", "$40.00"]) assert.ok(!text.includes(hexOf(price)), `no ${price}`);
+  for (const column of [pdfCopy("en").unit, pdfCopy("en").amount]) assert.ok(!text.includes(hexOf(column)), `no ${column} column`);
+  const shown = contentOf(await render({ ...d, profile }));
+  for (const price of ["$125.00", "$250.00", "$40.00"]) assert.ok(shown.includes(hexOf(price)), `${price} with prices shown`);
+  assert.ok(shown.includes(hexOf(pdfCopy("en").amount)), "the Amount column with prices shown");
 });
 
 test("a quote PDF prints the logo, the accent, the closing note, and only the facts chosen", async () => {

@@ -34,7 +34,10 @@ export function QuoteLinkHeader({ page, token }: { page: Shown; token: string })
   );
 }
 
-/** Who it's for, the priced photo when there is one, each priced line, the totals, how long it's good for, and the PDF. */
+/**
+ * Who it's for, the priced photo when there is one, each line (its price too, unless the business hides
+ * line prices), the totals, how long it's good for, and the PDF.
+ */
 export function QuoteLinkDetails({ page, token }: { page: Full; token: string }) {
   const { quote, language } = page;
   const q = pageCopyFor(language).quoteLink;
@@ -73,13 +76,13 @@ export function QuoteLinkDetails({ page, token }: { page: Full; token: string })
                 {line.unitCents !== null ? ` × ${money(line.unitCents, language)}` : ""}
               </p>
             </div>
-            <span className="text-ink tabular-nums">{line.totalCents === null ? "—" : money(line.totalCents, language)}</span>
+            {quote.linePrices ? <span className="text-ink tabular-nums">{line.totalCents === null ? "—" : money(line.totalCents, language)}</span> : null}
           </li>
         ))}
         {quote.ruleLines.map((rule, i) => (
           <li className="flex items-start gap-3 px-4 py-2.5 text-[13px]" key={`r${i}`}>
             <p className="min-w-0 flex-1 text-ink-2 text-pretty">{rule.label}</p>
-            <span className="text-ink-2 tabular-nums">{money(rule.cents, language)}</span>
+            {rule.cents !== null ? <span className="text-ink-2 tabular-nums">{money(rule.cents, language)}</span> : null}
           </li>
         ))}
       </ul>
