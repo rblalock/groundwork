@@ -1,7 +1,9 @@
 // The priced photo: a quote's photo with each quoted thing outlined by SAM and labeled with its line's
 // quantity and price, and a legend of every line under it. Nothing here measures anything: quantities
 // and prices come from the quote. One per quote per source photo; making it again replaces it, except
-// within `RERENDER_MS` of the last render of the same revision, which comes back instead.
+// within `RERENDER_MS` of the last render of the same revision, which comes back instead. When the
+// business hides line prices from customers, a second copy labeled with quantities only is drawn from the
+// same masks for the quote's link; the masks aren't kept, so it can't be drawn later without SAM.
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,6 +20,7 @@ import type { Caller } from "./members";
 import { NOTO_SANS_BOLD_BASE64 } from "./fonts/noto-sans-bold";
 import { formatCents } from "./money";
 import { listItems } from "./pricebook";
+import { getProfile } from "./profile";
 import { selectRegions, type PhotoLine } from "./priced-photo-select";
 import { getQuote } from "./quotes";
 import { SAM_MODEL, segmentMany, type SamObject } from "./sam";
@@ -88,14 +91,24 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
       : new Map<string, SamObject[]>();
   await recordSamCalls(caller, quote.quoteId, calls);
   const regions = selectRegions(lines, found, photo);
-  const png = await renderOverlay(photo, regions, maskPaths(regions, found), quote.totalCents, quote.customerLanguage);
+  const paths = maskPaths(regions, found);
+  const png = await renderOverlay(photo, regions, paths, quote.totalCents, quote.customerLanguage);
   const url = await storeInboundAttachment(`priced-${quote.quoteId}.png`, "image/png", png.png);
+  const { customerLinePrices } = await getProfile(orgId);
+  const customerUrl = customerLinePrices
+    ? null
+    : await storeInboundAttachment(
+        `priced-${quote.quoteId}-customer.png`,
+        "image/png",
+        (await renderOverlay(photo, regions, paths, quote.totalCents, quote.customerLanguage, { linePrices: false })).png,
+      );
 
   const values = {
     revisionNumber: quote.revisionNumber,
     sourceKind: source.kind,
     sourceId: source.id,
     url,
+    customerUrl,
     width: png.width,
     height: png.height,
     regions,
@@ -107,7 +120,9 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
     .values({ id: newId("ppho"), orgId, quoteId: quote.quoteId, sourceUrl: source.url, ...values })
     .onConflictDoUpdate({ target: [pricedPhotos.orgId, pricedPhotos.quoteId, pricedPhotos.sourceUrl], set: values })
     .returning({ id: pricedPhotos.id });
-  if (before && before.url !== url) await deleteBlob(before.url).catch((error) => console.error("priced photo: deleting the old render failed", error));
+  for (const old of [before?.url, before?.customerUrl]) {
+    if (old && old !== url && old !== customerUrl) await deleteBlob(old).catch((error) => console.error("priced photo: deleting the old render failed", error));
+  }
   return resultOf(row.id, url, regions);
 }
 
@@ -278,10 +293,10 @@ async function textImage(text: string, px: number, maxWidth: number, color = "#f
   return { input: data, width: info.width, height: info.height };
 }
 
-/** "Mulch installed · 3 cubic yards · $285.00", as the customer page writes a line. */
-function lineLabel(region: PricedRegion, language: Language): string {
+/** "Mulch installed · 3 cubic yards · $285.00", as the customer page writes a line; without its price when `linePrices` is false. */
+export function lineLabel(region: PricedRegion, language: Language, linePrices = true): string {
   const amount = `${quantityText(region.quantity)}${region.unitLabel ? ` ${pluralUnit(region.quantity, region.unitLabel, language)}` : ""}`;
-  return [region.name, amount, ...(region.totalCents === null ? [] : [formatCents(region.totalCents, language)])].join(" · ");
+  return [region.name, amount, ...(region.totalCents === null || !linePrices ? [] : [formatCents(region.totalCents, language)])].join(" · ");
 }
 
 type Rect = { x: number; y: number; width: number; height: number };
@@ -292,7 +307,7 @@ const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.widt
  * outlined in the line's color (dashed for a second line on the same object); each line is labeled
  * once, on its largest object, and lines that kept the same object share one label of stacked rows. `svgPaths` holds each region's mask outlines
  * (keyed by line index, in the order of its objects); a missing one is drawn as its box. Labels that
- * would overlap move down. Pure given its inputs.
+ * would overlap move down. With `linePrices` false, labels carry quantities only; the total stays. Pure given its inputs.
  */
 export async function renderOverlay(
   image: { bytes: Uint8Array; width: number; height: number },
@@ -300,7 +315,9 @@ export async function renderOverlay(
   svgPaths: Map<string, string[]>,
   totalCents: number,
   language: Language,
+  options: { linePrices?: boolean } = {},
 ): Promise<{ png: Uint8Array; width: number; height: number }> {
+  const label = (region: PricedRegion) => lineLabel(region, language, options.linePrices ?? true);
   const { width, height } = image;
   const copy = COPY[language];
   // 20 px on a 1024 px photo, kept in proportion for larger and smaller ones.
@@ -360,7 +377,7 @@ export async function renderOverlay(
   const rowSpan = (text: Text) => rowHeight + (Math.max(1, Math.round(text.height / lineHeight)) - 1) * lineHeight;
   const rowTops = (spans: number[]) => spans.map((_, i) => spans.slice(0, i).reduce((sum, span) => sum + span, 0));
   for (const group of [...groups.values()].sort((a, b) => a.box.top - b.box.top || b.area - a.area)) {
-    const rows = await Promise.all(group.regions.map((region) => textImage(lineLabel(region, language), px, maxText)));
+    const rows = await Promise.all(group.regions.map((region) => textImage(label(region), px, maxText)));
     const spans = rows.map(rowSpan);
     const tops = rowTops(spans);
     const pill = {
@@ -392,10 +409,10 @@ export async function renderOverlay(
   const textLeft = pad * 2 + swatch + pad;
   const legendRows = await Promise.all(
     regions.map(async (region) => {
-      const label = await textImage(lineLabel(region, language), px, maxText);
+      const text = await textImage(label(region), px, maxText);
       const note = region.located ? null : await textImage(`(${copy.notLocated})`, px, maxText, "#a1a1aa");
-      const beside = !note || textLeft + label.width + pad + note.width <= width - pad;
-      return { region, label, note, beside, span: rowSpan(label) + (beside || !note ? 0 : rowSpan(note) - (rowHeight - lineHeight)) };
+      const beside = !note || textLeft + text.width + pad + note.width <= width - pad;
+      return { region, label: text, note, beside, span: rowSpan(text) + (beside || !note ? 0 : rowSpan(note) - (rowHeight - lineHeight)) };
     }),
   );
   const legendTops = rowTops(legendRows.map((row) => row.span));

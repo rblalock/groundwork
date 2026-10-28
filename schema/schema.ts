@@ -746,6 +746,11 @@ export const pricedPhotos = pgTable(
     sourceId: text("source_id").notNull(),
     sourceUrl: text("source_url").notNull(),
     url: text("url").notNull(),
+    /**
+     * The copy customers see when the business hides line prices: each region labeled with its quantity
+     * only. Drawn beside `url` from the same masks; null when the photo was made with prices shown.
+     */
+    customerUrl: text("customer_url"),
     width: integer("width").notNull(),
     height: integer("height").notNull(),
     regions: jsonb("regions").$type<PricedRegion[]>().notNull(),

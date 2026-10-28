@@ -91,8 +91,12 @@ export async function quoteLinkPage(token: string, deps?: { now?: Date }): Promi
   const payable = asked ? await takesCardPayments(quote.orgId) : false;
   // Once it's invoiced, the invoice's pay link takes the money: the deposit isn't asked here anymore.
   const invoiced = approved && asked ? Boolean(await invoiceForQuote(quote.orgId, quote.id)) : false;
-  // Only one drawn from this revision: an older one's labels would show old prices.
-  const priced = (await pricedPhotosFor(quote.orgId, quote.id)).find((p) => p.revisionNumber === revision.number) ?? null;
+  // Only one drawn from this revision: an older one's labels would show old prices. With line prices
+  // hidden, only one that has its quantity-only copy (one made while prices were shown has none).
+  const priced =
+    (await pricedPhotosFor(quote.orgId, quote.id)).find(
+      (p) => p.revisionNumber === revision.number && (profile.customerLinePrices || p.customerUrl !== null),
+    ) ?? null;
   return {
     kind: approved ? "approved" : isExpired(revision.validUntil, profile.timeZone, now) ? "expired" : "open",
     orgId: quote.orgId,
@@ -132,11 +136,13 @@ export async function quoteLinkPage(token: string, deps?: { now?: Date }): Promi
 
 /**
  * The priced photo the quote's link shows, as PNG bytes: only the one its page shows (this quote's, of its
- * current revision, while the page shows the quote at all). Null for anything else, another quote's included.
+ * current revision, while the page shows the quote at all), and its quantity-only copy when the business
+ * hides line prices. Null for anything else, another quote's included.
  */
 export async function quoteLinkPricedPhoto(token: string, pricedId: string): Promise<Uint8Array | null> {
   const [quote, page] = await Promise.all([quoteByCustomerToken(token), quoteLinkPage(token)]);
   if (!quote || !("quote" in page) || page.quote.pricedPhoto?.id !== pricedId) return null;
   const photo = (await pricedPhotosFor(quote.orgId, quote.id)).find((p) => p.id === pricedId);
-  return photo ? readStoredFile(photo.url) : null;
+  const url = page.quote.linePrices ? photo?.url : photo?.customerUrl;
+  return url ? readStoredFile(url) : null;
 }

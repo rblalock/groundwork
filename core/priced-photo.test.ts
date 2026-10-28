@@ -18,7 +18,8 @@ import { z } from "zod";
 import { memberAuth } from "./channel-dispatch";
 import { addPhone, createMember, findMemberById, type Caller } from "./members";
 import { saveItems } from "./pricebook";
-import { createPricedPhoto, pricedPhotosFor, renderOverlay, RERENDER_MS, rerenderTooSoon } from "./priced-photo";
+import { createPricedPhoto, lineLabel, pricedPhotosFor, renderOverlay, RERENDER_MS, rerenderTooSoon } from "./priced-photo";
+import { updateProfile } from "./profile";
 import { createQuote, type Poster } from "./quotes";
 import { TEST_ORG, withTestDb } from "./test-db";
 
@@ -53,6 +54,12 @@ test("draws the regions and a legend under the photo; two lines on one bed share
   assert.ok(height > 1024, "the legend sits under the photo");
   assert.ok(png.byteLength > 50_000);
   if (process.env.PRICED_PHOTO_OUT) writeFileSync(process.env.PRICED_PHOTO_OUT, png);
+});
+
+test("a label carries the line's price, or only its scope when line prices are hidden", () => {
+  const hedges = region(2, "Hedge trimming", 150, "cubic foot", 37500, []);
+  assert.equal(lineLabel(hedges, "en"), "Hedge trimming · 150 cubic feet · $375.00");
+  assert.equal(lineLabel(hedges, "en", false), "Hedge trimming · 150 cubic feet");
 });
 
 test("the embedded label font is the bundled font file", () => {
@@ -105,13 +112,16 @@ withTestDb("priced photo: making it again replaces the one for that photo", asyn
   const first = await createPricedPhoto(owner, { quoteId: quote.quoteId });
   assert.ok(first.pricedPhotoId);
   assert.deepEqual([first.located, first.notLocated], [0, ["Cleanup labor"]]);
-  // Past the re-render window, so this one renders again.
+  assert.equal((await pricedPhotosFor(TEST_ORG, quote.quoteId))[0].customerUrl, null, "prices shown: no quantity-only copy");
+  // Past the re-render window, so this one renders again; with line prices hidden, a quantity-only copy beside it.
   await db().update(pricedPhotos).set({ createdAt: new Date(Date.now() - RERENDER_MS - 1) });
+  await updateProfile(TEST_ORG, { customerLinePrices: false }, owner.memberId);
   const again = await createPricedPhoto(owner, { quoteId: quote.quoteId });
   assert.equal(again.pricedPhotoId, first.pricedPhotoId);
   const rows = await pricedPhotosFor(TEST_ORG, quote.quoteId);
   assert.equal(rows.length, 1);
   assert.deepEqual([rows[0].url, rows[0].sourceUrl], [again.pricedPhotoId && again.url, url]);
+  assert.ok(rows[0].customerUrl && rows[0].customerUrl !== rows[0].url);
 });
 
 withTestDb("price_photo: a quote without photos comes back with a reason and a note, not an error", async () => {

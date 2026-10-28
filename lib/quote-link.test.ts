@@ -201,13 +201,21 @@ withTestDb("a draft has no link, a revised quote isn't the customer's until it's
   assert.deepEqual(await approveFromLink(token, { name: "Jane", revisionId: reopened.quote.revisionId }), { kind: "unavailable", reason: "closed" });
 });
 
-/** A priced photo of the quote's revision, stored as a little file, as core/priced-photo.ts records one. */
-async function pricedPhoto(quoteId: string, revisionNumber: number, bytes: Uint8Array): Promise<string> {
+/** A little stored file, as core/priced-photo.ts stores a render. */
+function storedFile(bytes: Uint8Array): string {
   const file = join(mkdtempSync(join(tmpdir(), "priced-link-")), "priced.png");
   writeFileSync(file, bytes);
+  return pathToFileURL(file).href;
+}
+
+/** A priced photo of the quote's revision, as core/priced-photo.ts records one; `customer` is its quantity-only copy. */
+async function pricedPhoto(quoteId: string, revisionNumber: number, bytes: Uint8Array, customer?: Uint8Array): Promise<string> {
   const id = newId("ppho");
-  const url = pathToFileURL(file).href;
-  await db().insert(pricedPhotos).values({ id, orgId: TEST_ORG, quoteId, revisionNumber, sourceKind: "quote_attachment", sourceId: "att_x", sourceUrl: `${url}#${id}`, url, width: 10, height: 10, regions: [] });
+  const url = storedFile(bytes);
+  const customerUrl = customer ? storedFile(customer) : null;
+  await db()
+    .insert(pricedPhotos)
+    .values({ id, orgId: TEST_ORG, quoteId, revisionNumber, sourceKind: "quote_attachment", sourceId: "att_x", sourceUrl: `${url}#${id}`, url, customerUrl, width: 10, height: 10, regions: [] });
   return id;
 }
 
@@ -236,6 +244,25 @@ withTestDb("a quote's link shows its own priced photo of the current revision, a
   assert.ok("quote" in again);
   assert.equal(again.quote.pricedPhoto, null);
   assert.equal(await quoteLinkPricedPhoto(token, mine), null);
+});
+
+withTestDb("with line prices hidden, the link sends no line's price and shows only the quantity-only priced photo", async () => {
+  const { pat, token, quoteId } = await seed({ stripe: false });
+  const priced = await pricedPhoto(quoteId, 1, new Uint8Array([1, 2, 3]));
+  await updateProfile(TEST_ORG, { customerLinePrices: false }, pat.memberId);
+  const page = await quoteLinkPage(token);
+  assert.ok("quote" in page);
+  assert.equal(page.quote.linePrices, false);
+  assert.deepEqual(page.quote.lines, [{ name: "Back porch cleaning", quantity: 1, unitLabel: "job", unitCents: null, totalCents: null }]);
+  assert.equal(page.quote.totalCents, 40000);
+  assert.equal(page.quote.pricedPhoto, null, "a photo made with prices shown has no copy to show");
+  assert.equal(await quoteLinkPricedPhoto(token, priced), null);
+
+  const scoped = await pricedPhoto(quoteId, 1, new Uint8Array([1, 2, 3]), new Uint8Array([7, 8, 9]));
+  const again = await quoteLinkPage(token);
+  assert.ok("quote" in again);
+  assert.equal(again.quote.pricedPhoto?.id, scoped);
+  assert.deepEqual([...((await quoteLinkPricedPhoto(token, scoped)) ?? [])], [7, 8, 9]);
 });
 
 withTestDb("an expired quote can't be approved on its link", async () => {
