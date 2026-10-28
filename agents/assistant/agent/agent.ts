@@ -10,4 +10,7 @@ export default defineAgent({
   }),
   defaultTools: false,
   compaction: { thresholdPercent: 0.75 },
+  // sharp (the priced photo's renderer) loads a native binary, so it must stay a dependency of the
+  // hosted bundle instead of being compiled into it.
+  build: { externalDependencies: ["sharp"] },
 });
