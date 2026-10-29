@@ -45,6 +45,18 @@ export const createQuoteSchema = z.object({
   title: z.string().min(1).describe("The address or the member's phrase for the job."),
   customerId: z.string().optional().describe("From find_customer or save_customer."),
   propertyId: z.string().optional().describe("One of the customer's property ids."),
+  customer: z
+    .object({
+      name: z.string().min(1),
+      phone: z.string().optional(),
+      email: z.string().optional(),
+      address: z.string().optional(),
+      language: languageSchema.optional(),
+    })
+    .optional()
+    .describe(
+      "The customer when find_customer found nobody: their name and anything else the member stated (phone, email, address). It is saved as a new customer, the address as their property, and the quote is theirs. Never pass a customer you did not look up first. Ignored with customerId.",
+    ),
   lines: z.array(lineSchema).min(1).max(50),
   ruleIds: z
     .array(z.string())

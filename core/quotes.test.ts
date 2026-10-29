@@ -10,7 +10,7 @@ import { TEST_ORG, withTestDb } from "./test-db";
 import { updateProfile } from "./profile";
 import { addPhone, createMember, recordInbound, type Caller, type Member } from "./members";
 import { saveItems, saveRule, versions } from "./pricebook";
-import { saveCustomer } from "./customers";
+import { saveCustomer, searchCustomers } from "./customers";
 import {
   approveQuote,
   createQuote,
@@ -281,6 +281,32 @@ withTestDb("rules apply by id and an unknown rule throws", async () => {
     createQuote({ title: "x", lines: [{ itemId: windows.id, quantity: 1 }], ruleIds: ["rule_nope"] }, owner, { post, now: NOW }),
     /UNKNOWN_RULE:rule_nope/,
   );
+});
+
+withTestDb("a customer find_customer didn't find is saved with the quote, at its address", async () => {
+  const { owner, windows } = await seed();
+  const { post } = recorder();
+  const summary = await createQuote(
+    { title: "412 Oak St", customer: { name: "Maria Alvarez", address: "412 Oak St" }, lines: [{ itemId: windows.id, quantity: 20 }] },
+    owner,
+    { post, now: NOW },
+  );
+  const [quote] = await db().select().from(quotes).where(eq(quotes.id, summary.quoteId));
+  const [maria] = await searchCustomers(TEST_ORG, "Maria Alvarez");
+  assert.equal(quote.customerId, maria.id);
+  assert.equal(quote.propertyId, maria.properties[0].id);
+  assert.deepEqual(maria.properties.map((p) => p.address), ["412 Oak St"]);
+  assert.equal(summary.customerName, "Maria Alvarez");
+  assert.equal(summary.propertyAddress, "412 Oak St");
+
+  // A customerId wins: no second customer is saved.
+  const again = await createQuote(
+    { title: "412 Oak St", customerId: maria.id, customer: { name: "Maria Alvarez" }, lines: [{ itemId: windows.id, quantity: 10 }] },
+    owner,
+    { post, now: NOW },
+  );
+  assert.equal(again.customerId, maria.id);
+  assert.equal((await searchCustomers(TEST_ORG, "Maria")).length, 1);
 });
 
 withTestDb("revise adds a line and bumps the revision number", async () => {
