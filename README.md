@@ -4,8 +4,9 @@ Groundwork is a field-service agent for landscaping crews. A crew member texts a
 description and a few yard photos over iMessage or the web chat, and Groundwork turns it into a
 priced quote PDF, a priced photo with each quoted thing outlined and labeled, a link where the
 customer approves and pays a deposit, a booked visit, and an invoice. The agent runs on Muse Wonder
-through Meta's Model API, and SAM 3.1 outlines the quoted lines on the yard photo. The model judges
-what the member means; code checks who they are and does the math.
+through Meta's Model API, and SAM 3.1 outlines the quoted lines on the yard photo. Every object SAM
+finds is kept with its outline, so a member can edit the photo on the quote page without another SAM
+call. The model judges what the member means; code checks who they are and does the math.
 
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
