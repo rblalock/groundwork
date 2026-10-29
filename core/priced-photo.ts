@@ -463,7 +463,7 @@ const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.widt
 /**
  * Draws the regions on the photo and a legend under it. Each object a line kept is filled and
  * outlined in the line's color (dashed for a second line on the same object); each line is labeled
- * once, on its largest object, and lines that kept the same object share one label of stacked rows. `svgPaths` holds each region's mask outlines
+ * once, centered on its largest object, and lines that kept the same object share one label of stacked rows. `svgPaths` holds each region's mask outlines
  * (keyed by line index, in the order of its objects); a missing one is drawn as its box. Labels that
  * would overlap move down. With `linePrices` false, labels carry quantities only; the total stays. Pure given its inputs.
  */
@@ -543,7 +543,8 @@ export async function renderOverlay(
       height: pad * 2 + spans.reduce((sum, span) => sum + span, 0) - (rowHeight - px) + Math.round(px * 0.2),
     };
     const rect: Rect = {
-      x: Math.max(0, Math.min(width - pill.width, group.box.left + pad)),
+      // Centered on the object, so labels of objects side by side don't pile up at their left edges.
+      x: Math.max(0, Math.min(width - pill.width, Math.round((group.box.left + group.box.right - pill.width) / 2))),
       y: Math.max(0, Math.min(height - pill.height, group.box.top + pad)),
       ...pill,
     };
