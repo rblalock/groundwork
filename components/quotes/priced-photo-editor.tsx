@@ -192,8 +192,14 @@ export function PricedPhotoEditor({
     return { x: clamp(((clientX - rect.left) / rect.width) * width, width), y: clamp(((clientY - rect.top) / rect.height) * height, height) };
   }
 
+  /**
+   * Shows the label by a pointer that moved over an outline. Not on entering one: an editor that opens
+   * under a resting mouse would show a label nobody asked for, and a browser's move made up after a
+   * layout change, which goes nowhere, doesn't count either.
+   */
   function hoverAt(candidate: PricedCandidate, event: ReactPointerEvent) {
     if (event.pointerType === "touch" || open) return;
+    if (event.movementX === 0 && event.movementY === 0 && hover?.id !== candidate.id) return;
     const rect = stageRef.current!.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
@@ -319,7 +325,6 @@ export function PricedPhotoEditor({
                   event.preventDefault();
                   pick(candidate, { x: (candidate.box.left + candidate.box.right) / 2, y: (candidate.box.top + candidate.box.bottom) / 2 }, true);
                 }}
-                onPointerEnter={(event) => hoverAt(candidate, event)}
                 onPointerLeave={() => setHover((current) => (current?.id === candidate.id ? null : current))}
                 onPointerMove={(event) => hoverAt(candidate, event)}
                 pointerEvents={drawing ? "none" : "all"}
