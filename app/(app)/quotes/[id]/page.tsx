@@ -29,7 +29,7 @@ import { QuoteLanguageControl, QuoteText, QuoteTranslationProvider, QuoteViewTog
 import { mayChangeQuoteLanguage, unitTextId } from "@/lib/pages/quote-language";
 import { editorItems } from "@/lib/pages/quote-editor";
 import { AddPhotosButton, EditQuoteButton, RemovePhotoButton } from "@/components/quotes/quote-editor";
-import { PricePhotoButton } from "@/components/quotes/price-photo-button";
+import { PricedPhotoSection } from "@/components/quotes/priced-photo-section";
 import { copyFor } from "@/lib/copy";
 import { JumpBar, type JumpSection } from "@/components/record/jump-bar";
 import { EmptyFold, RailFact, RecordColumns, RecordSection } from "@/components/record/layout";
@@ -340,30 +340,14 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
 
                 {hasPhoto || pricedPhoto ? (
                   <RecordSection id="priced-photo">
-                    <Card
-                      actions={caller.memberId !== null && hasPhoto ? <PricePhotoButton again={pricedPhoto !== null} language={language} quoteId={quote.quoteId} /> : null}
-                      title={q.pricedPhoto}
-                    >
-                      {pricedOutcome && pricedOutcome !== "done" ? (
-                        <p className="mb-2 text-[13px] text-destructive" role="alert">
-                          {q.pricedOutcome[pricedOutcome] ?? q.pricedOutcome.failed}
-                        </p>
-                      ) : null}
-                      {pricedPhoto ? (
-                        <figure className="space-y-1.5">
-                          <a className="block overflow-hidden rounded-[8px] bg-inset shadow-hairline transition-opacity hover:opacity-90" href={pricedPhoto.url} rel="noopener" target="_blank">
-                            {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
-                            <img alt={q.pricedAlt} className="block h-auto w-full" src={pricedPhoto.url} />
-                          </a>
-                          <figcaption className="text-[12px] text-ink-3 text-pretty">
-                            {q.pricedCaption}
-                            {pricedPhoto.notLocated.length > 0 ? ` ${q.pricedNotLocated(pricedPhoto.notLocated.join(", "))}` : ""}
-                          </figcaption>
-                        </figure>
-                      ) : (
-                        <p className="text-[13px] text-ink-3">{q.pricedNone}</p>
-                      )}
-                    </Card>
+                    <PricedPhotoSection
+                      canEdit={caller.memberId !== null && pricedPhoto !== null}
+                      canPrice={caller.memberId !== null && hasPhoto}
+                      language={language}
+                      outcome={pricedOutcome}
+                      pricedPhoto={pricedPhoto}
+                      quoteId={quote.quoteId}
+                    />
                   </RecordSection>
                 ) : null}
 
