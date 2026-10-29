@@ -2,28 +2,20 @@
 
 What comes after the hackathon build, roughly in order.
 
-## Edit the priced photo by hand
+## Priced photo editor: what v1 leaves out
 
-The priced photo is drawn once by code from what SAM found, and the only fix today is "Price it
-again". The next version is an editor on the quote page and in the customer's price guide, for the
-member on a phone or a laptop:
+v1 is on the quote page: every object SAM found is kept with its outline, hover and tap put an
+outline on a line, and "find in photo" asks SAM again inside a drawn box for any phrase. Edits save
+on `priced_photos` and the photo is redrawn without SAM. Still to do:
 
-- **Hover and tap.** Every object SAM found is drawn as an outline on the photo (an SVG layer over
-  the image, not baked into a PNG). Hovering or tapping one lights it up and shows which line it
-  carries, or that it carries none.
-- **Assign from the quote.** Tapping an outline opens a picker of the quote's lines. Pick one to
-  assign it, pick another to move it, or clear it. Lines marked "not located" sit at the top of
-  the picker so the obvious fix is one tap.
-- **Find it here.** For a line SAM missed, tap or drag a box on the photo and the editor asks SAM
-  for that spot (point and box prompts, if the API takes them; otherwise the line's photo prompt
-  run again, keeping only objects inside the box). Drawing a rough polygon by hand is the fallback.
-- **Saved, then redrawn.** Edits save the regions on `priced_photos` (with who changed them and
-  when), and the PNG for the customer link, the PDF, and the price guide is redrawn from the saved
-  regions without calling SAM again.
-- **What has to change underneath.** Keep every object SAM returned, not only the ones the selector
-  kept, and keep each object's mask outline (today only its box is stored), so the editor has
-  something to show and the redraw keeps SAM's shapes. The same stored outlines feed the crew
-  checklist and the before-and-after pairing below.
+- **Point and box prompts.** v1 sends a noun phrase and keeps what lands in the box. If the SAM
+  endpoint takes point or box prompts, "find it here" gets more precise with no phrase at all.
+- **Draw it by hand.** A rough polygon for the thing SAM never finds, kept as a candidate like the
+  rest.
+- **Edit from the chat card and the price guide**, not only the quote page, and let a crew member
+  fix a finished-job photo from their phone before it's saved to the customer.
+- **Split and merge.** Cut one outline in two (the left and right hedge) or join two into one line
+  object, so counts per piece match what was quoted.
 
 ## Post-train an open-weight model on exported traces
 

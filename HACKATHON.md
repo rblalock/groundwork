@@ -33,6 +33,9 @@ What a judge sees, in order. The demo business is LOX Landscape Co, its owner is
 4. **The priced photo.** The assistant calls `price_photo`. SAM 3.1 finds the beds, the hedge, and
    the lawn; each is outlined and labeled with its line's quantity and price, with a legend of every
    line and the total under the photo. The reply names any line it could not find in the photo.
+   On the quote page, **Edit** opens the photo with every object SAM found as an outline: hover to
+   see what it is, tap one to put it on a line from a picker, or drag a box and ask SAM again for
+   a word of your own ("bushes"). Every change redraws the photo without another SAM call.
 5. **Approve and send.** The owner says "looks good". `approve_quote` re-renders the PDF without the
    DRAFT mark and makes the customer link, `/q/<token>`, which the PDF and the summary carry. The
    owner forwards it, or says "email it to Maria" to send it through Resend.
