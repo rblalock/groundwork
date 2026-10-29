@@ -4,41 +4,9 @@ import type { Language } from "../core/language";
 // and asking SAM to look again in one spot. The routes are under /api/quotes/[id]/priced/[pricedId]; the
 // pure helpers below keep the screen's regions in step with a change before the server answers.
 
-// TODO(merge): these mirror the backend contract; point them at schema/types.ts once it lands there.
-export type PricedBox = { left: number; top: number; right: number; bottom: number };
+import type { PricedBox, PricedCandidate, PricedPhotoEditorState, PricedRegion } from "../schema/types";
 
-/** Something SAM found in the photo, on a line or not. `svgPath` is in the photo's pixels. */
-export type PricedCandidate = { id: string; phrase: string; box: PricedBox; areaPx: number; confidence: number | null; svgPath: string };
-
-/** One quote line on the photo, and the objects outlined for it. */
-export type PricedRegion = {
-  lineIndex: number;
-  itemId: string | null;
-  name: string;
-  quantity: number;
-  unitLabel: string;
-  totalCents: number | null;
-  phrase: string | null;
-  objects: Array<{ candidateId: string | null; box: PricedBox; areaPx: number; confidence: number | null }>;
-  located: boolean;
-};
-
-export type PricedPhotoEditorState = {
-  pricedPhotoId: string;
-  /** The photo's pixel size; svgPaths and boxes are in these units. */
-  width: number;
-  height: number;
-  /** The original photo. */
-  photoUrl: string;
-  /** The priced PNG, cache-busted. */
-  renderedUrl: string;
-  candidates: PricedCandidate[];
-  /** One per quote line, in line order. */
-  regions: PricedRegion[];
-  lines: Array<{ lineIndex: number; name: string; quantity: number; unitLabel: string; totalCents: number | null; phrase: string | null }>;
-  editedAt: string | null;
-  editedBy: string | null;
-};
+export type { PricedBox, PricedCandidate, PricedPhotoEditorState, PricedRegion };
 
 export type Assignment = { candidateId: string; lineIndexes: number[] };
 

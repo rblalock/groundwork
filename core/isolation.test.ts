@@ -960,7 +960,7 @@ withTestDb("tools run in the caller's business", async () => {
   const schedule = await run(readScheduleTool, { day: "2026-10-26", days: 7 }, b.owner);
   assert.deepEqual(schedule.visits.map((v: Out) => v.visitId), [b.visitId]);
   assert.match(
-    (await run(bookVisitTool, { quoteId: a.approved.quoteId, memberIds: [b.crew.memberId], day: "2026-10-29", time: "09:00" }, b.owner)).error,
+    (await run(bookVisitTool, { quoteId: a.approved.quoteId, memberIds: [b.crew.memberId], day: "2027-10-27", time: "09:00" }, b.owner)).error,
     /QUOTE_NOT_FOUND/,
   );
 
