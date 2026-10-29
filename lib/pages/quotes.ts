@@ -1,9 +1,24 @@
+import { and, eq } from "drizzle-orm";
+import { workPhotos } from "../../schema/schema";
+import type { PricedBox, PricedPhotoEditorState } from "../../schema/types";
 import { readStoredFile } from "../../core/blob";
+import { db } from "../../core/db";
 import { quoteDeposits } from "../../core/invoices";
 import { isLanguage } from "../../core/language";
 import { isPrivileged } from "../../core/members";
 import { pdfFileName } from "../../core/pdf";
-import { createPricedPhoto, pricedPhotosFor, type PricedPhoto, type PricedPhotoResult } from "../../core/priced-photo";
+import {
+  assignPricedPhoto,
+  createPricedPhoto,
+  findInPricedPhoto,
+  pricedPhotoOnQuote,
+  pricedPhotoSize,
+  pricedPhotosFor,
+  MAX_FIND_PHRASE,
+  type PricedPhoto,
+  type PricedPhotoResult,
+} from "../../core/priced-photo";
+import type { Assignment } from "../../core/priced-photo-select";
 import { customerLinkFor } from "../../core/quote-link";
 import { quoteTimeline, type TimelineEntry } from "../../core/quote-timeline";
 import {
@@ -135,9 +150,9 @@ export type QuoteCard = {
   pricedPhoto: { id: string; url: string } | null;
 };
 
-/** Where the app serves a priced photo; the version changes when it's made again, so a cached one isn't shown. */
-export const pricedPhotoHref = (photo: Pick<PricedPhoto, "id" | "quoteId" | "createdAt">) =>
-  `/api/quotes/${encodeURIComponent(photo.quoteId)}/priced/${encodeURIComponent(photo.id)}?v=${photo.createdAt.getTime()}`;
+/** Where the app serves a priced photo; the version changes when it's made again or edited, so a cached one isn't shown. */
+export const pricedPhotoHref = (photo: Pick<PricedPhoto, "id" | "quoteId" | "createdAt" | "editedAt">) =>
+  `/api/quotes/${encodeURIComponent(photo.quoteId)}/priced/${encodeURIComponent(photo.id)}?v=${Math.max(photo.createdAt.getTime(), photo.editedAt?.getTime() ?? 0)}`;
 
 /**
  * A quote's card for the chat, for whoever may see the quote (`assertVisible`); a 404 for anyone else.
@@ -259,6 +274,84 @@ export async function pricedPhotoFile(caller: AppCaller, quoteId: string, priced
 export async function pricePhotoFromApp(caller: AppCaller, quoteId: string): Promise<PricedPhotoResult> {
   await assertVisible(caller, quoteId);
   return createPricedPhoto(memberCaller(caller), { quoteId });
+}
+
+// The priced photo editor on the quote page: anyone on the team who may see the quote moves the objects
+// SAM found between its lines, or asks SAM for one more thing. Refusals are 400s with a short reason.
+const EDIT_REFUSALS = {
+  PRICED_PHOTO_NOT_FOUND: [404, "That isn't here."],
+  UNKNOWN_CANDIDATE: [400, "That object isn't on this photo."],
+  UNKNOWN_LINE: [400, "That line isn't on this photo."],
+  BAD_PHRASE: [400, `Say what to look for in 1 to ${MAX_FIND_PHRASE} characters.`],
+  UNREADABLE_PHOTO: [409, "The photo can't be read anymore."],
+  PRICED_PHOTO_CHANGED: [409, "The photo changed while this was saved. Open it again."],
+  SAM_FAILED: [502, "The photo couldn't be searched just now. Try again."],
+} as const;
+
+/** What the editor shows for one of the quote's priced photos. */
+export async function pricedPhotoEditor(caller: AppCaller, quoteId: string, pricedId: string): Promise<PricedPhotoEditorState> {
+  await assertVisible(caller, quoteId);
+  const photo = await pricedPhotoOnQuote(caller.orgId, quoteId, pricedId);
+  if (!photo) throw notFound();
+  return editorState(caller, photo, photo.editedByName);
+}
+
+/** Puts the photo's objects on the lines the member assigned them to, and draws it again without SAM. */
+export async function assignPricedPhotoFromApp(caller: AppCaller, quoteId: string, pricedId: string, assignments: Assignment[]): Promise<PricedPhotoEditorState> {
+  const actor = memberCaller(caller);
+  await assertVisible(caller, quoteId);
+  try {
+    return await editorState(caller, await assignPricedPhoto(actor, quoteId, pricedId, assignments), actor.name);
+  } catch (error) {
+    refuse(error, EDIT_REFUSALS);
+  }
+}
+
+/** Asks SAM for one more phrase on the photo, optionally inside a box and onto a line, and draws it again. */
+export async function findInPricedPhotoFromApp(
+  caller: AppCaller,
+  quoteId: string,
+  pricedId: string,
+  ask: { phrase: string; box?: PricedBox; lineIndex?: number },
+): Promise<PricedPhotoEditorState & { found: number }> {
+  const actor = memberCaller(caller);
+  await assertVisible(caller, quoteId);
+  try {
+    const { photo, found } = await findInPricedPhoto(actor, quoteId, pricedId, ask);
+    const editedBy = photo.editedBy === actor.memberId ? actor.name : ((await pricedPhotoOnQuote(caller.orgId, quoteId, pricedId))?.editedByName ?? null);
+    return { ...(await editorState(caller, photo, editedBy)), found };
+  } catch (error) {
+    refuse(error, EDIT_REFUSALS);
+  }
+}
+
+async function editorState(caller: AppCaller, photo: PricedPhoto, editedBy: string | null): Promise<PricedPhotoEditorState> {
+  const size = await pricedPhotoSize(photo);
+  if (!size) throw new HttpError(409, "UNREADABLE_PHOTO", EDIT_REFUSALS.UNREADABLE_PHOTO[1]);
+  return {
+    pricedPhotoId: photo.id,
+    width: size.width,
+    height: size.height,
+    photoUrl: await sourcePhotoHref(caller, photo),
+    renderedUrl: pricedPhotoHref(photo),
+    candidates: photo.candidates,
+    // Objects on a photo made before candidates were kept have no candidateId at all.
+    regions: photo.regions.map((region) => ({ ...region, objects: region.objects.map((o) => ({ ...o, candidateId: o.candidateId ?? null })) })),
+    lines: photo.regions.map(({ lineIndex, name, quantity, unitLabel, totalCents, phrase }) => ({ lineIndex, name, quantity, unitLabel, totalCents, phrase })),
+    editedAt: photo.editedAt?.toISOString() ?? null,
+    editedBy: photo.editedAt ? editedBy : null,
+  };
+}
+
+/** Where the app serves the photo a priced photo was drawn on: the quote's photo route, or its work's. */
+async function sourcePhotoHref(caller: AppCaller, photo: PricedPhoto): Promise<string> {
+  if (photo.sourceKind === "quote_attachment") return `/api/quotes/${encodeURIComponent(photo.quoteId)}/photos/${encodeURIComponent(photo.sourceId)}`;
+  const [work] = await db()
+    .select({ jobId: workPhotos.jobId })
+    .from(workPhotos)
+    .where(and(eq(workPhotos.orgId, caller.orgId), eq(workPhotos.id, photo.sourceId)));
+  if (!work) throw notFound();
+  return `/api/work/${encodeURIComponent(work.jobId)}/photos/${encodeURIComponent(photo.sourceId)}`;
 }
 
 /** A stored file as a response: images and PDFs open in the browser, anything else downloads. */

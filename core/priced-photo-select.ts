@@ -1,6 +1,6 @@
-// Which of SAM's objects a priced photo keeps as candidates, and which of those each quote line starts
-// with. Pure: no SAM call, no database.
-import type { PricedCandidate, PricedRegion, UnitKind } from "../schema/types";
+// Which of SAM's objects a priced photo keeps as candidates, which of those each quote line starts with,
+// and how a member's edits move them between lines. Pure: no SAM call, no database.
+import type { PricedBox, PricedCandidate, PricedRegion, UnitKind } from "../schema/types";
 import type { SamObject } from "./sam";
 
 /** An object whose box is under this share of the image is dropped: usually something in the next yard. */
@@ -110,4 +110,53 @@ export function candidatesFrom(phrase: string, objects: SamObject[], newId: () =
       }
       return [{ id: newId(), phrase, box: { ...o.box }, areaPx: o.areaPx, confidence: o.confidence, svgPath }];
     });
+}
+
+const sameBox = (a: PricedBox, b: PricedBox) => a.left === b.left && a.top === b.top && a.right === b.right && a.bottom === b.bottom;
+
+/** `found` without any whose phrase and box match a candidate already kept. */
+export function newCandidates(existing: PricedCandidate[], found: PricedCandidate[]): PricedCandidate[] {
+  return found.filter((c) => !existing.some((e) => e.phrase === c.phrase && sameBox(e.box, c.box)));
+}
+
+/** Whether the middle of `box` lies inside `area` (`right` and `bottom` exclusive). */
+export function centeredIn(area: PricedBox, box: PricedBox): boolean {
+  const x = (box.left + box.right) / 2;
+  const y = (box.top + box.bottom) / 2;
+  return x >= area.left && x < area.right && y >= area.top && y < area.bottom;
+}
+
+export type Assignment = { candidateId: string; lineIndexes: number[] };
+
+/**
+ * Every region's objects as a member assigned them: each candidate on each line it lists, and a
+ * candidate not listed on no line. A region's objects run largest first. Throws `UNKNOWN_CANDIDATE` for a
+ * candidate the photo doesn't have and `UNKNOWN_LINE` for a line it has no region for.
+ */
+export function applyAssignments(candidates: PricedCandidate[], regions: PricedRegion[], assignments: Assignment[]): PricedRegion[] {
+  const byId = new Map(candidates.map((c) => [c.id, c]));
+  const lines = new Map<number, PricedCandidate[]>(regions.map((r) => [r.lineIndex, []]));
+  for (const { candidateId, lineIndexes } of assignments) {
+    const candidate = byId.get(candidateId);
+    if (!candidate) throw new Error(`UNKNOWN_CANDIDATE: ${candidateId}`);
+    for (const lineIndex of lineIndexes) {
+      const kept = lines.get(lineIndex);
+      if (!kept) throw new Error(`UNKNOWN_LINE: ${lineIndex}`);
+      if (!kept.includes(candidate)) kept.push(candidate);
+    }
+  }
+  return regions.map((region) => {
+    const objects = lines.get(region.lineIndex)!.sort((a, b) => b.areaPx - a.areaPx).map(regionObject);
+    return { ...region, objects, located: objects.length > 0 };
+  });
+}
+
+/** `regions` with `added` on the line at `lineIndex` too, largest first. Throws `UNKNOWN_LINE` for a line it has no region for. */
+export function addToLine(regions: PricedRegion[], lineIndex: number, added: PricedCandidate[]): PricedRegion[] {
+  if (!regions.some((r) => r.lineIndex === lineIndex)) throw new Error(`UNKNOWN_LINE: ${lineIndex}`);
+  return regions.map((region) => {
+    if (region.lineIndex !== lineIndex) return region;
+    const objects = [...region.objects, ...added.map(regionObject)].sort((a, b) => b.areaPx - a.areaPx);
+    return { ...region, objects, located: objects.length > 0 };
+  });
 }

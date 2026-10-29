@@ -4,14 +4,14 @@
 // within `RERENDER_MS` of the last render of the same revision, which comes back instead. When the
 // business hides line prices from customers, the quote's link shows a second copy labeled with quantities
 // only, drawn beside the first from the same masks. Every object SAM found is kept as a candidate with its
-// outline, so both copies can be drawn again without SAM.
+// outline, so a member can move objects between lines and both copies are drawn again without SAM.
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import sharp, { type OverlayOptions } from "sharp";
-import { pricedPhotos, quoteAttachments, quotes, serviceJobs, workPhotos } from "../schema/schema";
+import { members, pricedPhotos, quoteAttachments, quoteRevisions, quotes, serviceJobs, workPhotos } from "../schema/schema";
 import type { PricedBox, PricedCandidate, PricedRegion } from "../schema/types";
 import { deleteBlob, readStoredFile, storeInboundAttachment } from "./blob";
 import { db, newId } from "./db";
@@ -21,9 +21,9 @@ import type { Caller } from "./members";
 import { NOTO_SANS_BOLD_BASE64 } from "./fonts/noto-sans-bold";
 import { formatCents } from "./money";
 import { listItems } from "./pricebook";
-import { candidatesFrom, selectRegions, type PhotoLine } from "./priced-photo-select";
+import { addToLine, applyAssignments, candidatesFrom, centeredIn, newCandidates, selectRegions, type Assignment, type PhotoLine } from "./priced-photo-select";
 import { getQuote } from "./quotes";
-import { SAM_MODEL, segmentMany, type SamObject } from "./sam";
+import { SAM_MODEL, segment, segmentMany, type SamObject } from "./sam";
 import { pluralUnit } from "./units";
 import { recordModelCall } from "./usage";
 
@@ -200,6 +200,105 @@ export async function pricedPhotosForCustomer(orgId: string, customerId: string,
     .orderBy(desc(pricedPhotos.createdAt), desc(pricedPhotos.id))
     .limit(Math.min(Math.max(limit, 1), 100));
   return rows.map(({ photo, quoteTitle }) => ({ ...photo, quoteTitle }));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Editing: moving the kept candidates between lines, and looking for one more phrase
+
+/** A priced photo on the quote, with the name of the member who last edited it; null when the quote has no such photo. */
+export async function pricedPhotoOnQuote(orgId: string, quoteId: string, pricedId: string): Promise<(PricedPhoto & { editedByName: string | null }) | null> {
+  const [row] = await db()
+    .select({ photo: pricedPhotos, editedByName: members.name })
+    .from(pricedPhotos)
+    .leftJoin(members, and(eq(members.orgId, orgId), eq(members.id, pricedPhotos.editedBy)))
+    .where(and(eq(pricedPhotos.orgId, orgId), eq(pricedPhotos.quoteId, quoteId), eq(pricedPhotos.id, pricedId)));
+  return row ? { ...row.photo, editedByName: row.editedByName } : null;
+}
+
+/** The photo's own size, which its candidates are in; read from the photo for one made before that was kept. Null when it can't be read. */
+export async function pricedPhotoSize(photo: PricedPhoto): Promise<{ width: number; height: number } | null> {
+  if (photo.photoHeight !== null) return { width: photo.width, height: photo.photoHeight };
+  const read = await preparePhoto(photo.sourceUrl);
+  return read && { width: read.width, height: read.height };
+}
+
+/** The longest phrase a member may ask SAM to look for. */
+export const MAX_FIND_PHRASE = 60;
+
+/**
+ * Puts each candidate on the lines a member assigned it to, and on no other line, then draws both copies
+ * again from the kept outlines, with no SAM call. Throws `UNKNOWN_CANDIDATE` or `UNKNOWN_LINE` for an
+ * assignment the photo can't take, `PRICED_PHOTO_NOT_FOUND`, `UNREADABLE_PHOTO`, or
+ * `PRICED_PHOTO_CHANGED` when another change landed while this one was drawn.
+ */
+export async function assignPricedPhoto(caller: Caller, quoteId: string, pricedId: string, assignments: Assignment[]): Promise<PricedPhoto> {
+  const row = await editable(caller.orgId, quoteId, pricedId);
+  const regions = applyAssignments(row.candidates, row.regions, assignments);
+  return saveEdit(caller, row, await readPhoto(row), regions, row.candidates);
+}
+
+/**
+ * Asks SAM once for `phrase` on the photo, keeps what it finds (inside `box`, by each object's middle,
+ * when one is given) as new candidates, and puts them on the line at `lineIndex` when one is given; then
+ * draws both copies again. `found` counts the candidates added: an object already kept for the phrase
+ * isn't added twice, and with none added nothing is drawn. Throws `BAD_PHRASE`, `UNKNOWN_LINE`,
+ * `SAM_FAILED`, and what `assignPricedPhoto` throws.
+ */
+export async function findInPricedPhoto(
+  caller: Caller,
+  quoteId: string,
+  pricedId: string,
+  ask: { phrase: string; box?: PricedBox; lineIndex?: number },
+): Promise<{ photo: PricedPhoto; found: number }> {
+  const phrase = ask.phrase.trim();
+  if (phrase.length === 0 || phrase.length > MAX_FIND_PHRASE) throw new Error("BAD_PHRASE");
+  const row = await editable(caller.orgId, quoteId, pricedId);
+  if (ask.lineIndex !== undefined && !row.regions.some((region) => region.lineIndex === ask.lineIndex)) throw new Error(`UNKNOWN_LINE: ${ask.lineIndex}`);
+  const photo = await readPhoto(row);
+  const call = await segment({ bytes: photo.bytes, mimeType: "image/jpeg" }, phrase, { size: photo });
+  await recordSamCalls(caller, quoteId, [{ phrase, images: call.images }]);
+  const objects = ask.box ? call.objects.filter((o) => centeredIn(ask.box!, o.box)) : call.objects;
+  const added = newCandidates(row.candidates, candidatesFrom(phrase, objects, () => newId("cand")));
+  if (added.length === 0) return { photo: row, found: 0 };
+  const regions = ask.lineIndex === undefined ? row.regions : addToLine(row.regions, ask.lineIndex, added);
+  return { photo: await saveEdit(caller, row, photo, regions, [...row.candidates, ...added]), found: added.length };
+}
+
+async function editable(orgId: string, quoteId: string, pricedId: string): Promise<PricedPhoto> {
+  const row = await pricedPhotoOnQuote(orgId, quoteId, pricedId);
+  if (!row) throw new Error("PRICED_PHOTO_NOT_FOUND");
+  return row;
+}
+
+async function readPhoto(row: PricedPhoto): Promise<Photo> {
+  const photo = await preparePhoto(row.sourceUrl);
+  if (!photo) throw new Error("UNREADABLE_PHOTO");
+  return photo;
+}
+
+/**
+ * Draws both copies of an edited photo, labeled with the revision it was made for, and stores them in
+ * place of the old ones. Only lands on the row as it was read: when another change replaced its render
+ * first, the new copies are deleted and `PRICED_PHOTO_CHANGED` is thrown.
+ */
+async function saveEdit(caller: Caller, row: PricedPhoto, photo: Photo, regions: PricedRegion[], candidates: PricedCandidate[]): Promise<PricedPhoto> {
+  const [revision] = await db()
+    .select({ totalCents: quoteRevisions.totalCents, language: quoteRevisions.customerLanguage })
+    .from(quoteRevisions)
+    .where(and(eq(quoteRevisions.orgId, row.orgId), eq(quoteRevisions.quoteId, row.quoteId), eq(quoteRevisions.number, row.revisionNumber)));
+  if (!revision) throw new Error("PRICED_PHOTO_NOT_FOUND");
+  const rendered = await renderBoth(photo, regions, candidates, { quoteId: row.quoteId, ...revision });
+  const [saved] = await db()
+    .update(pricedPhotos)
+    .set({ ...rendered, photoHeight: photo.height, regions, candidates, editedBy: caller.memberId, editedAt: new Date() })
+    .where(and(eq(pricedPhotos.orgId, row.orgId), eq(pricedPhotos.id, row.id), eq(pricedPhotos.url, row.url)))
+    .returning();
+  if (!saved) {
+    await deleteRenders(rendered, { url: "", customerUrl: null });
+    throw new Error("PRICED_PHOTO_CHANGED");
+  }
+  await deleteRenders(row, rendered);
+  return saved;
 }
 
 type Source = PricedPhotoSource & { url: string };

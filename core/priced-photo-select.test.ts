@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { PricedCandidate } from "../schema/types";
-import { candidatesFrom, compactPath, selectRegions, type PhotoLine } from "./priced-photo-select";
+import { addToLine, applyAssignments, candidatesFrom, centeredIn, compactPath, selectRegions, type PhotoLine } from "./priced-photo-select";
 import type { SamObject } from "./sam";
 
 // What the probe found on the yard fixture (1024×1024): box, mask area, confidence.
@@ -138,4 +138,38 @@ test("a phrase keeps its twelve largest objects as candidates, and drops one wit
   } finally {
     console.warn = warn;
   }
+});
+
+test("assignments set every line's objects; one not listed is on no line", () => {
+  const candidates = PROBE.get("hedge")!;
+  const regions = selectRegions([line(0, "Hedge trimming", "hour", 1, "hedge"), line(1, "Shrub trimming", "hour", 1, null)], PROBE, IMAGE);
+  assert.deepEqual(
+    regions.map((r) => r.located),
+    [true, false],
+  );
+  const moved = applyAssignments(candidates, regions, [
+    { candidateId: "cand_3", lineIndexes: [1] },
+    { candidateId: "cand_1", lineIndexes: [0, 1] },
+  ]);
+  assert.deepEqual(
+    moved.map((r) => [r.located, r.objects.map((o) => o.candidateId)]),
+    [
+      [true, ["cand_1"]],
+      [true, ["cand_1", "cand_3"]],
+    ],
+  );
+  assert.deepEqual(
+    applyAssignments(candidates, regions, []).map((r) => r.located),
+    [false, false],
+  );
+  assert.throws(() => applyAssignments(candidates, regions, [{ candidateId: "cand_99", lineIndexes: [0] }]), /UNKNOWN_CANDIDATE/);
+  assert.throws(() => applyAssignments(candidates, regions, [{ candidateId: "cand_1", lineIndexes: [2] }]), /UNKNOWN_LINE/);
+  assert.throws(() => addToLine(regions, 5, candidates), /UNKNOWN_LINE/);
+});
+
+test("an object is inside a box when its middle is", () => {
+  const area = { left: 100, top: 100, right: 300, bottom: 300 };
+  assert.equal(centeredIn(area, { left: 0, top: 0, right: 400, bottom: 400 }), true, "larger than the box, but centered in it");
+  assert.equal(centeredIn(area, { left: 250, top: 250, right: 500, bottom: 500 }), false);
+  assert.equal(centeredIn(area, { left: 200, top: 200, right: 400, bottom: 400 }), false, "right and bottom are exclusive");
 });

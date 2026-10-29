@@ -18,7 +18,7 @@ import { z } from "zod";
 import { memberAuth } from "./channel-dispatch";
 import { addPhone, createMember, findMemberById, type Caller } from "./members";
 import { saveItems } from "./pricebook";
-import { createPricedPhoto, lineLabel, pricedPhotosFor, renderOverlay, RERENDER_MS, rerenderTooSoon } from "./priced-photo";
+import { assignPricedPhoto, createPricedPhoto, findInPricedPhoto, lineLabel, pricedPhotosFor, renderOverlay, RERENDER_MS, rerenderTooSoon } from "./priced-photo";
 import { updateProfile } from "./profile";
 import { createQuote, type Poster } from "./quotes";
 import { TEST_ORG, withTestDb } from "./test-db";
@@ -162,7 +162,7 @@ async function withFakeSam<T>(fn: () => Promise<T>): Promise<{ result: T; phrase
   }
 }
 
-withTestDb("priced photo: every object SAM finds is kept with its outline", async () => {
+withTestDb("priced photo: every object SAM finds is kept, and a member moves them between lines without SAM", async () => {
   const { owner, items } = await seed();
   const url = await storeInboundAttachment("yard.jpg", "image/jpeg", new Uint8Array(YARD));
   const quote = await quoteWith(
@@ -189,6 +189,32 @@ withTestDb("priced photo: every object SAM finds is kept with its outline", asyn
   assert.equal(cleanup.located, false);
   assert.equal(row.editedAt, null);
 
+  // The strip by the mailbox goes on the cleanup line; the lawn line is left with nothing.
+  const strip = row.candidates.find((c) => c.phrase === "lawn" && c.areaPx === 6857)!;
+  const edited = await withFakeSam(() => assignPricedPhoto(owner, quote.quoteId, row.id, [{ candidateId: strip.id, lineIndexes: [1] }]));
+  assert.deepEqual(edited.phrases, [], "no SAM call");
+  assert.deepEqual(
+    edited.result.regions.map((r) => [r.located, r.objects.map((o) => o.candidateId)]),
+    [
+      [false, []],
+      [true, [strip.id]],
+    ],
+  );
+  assert.ok(edited.result.editedAt);
+  assert.equal(edited.result.editedBy, owner.memberId);
+  assert.ok(edited.result.url !== row.url && edited.result.customerUrl && edited.result.customerUrl !== row.customerUrl);
+  assert.equal(edited.result.createdAt.getTime(), row.createdAt.getTime());
+  await assert.rejects(assignPricedPhoto(owner, quote.quoteId, row.id, [{ candidateId: "cand_missing", lineIndexes: [0] }]), /UNKNOWN_CANDIDATE/);
+
+  // One more phrase, inside the lower half and onto the lawn line: only the front lawn's middle is there.
+  const box = { left: 0, top: 588, right: 1024, bottom: 1024 };
+  const find = await withFakeSam(() => findInPricedPhoto(owner, quote.quoteId, row.id, { phrase: " grass ", box, lineIndex: 0 }));
+  assert.deepEqual([find.phrases, find.result.found], [["grass"], 1]);
+  const grass = find.result.photo.candidates.filter((c) => c.phrase === "grass");
+  assert.deepEqual(find.result.photo.regions[0].objects.map((o) => o.candidateId), [grass[0].id]);
+  // Asked again, the same objects aren't added twice.
+  const again = await withFakeSam(() => findInPricedPhoto(owner, quote.quoteId, row.id, { phrase: "grass", box }));
+  assert.equal(again.result.found, 0);
 });
 
 // Calls SAM: runs only with a key, and leaves the render at /tmp/priced-photo.png for a look.

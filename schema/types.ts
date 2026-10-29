@@ -149,3 +149,22 @@ export type PricedRegion = {
   objects: Array<{ candidateId: string | null; box: PricedBox; areaPx: number; confidence: number | null }>;
   located: boolean;
 };
+
+/**
+ * What the quote page's priced photo editor works from. `width` and `height` are the photo's pixels, which
+ * the candidates' boxes and outlines are in; `photoUrl` is the original photo and `renderedUrl` the priced
+ * one, both served to the signed-in member. `regions` is one per quote line, in line order; `editedBy` is
+ * the member's name.
+ */
+export type PricedPhotoEditorState = {
+  pricedPhotoId: string;
+  width: number;
+  height: number;
+  photoUrl: string;
+  renderedUrl: string;
+  candidates: PricedCandidate[];
+  regions: PricedRegion[];
+  lines: Array<{ lineIndex: number; name: string; quantity: number; unitLabel: string; totalCents: number | null; phrase: string | null }>;
+  editedAt: string | null;
+  editedBy: string | null;
+};
