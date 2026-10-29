@@ -288,7 +288,7 @@ export function AddPhotosButton({ quoteId, language }: { quoteId: string; langua
   };
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="relative flex flex-col items-end gap-1">
       <input
         accept="image/jpeg,image/png,image/heic,image/heif,.heic,.heif"
         className="sr-only"
