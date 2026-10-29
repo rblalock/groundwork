@@ -275,24 +275,6 @@ export function PricedPhotoEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="min-w-0 flex-1 text-[12px] text-ink-3 text-pretty">
-          {state.editedAt
-            ? state.editedBy
-              ? e.editedBy(state.editedBy, editedAgo(state.editedAt, language))
-              : e.edited(editedAgo(state.editedAt, language))
-            : e.hint}
-        </p>
-        <Button disabled={drawing} onClick={() => startFind(null)} size="xs" type="button" variant="quiet">
-          <Search aria-hidden="true" className="size-3.5" />
-          {e.findInPhoto}
-        </Button>
-        <Button disabled={closing || finding?.busy} onClick={done} size="sm" type="button" variant="primary">
-          {closing ? <Spinner variant="saving" /> : null}
-          {e.done}
-        </Button>
-      </div>
-
       <div
         className="relative w-full overflow-hidden rounded-[8px] bg-inset shadow-hairline"
         ref={stageRef}
@@ -372,7 +354,7 @@ export function PricedPhotoEditor({
         </svg>
 
         {drawing && !finding.box && !draft ? (
-          <p className="pointer-events-none absolute inset-x-0 top-2 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[12px] text-white">{e.dragBox}</p>
+          <p className="pointer-events-none absolute inset-x-0 bottom-2 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[12px] text-white">{e.dragBox}</p>
         ) : null}
 
         {hover ? (
@@ -471,6 +453,25 @@ export function PricedPhotoEditor({
           </PopoverPrimitive.Positioner>
         </PopoverPrimitive.Portal>
       </PopoverPrimitive.Root>
+
+      {/* Under the photo, not over it: the quote page's sticky section bar covers the top of the card. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="min-w-0 flex-1 text-[12px] text-ink-3 text-pretty">
+          {state.editedAt
+            ? state.editedBy
+              ? e.editedBy(state.editedBy, editedAgo(state.editedAt, language))
+              : e.edited(editedAgo(state.editedAt, language))
+            : e.hint}
+        </p>
+        <Button disabled={drawing} onClick={() => startFind(null)} size="xs" type="button" variant="quiet">
+          <Search aria-hidden="true" className="size-3.5" />
+          {e.findInPhoto}
+        </Button>
+        <Button disabled={closing || finding?.busy} onClick={done} size="sm" type="button" variant="primary">
+          {closing ? <Spinner variant="saving" /> : null}
+          {e.done}
+        </Button>
+      </div>
 
       {finding ? (
         <form className="space-y-2 rounded-[10px] bg-inset p-3" onSubmit={find}>
