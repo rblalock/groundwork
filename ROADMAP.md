@@ -2,6 +2,29 @@
 
 What comes after the hackathon build, roughly in order.
 
+## Edit the priced photo by hand
+
+The priced photo is drawn once by code from what SAM found, and the only fix today is "Price it
+again". The next version is an editor on the quote page and in the customer's price guide, for the
+member on a phone or a laptop:
+
+- **Hover and tap.** Every object SAM found is drawn as an outline on the photo (an SVG layer over
+  the image, not baked into a PNG). Hovering or tapping one lights it up and shows which line it
+  carries, or that it carries none.
+- **Assign from the quote.** Tapping an outline opens a picker of the quote's lines. Pick one to
+  assign it, pick another to move it, or clear it. Lines marked "not located" sit at the top of
+  the picker so the obvious fix is one tap.
+- **Find it here.** For a line SAM missed, tap or drag a box on the photo and the editor asks SAM
+  for that spot (point and box prompts, if the API takes them; otherwise the line's photo prompt
+  run again, keeping only objects inside the box). Drawing a rough polygon by hand is the fallback.
+- **Saved, then redrawn.** Edits save the regions on `priced_photos` (with who changed them and
+  when), and the PNG for the customer link, the PDF, and the price guide is redrawn from the saved
+  regions without calling SAM again.
+- **What has to change underneath.** Keep every object SAM returned, not only the ones the selector
+  kept, and keep each object's mask outline (today only its box is stored), so the editor has
+  something to show and the redraw keeps SAM's shapes. The same stored outlines feed the crew
+  checklist and the before-and-after pairing below.
+
 ## Post-train an open-weight model on exported traces
 
 - **The dataset.** `npm run traces:export -- --org <slug> --redact` already writes one turn per JSONL
