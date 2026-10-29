@@ -18,6 +18,8 @@ const KEEP_UNCOUNTED = 2;
 export const MAX_CANDIDATES_PER_PHRASE = 12;
 /** A candidate whose outline is longer than this is dropped rather than stored. */
 export const MAX_PATH_CHARS = 60_000;
+/** Two candidates of different phrases whose boxes overlap this much (intersection over union) are one object. */
+export const SAME_OBJECT_IOU = 0.9;
 
 export type PhotoLine = {
   index: number;
@@ -119,6 +121,61 @@ export function newCandidates(existing: PricedCandidate[], found: PricedCandidat
   return found.filter((c) => !existing.some((e) => e.phrase === c.phrase && sameBox(e.box, c.box)));
 }
 
+/** How much two boxes overlap: their intersection's area over their union's, 0 to 1. */
+export function boxIou(a: PricedBox, b: PricedBox): number {
+  const width = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+  const height = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+  const inter = width * height;
+  const union = (a.right - a.left) * (a.bottom - a.top) + (b.right - b.left) * (b.bottom - b.top) - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+/**
+ * One candidate per object, where two phrases found the same one (a hedge that's also a shrub): a
+ * candidate whose box overlaps one already kept of another phrase by `SAME_OBJECT_IOU` or more is
+ * dropped, or takes that one's place when SAM was surer of it (no confidence counts as least sure; a
+ * tie keeps the earlier). `same` maps each dropped candidate's id to the one kept for its object.
+ */
+export function distinctCandidates(candidates: PricedCandidate[]): { kept: PricedCandidate[]; same: Map<string, PricedCandidate> } {
+  const kept: PricedCandidate[] = [];
+  const replacedBy = new Map<string, PricedCandidate>();
+  const sureness = (c: PricedCandidate) => c.confidence ?? -1;
+  for (const candidate of candidates) {
+    const at = kept.findIndex((k) => k.phrase !== candidate.phrase && boxIou(k.box, candidate.box) >= SAME_OBJECT_IOU);
+    if (at === -1) {
+      kept.push(candidate);
+    } else if (sureness(candidate) > sureness(kept[at])) {
+      replacedBy.set(kept[at].id, candidate);
+      kept[at] = candidate;
+    } else {
+      replacedBy.set(candidate.id, kept[at]);
+    }
+  }
+  // A candidate dropped for one that was later replaced itself follows it to the one kept.
+  const same = new Map<string, PricedCandidate>();
+  for (const id of replacedBy.keys()) {
+    let survivor = replacedBy.get(id)!;
+    while (replacedBy.has(survivor.id)) survivor = replacedBy.get(survivor.id)!;
+    same.set(id, survivor);
+  }
+  return { kept, same };
+}
+
+/** `regions` with each object of a dropped candidate (a key of `same`) on the candidate kept in its place, once per line. */
+export function withKept(regions: PricedRegion[], same: Map<string, PricedCandidate>): PricedRegion[] {
+  if (same.size === 0) return regions;
+  return regions.map((region) => {
+    const objects: PricedRegion["objects"] = [];
+    for (const object of region.objects) {
+      const survivor = object.candidateId === null ? undefined : same.get(object.candidateId);
+      const next = survivor ? regionObject(survivor) : object;
+      if (next.candidateId === null || !objects.some((o) => o.candidateId === next.candidateId)) objects.push(next);
+    }
+    objects.sort((a, b) => b.areaPx - a.areaPx);
+    return { ...region, objects, located: objects.length > 0 };
+  });
+}
+
 /** Whether the middle of `box` lies inside `area` (`right` and `bottom` exclusive). */
 export function centeredIn(area: PricedBox, box: PricedBox): boolean {
   const x = (box.left + box.right) / 2;
@@ -151,12 +208,13 @@ export function applyAssignments(candidates: PricedCandidate[], regions: PricedR
   });
 }
 
-/** `regions` with `added` on the line at `lineIndex` too, largest first. Throws `UNKNOWN_LINE` for a line it has no region for. */
+/** `regions` with `added` on the line at `lineIndex` too (once), largest first. Throws `UNKNOWN_LINE` for a line it has no region for. */
 export function addToLine(regions: PricedRegion[], lineIndex: number, added: PricedCandidate[]): PricedRegion[] {
   if (!regions.some((r) => r.lineIndex === lineIndex)) throw new Error(`UNKNOWN_LINE: ${lineIndex}`);
   return regions.map((region) => {
     if (region.lineIndex !== lineIndex) return region;
-    const objects = [...region.objects, ...added.map(regionObject)].sort((a, b) => b.areaPx - a.areaPx);
+    const more = added.filter((c) => !region.objects.some((o) => o.candidateId === c.id)).map(regionObject);
+    const objects = [...region.objects, ...more].sort((a, b) => b.areaPx - a.areaPx);
     return { ...region, objects, located: objects.length > 0 };
   });
 }

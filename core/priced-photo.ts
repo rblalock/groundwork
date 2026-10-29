@@ -4,7 +4,8 @@
 // within `RERENDER_MS` of the last render of the same revision, which comes back instead. When the
 // business hides line prices from customers, the quote's link shows a second copy labeled with quantities
 // only, drawn beside the first from the same masks. Every object SAM found is kept as a candidate with its
-// outline, so a member can move objects between lines and both copies are drawn again without SAM.
+// outline (once, when two phrases found the same object), so a member can move objects between lines and
+// both copies are drawn again without SAM.
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,7 +22,18 @@ import type { Caller } from "./members";
 import { NOTO_SANS_BOLD_BASE64 } from "./fonts/noto-sans-bold";
 import { formatCents } from "./money";
 import { listItems } from "./pricebook";
-import { addToLine, applyAssignments, candidatesFrom, centeredIn, newCandidates, selectRegions, type Assignment, type PhotoLine } from "./priced-photo-select";
+import {
+  addToLine,
+  applyAssignments,
+  candidatesFrom,
+  centeredIn,
+  distinctCandidates,
+  newCandidates,
+  selectRegions,
+  withKept,
+  type Assignment,
+  type PhotoLine,
+} from "./priced-photo-select";
 import { getQuote } from "./quotes";
 import { SAM_MODEL, segment, segmentMany, type SamObject } from "./sam";
 import { pluralUnit } from "./units";
@@ -98,9 +110,15 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
       ? await segmentMany({ bytes: photo.bytes, mimeType: "image/jpeg" }, phrases, { size: photo, onCall: (call) => calls.push(call) })
       : new Map<string, SamObject[]>();
   await recordSamCalls(caller, quote.quoteId, calls);
-  const candidates = [...kept, ...[...found].flatMap(([phrase, objects]) => candidatesFrom(phrase, objects, () => newId("cand")))];
+  const all = [...kept, ...[...found].flatMap(([phrase, objects]) => candidatesFrom(phrase, objects, () => newId("cand")))];
+  // One candidate per object; a phrase whose object went to another phrase's candidate still finds it there.
+  const { kept: candidates, same } = distinctCandidates(all);
   const byPhrase = new Map<string, PricedCandidate[]>();
-  for (const candidate of candidates) byPhrase.set(candidate.phrase, [...(byPhrase.get(candidate.phrase) ?? []), candidate]);
+  for (const candidate of all) {
+    const object = same.get(candidate.id) ?? candidate;
+    const listed = byPhrase.get(candidate.phrase) ?? [];
+    if (!listed.includes(object)) byPhrase.set(candidate.phrase, [...listed, object]);
+  }
   const regions = selectRegions(lines, byPhrase, photo);
   const rendered = await renderBoth(photo, regions, candidates, { quoteId: quote.quoteId, totalCents: quote.totalCents, language: quote.customerLanguage });
 
@@ -241,7 +259,8 @@ export async function assignPricedPhoto(caller: Caller, quoteId: string, pricedI
  * Asks SAM once for `phrase` on the photo, keeps what it finds (inside `box`, by each object's middle,
  * when one is given) as new candidates, and puts them on the line at `lineIndex` when one is given; then
  * draws both copies again. `found` counts the candidates added: an object already kept for the phrase
- * isn't added twice, and with none added nothing is drawn. Throws `BAD_PHRASE`, `UNKNOWN_LINE`,
+ * isn't added twice, one kept under another phrase is added only in place of it when SAM is surer of it
+ * now (`distinctCandidates`), and with none added nothing is drawn. Throws `BAD_PHRASE`, `UNKNOWN_LINE`,
  * `SAM_FAILED`, and what `assignPricedPhoto` throws.
  */
 export async function findInPricedPhoto(
@@ -258,10 +277,14 @@ export async function findInPricedPhoto(
   const call = await segment({ bytes: photo.bytes, mimeType: "image/jpeg" }, phrase, { size: photo });
   await recordSamCalls(caller, quoteId, [{ phrase, images: call.images }]);
   const objects = ask.box ? call.objects.filter((o) => centeredIn(ask.box!, o.box)) : call.objects;
-  const added = newCandidates(row.candidates, candidatesFrom(phrase, objects, () => newId("cand")));
+  const fresh = newCandidates(row.candidates, candidatesFrom(phrase, objects, () => newId("cand")));
+  // An object already kept under another phrase stays one candidate: the one SAM was surer of.
+  const { kept: candidates, same } = distinctCandidates([...row.candidates, ...fresh]);
+  const added = fresh.filter((candidate) => candidates.includes(candidate));
   if (added.length === 0) return { photo: row, found: 0 };
-  const regions = ask.lineIndex === undefined ? row.regions : addToLine(row.regions, ask.lineIndex, added);
-  return { photo: await saveEdit(caller, row, photo, regions, [...row.candidates, ...added]), found: added.length };
+  const onKept = withKept(row.regions, same);
+  const regions = ask.lineIndex === undefined ? onKept : addToLine(onKept, ask.lineIndex, added);
+  return { photo: await saveEdit(caller, row, photo, regions, candidates), found: added.length };
 }
 
 async function editable(orgId: string, quoteId: string, pricedId: string): Promise<PricedPhoto> {

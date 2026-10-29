@@ -112,7 +112,7 @@ withTestDb("priced photo: making it again replaces the one for that photo", asyn
   // prompts are still looked for.
   const url = await storeInboundAttachment("yard.jpg", "image/jpeg", new Uint8Array(YARD));
   const quote = await quoteWith(owner, [{ itemId: items.get("Cleanup labor")!.id, quantity: 2 }], { url, mimeType: "image/jpeg" });
-  const { result: first } = await withFakeSam(() => createPricedPhoto(owner, { quoteId: quote.quoteId }));
+  const { result: first, phrases: asked } = await withFakeSam(() => createPricedPhoto(owner, { quoteId: quote.quoteId }));
   assert.ok(first.pricedPhotoId);
   assert.deepEqual([first.located, first.notLocated], [0, ["Cleanup labor"]]);
   const [shown] = await pricedPhotosFor(TEST_ORG, quote.quoteId);
@@ -121,7 +121,11 @@ withTestDb("priced photo: making it again replaces the one for that photo", asyn
   await db().update(pricedPhotos).set({ createdAt: new Date(Date.now() - RERENDER_MS - 1) });
   await updateProfile(TEST_ORG, { customerLinePrices: false }, owner.memberId);
   const { result: again, phrases } = await withFakeSam(() => createPricedPhoto(owner, { quoteId: quote.quoteId }));
-  assert.deepEqual(phrases, [], "the same photo's phrases were all found already");
+  // A phrase with a kept candidate isn't asked again. The fake finds the same objects for every phrase,
+  // so they're kept once, under the first; the phrases they were merged from have none and are asked again.
+  const keptPhrases = new Set(shown.candidates.map((c) => c.phrase));
+  assert.equal(keptPhrases.size, 1);
+  assert.deepEqual(phrases, asked.filter((phrase) => !keptPhrases.has(phrase)));
   assert.equal(again.pricedPhotoId, first.pricedPhotoId);
   const rows = await pricedPhotosFor(TEST_ORG, quote.quoteId);
   assert.equal(rows.length, 1);
@@ -179,7 +183,8 @@ withTestDb("priced photo: every object SAM finds is kept, and a member moves the
   const prompts = new Set(landscaping.items.flatMap((item) => (item.photoPrompt ? [item.photoPrompt] : [])));
   assert.deepEqual(new Set(made.phrases), prompts);
   const [row] = await pricedPhotosFor(TEST_ORG, quote.quoteId);
-  assert.equal(row.candidates.length, prompts.size * 3);
+  // The fake answers every phrase with the same three objects: each is kept once, under the first phrase.
+  assert.equal(row.candidates.length, 3);
   assert.ok(row.candidates.every((c) => /^M\d/.test(c.svgPath) && !c.svgPath.includes(".")), "outlines in whole pixels");
   assert.equal(row.photoHeight, 1024);
   const [lawn, cleanup] = row.regions;
@@ -206,12 +211,32 @@ withTestDb("priced photo: every object SAM finds is kept, and a member moves the
   assert.equal(edited.result.createdAt.getTime(), row.createdAt.getTime());
   await assert.rejects(assignPricedPhoto(owner, quote.quoteId, row.id, [{ candidateId: "cand_missing", lineIndexes: [0] }]), /UNKNOWN_CANDIDATE/);
 
-  // One more phrase, inside the lower half and onto the lawn line: only the front lawn's middle is there.
+  // One more phrase, inside the lower half and onto the lawn line: only the front lawn's middle is there,
+  // and it's kept already as "lawn", as sure, so nothing is added.
   const box = { left: 0, top: 588, right: 1024, bottom: 1024 };
-  const find = await withFakeSam(() => findInPricedPhoto(owner, quote.quoteId, row.id, { phrase: " grass ", box, lineIndex: 0 }));
+  const same = await withFakeSam(() => findInPricedPhoto(owner, quote.quoteId, row.id, { phrase: " grass ", box, lineIndex: 0 }));
+  assert.deepEqual([same.phrases, same.result.found], [["grass"], 0]);
+
+  // Kept less sure, and on the cleanup line too, the front lawn gives way to the grass SAM is surer of,
+  // which takes its place on the cleanup line and goes on the lawn line.
+  const front = row.candidates.find((c) => c.phrase === "lawn" && c.areaPx === 407680)!;
+  const [current] = await pricedPhotosFor(TEST_ORG, quote.quoteId);
+  await db()
+    .update(pricedPhotos)
+    .set({ candidates: current.candidates.map((c) => (c.id === front.id ? { ...c, confidence: 0.5 } : c)) });
+  await assignPricedPhoto(owner, quote.quoteId, row.id, [
+    { candidateId: strip.id, lineIndexes: [1] },
+    { candidateId: front.id, lineIndexes: [1] },
+  ]);
+  const find = await withFakeSam(() => findInPricedPhoto(owner, quote.quoteId, row.id, { phrase: "grass", box, lineIndex: 0 }));
   assert.deepEqual([find.phrases, find.result.found], [["grass"], 1]);
   const grass = find.result.photo.candidates.filter((c) => c.phrase === "grass");
-  assert.deepEqual(find.result.photo.regions[0].objects.map((o) => o.candidateId), [grass[0].id]);
+  assert.equal(grass.length, 1);
+  assert.ok(!find.result.photo.candidates.some((c) => c.id === front.id), "the front lawn's old candidate is gone");
+  assert.deepEqual(
+    find.result.photo.regions.map((r) => r.objects.map((o) => o.candidateId)),
+    [[grass[0].id], [grass[0].id, strip.id]],
+  );
   // Asked again, the same objects aren't added twice.
   const again = await withFakeSam(() => findInPricedPhoto(owner, quote.quoteId, row.id, { phrase: "grass", box }));
   assert.equal(again.result.found, 0);
