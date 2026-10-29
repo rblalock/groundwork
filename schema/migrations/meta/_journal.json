@@ -50,6 +50,13 @@
       "when": 1793157427646,
       "tag": "0006_priced-photo-customer-copy",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793291171061,
+      "tag": "0007_priced-photo-candidates",
+      "breakpoints": true
     }
   ]
 }

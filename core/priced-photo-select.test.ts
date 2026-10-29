@@ -1,20 +1,20 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { selectRegions, type PhotoLine } from "./priced-photo-select";
+import type { PricedCandidate } from "../schema/types";
+import { candidatesFrom, compactPath, selectRegions, type PhotoLine } from "./priced-photo-select";
 import type { SamObject } from "./sam";
 
 // What the probe found on the yard fixture (1024×1024): box, mask area, confidence.
 const IMAGE = { width: 1024, height: 1024 };
-const obj = (id: number, [left, top, right, bottom]: number[], areaPx: number, confidence: number | null): SamObject => ({
-  id,
+const obj = (id: number, [left, top, right, bottom]: number[], areaPx: number, confidence: number | null): PricedCandidate => ({
+  id: `cand_${id}`,
+  phrase: "",
   box: { left, top, right, bottom },
   areaPx,
   confidence,
   svgPath: "",
-  width: right - left,
-  height: bottom - top,
 });
-const PROBE = new Map<string, SamObject[]>([
+const PROBE = new Map<string, PricedCandidate[]>([
   [
     "lawn",
     [obj(0, [708, 505, 1024, 551], 6857, 0.852), obj(1, [0, 588, 1024, 1024], 407680, 0.942), obj(2, [842, 491, 978, 508], 1372, 0.625)],
@@ -106,4 +106,36 @@ test("an unsure object is dropped; one with no confidence is kept", () => {
     shrub.objects.map((o) => o.confidence),
     [null],
   );
+});
+
+test("a kept object names the candidate it came from", () => {
+  const [lawn] = selectRegions([line(0, "Lawn mowing", "visit", 1, "lawn")], PROBE, IMAGE);
+  assert.deepEqual(
+    lawn.objects.map((o) => o.candidateId),
+    ["cand_1"],
+  );
+});
+
+test("an outline is rounded to whole pixels and its straight runs and repeats dropped", () => {
+  assert.equal(compactPath("M0.5 0L1 0L2 0L3 0.5L3 1L3 2L2.5 3L1 3L0 3Z"), "M1 0L2 0L3 1L3 3L0 3Z");
+  assert.equal(compactPath("M0 0L1 0Z"), "", "a sliver with no area is dropped");
+});
+
+test("a phrase keeps its twelve largest objects as candidates, and drops one with an outline too long to store", () => {
+  const sam = (area: number, svgPath = "M0 0L10 0L10 10Z"): SamObject => ({ id: area, box: { left: 0, top: 0, right: 10, bottom: 10 }, areaPx: area, confidence: 0.9, svgPath, width: 10, height: 10 });
+  let n = 0;
+  const kept = candidatesFrom("shrub", Array.from({ length: 14 }, (_, i) => sam(i + 1)), () => `cand_${n++}`);
+  assert.deepEqual(
+    kept.map((c) => c.areaPx),
+    [14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3],
+  );
+  assert.ok(kept.every((c) => c.phrase === "shrub"));
+  const zigzag = `M0 0${Array.from({ length: 20_000 }, (_, i) => `L${i + 1} ${i % 2}`).join("")}Z`;
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.deepEqual(candidatesFrom("lawn", [sam(5, zigzag)], () => "cand_x"), []);
+  } finally {
+    console.warn = warn;
+  }
 });

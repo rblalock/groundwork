@@ -23,6 +23,7 @@ import type {
   InvoiceLine,
   LineResult,
   NoteFile,
+  PricedCandidate,
   PricedRegion,
   RuleEffect,
   RuleLine,
@@ -753,9 +754,16 @@ export const pricedPhotos = pgTable(
     customerUrl: text("customer_url"),
     width: integer("width").notNull(),
     height: integer("height").notNull(),
+    /** The photo's height under the legend, in the pixels the candidates are in; null only on photos made before it was kept. */
+    photoHeight: integer("photo_height"),
     regions: jsonb("regions").$type<PricedRegion[]>().notNull(),
+    /** Every object SAM found, kept with its outline, so a member can move them between lines without another SAM call. */
+    candidates: jsonb("candidates").$type<PricedCandidate[]>().notNull().default([]),
     memberId: text("member_id").references(() => members.id),
     createdAt: createdAt(),
+    /** The member who last changed which objects a line has, and when; null until someone does. */
+    editedBy: text("edited_by").references(() => members.id),
+    editedAt: timestamptz("edited_at"),
   },
   (t) => [uniqueIndex("priced_photos_org_quote_source_idx").on(t.orgId, t.quoteId, t.sourceUrl)],
 );

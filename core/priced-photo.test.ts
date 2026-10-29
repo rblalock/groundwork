@@ -24,6 +24,8 @@ import { createQuote, type Poster } from "./quotes";
 import { TEST_ORG, withTestDb } from "./test-db";
 
 const YARD = readFileSync(new URL("../agents/assistant/evals/fixtures/yard-front.jpg", import.meta.url));
+// Recorded from the yard fixture for "lawn": three objects, the front lawn the largest.
+const LAWN_STREAM = readFileSync(new URL("../test-fixtures/sam/lawn.stream.txt", import.meta.url), "utf8");
 
 const region = (lineIndex: number, name: string, quantity: number, unitLabel: string, totalCents: number, boxes: number[][]): PricedRegion => ({
   lineIndex,
@@ -33,7 +35,7 @@ const region = (lineIndex: number, name: string, quantity: number, unitLabel: st
   unitLabel,
   totalCents,
   phrase: "test",
-  objects: boxes.map(([left, top, right, bottom]) => ({ box: { left, top, right, bottom }, areaPx: (right - left) * (bottom - top), confidence: 0.9 })),
+  objects: boxes.map(([left, top, right, bottom]) => ({ candidateId: null, box: { left, top, right, bottom }, areaPx: (right - left) * (bottom - top), confidence: 0.9 })),
   located: boxes.length > 0,
 });
 
@@ -106,10 +108,11 @@ test("a priced photo isn't rendered again within ten seconds of the last render 
 
 withTestDb("priced photo: making it again replaces the one for that photo", async () => {
   const { owner, items } = await seed();
-  // Cleanup labor has no photo prompt, so nothing is sent to SAM and the line is listed as not located.
+  // Cleanup labor has no photo prompt, so the line is listed as not located, though the price book's
+  // prompts are still looked for.
   const url = await storeInboundAttachment("yard.jpg", "image/jpeg", new Uint8Array(YARD));
   const quote = await quoteWith(owner, [{ itemId: items.get("Cleanup labor")!.id, quantity: 2 }], { url, mimeType: "image/jpeg" });
-  const first = await createPricedPhoto(owner, { quoteId: quote.quoteId });
+  const { result: first } = await withFakeSam(() => createPricedPhoto(owner, { quoteId: quote.quoteId }));
   assert.ok(first.pricedPhotoId);
   assert.deepEqual([first.located, first.notLocated], [0, ["Cleanup labor"]]);
   const [shown] = await pricedPhotosFor(TEST_ORG, quote.quoteId);
@@ -117,7 +120,8 @@ withTestDb("priced photo: making it again replaces the one for that photo", asyn
   // Past the re-render window, so this one renders again, with line prices hidden now.
   await db().update(pricedPhotos).set({ createdAt: new Date(Date.now() - RERENDER_MS - 1) });
   await updateProfile(TEST_ORG, { customerLinePrices: false }, owner.memberId);
-  const again = await createPricedPhoto(owner, { quoteId: quote.quoteId });
+  const { result: again, phrases } = await withFakeSam(() => createPricedPhoto(owner, { quoteId: quote.quoteId }));
+  assert.deepEqual(phrases, [], "the same photo's phrases were all found already");
   assert.equal(again.pricedPhotoId, first.pricedPhotoId);
   const rows = await pricedPhotosFor(TEST_ORG, quote.quoteId);
   assert.equal(rows.length, 1);
@@ -141,6 +145,50 @@ withTestDb("price_photo: a quote without photos comes back with a reason and a n
   // With no quoteId, the quote the member just made.
   const latest = await call({});
   assert.deepEqual([latest.reason, latest.quoteId], ["no_photo", bare.quoteId]);
+});
+
+/** Answers every SAM call with the recorded lawn stream while `fn` runs, and returns the phrases asked for. */
+async function withFakeSam<T>(fn: () => Promise<T>): Promise<{ result: T; phrases: string[] }> {
+  const real = globalThis.fetch;
+  const phrases: string[] = [];
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    phrases.push(JSON.parse(String(init?.body)).input[0].content[0].text);
+    return new Response(LAWN_STREAM, { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  try {
+    return { result: await fn(), phrases };
+  } finally {
+    globalThis.fetch = real;
+  }
+}
+
+withTestDb("priced photo: every object SAM finds is kept with its outline", async () => {
+  const { owner, items } = await seed();
+  const url = await storeInboundAttachment("yard.jpg", "image/jpeg", new Uint8Array(YARD));
+  const quote = await quoteWith(
+    owner,
+    [
+      { itemId: items.get("Lawn mowing")!.id, quantity: 1 },
+      { itemId: items.get("Cleanup labor")!.id, quantity: 2 },
+    ],
+    { url, mimeType: "image/jpeg" },
+  );
+  const made = await withFakeSam(() => createPricedPhoto(owner, { quoteId: quote.quoteId }));
+  assert.ok(made.result.pricedPhotoId);
+  // Every active prompt in the price book, not only the quote's one.
+  const prompts = new Set(landscaping.items.flatMap((item) => (item.photoPrompt ? [item.photoPrompt] : [])));
+  assert.deepEqual(new Set(made.phrases), prompts);
+  const [row] = await pricedPhotosFor(TEST_ORG, quote.quoteId);
+  assert.equal(row.candidates.length, prompts.size * 3);
+  assert.ok(row.candidates.every((c) => /^M\d/.test(c.svgPath) && !c.svgPath.includes(".")), "outlines in whole pixels");
+  assert.equal(row.photoHeight, 1024);
+  const [lawn, cleanup] = row.regions;
+  assert.equal(lawn.objects.length, 1);
+  const kept = row.candidates.find((c) => c.id === lawn.objects[0].candidateId);
+  assert.deepEqual([kept?.phrase, kept?.box], ["lawn", { left: 0, top: 588, right: 1024, bottom: 1024 }]);
+  assert.equal(cleanup.located, false);
+  assert.equal(row.editedAt, null);
+
 });
 
 // Calls SAM: runs only with a key, and leaves the render at /tmp/priced-photo.png for a look.

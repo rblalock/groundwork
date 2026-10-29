@@ -3,7 +3,8 @@
 // and prices come from the quote. One per quote per source photo; making it again replaces it, except
 // within `RERENDER_MS` of the last render of the same revision, which comes back instead. When the
 // business hides line prices from customers, the quote's link shows a second copy labeled with quantities
-// only, drawn beside the first from the same masks (which aren't kept, so it can't be drawn later without SAM).
+// only, drawn beside the first from the same masks. Every object SAM found is kept as a candidate with its
+// outline, so both copies can be drawn again without SAM.
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,7 +12,7 @@ import { join } from "node:path";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import sharp, { type OverlayOptions } from "sharp";
 import { pricedPhotos, quoteAttachments, quotes, serviceJobs, workPhotos } from "../schema/schema";
-import type { PricedRegion } from "../schema/types";
+import type { PricedBox, PricedCandidate, PricedRegion } from "../schema/types";
 import { deleteBlob, readStoredFile, storeInboundAttachment } from "./blob";
 import { db, newId } from "./db";
 import { MAX_PIXELS } from "./images";
@@ -20,7 +21,7 @@ import type { Caller } from "./members";
 import { NOTO_SANS_BOLD_BASE64 } from "./fonts/noto-sans-bold";
 import { formatCents } from "./money";
 import { listItems } from "./pricebook";
-import { selectRegions, type PhotoLine } from "./priced-photo-select";
+import { candidatesFrom, selectRegions, type PhotoLine } from "./priced-photo-select";
 import { getQuote } from "./quotes";
 import { SAM_MODEL, segmentMany, type SamObject } from "./sam";
 import { pluralUnit } from "./units";
@@ -49,8 +50,10 @@ export function rerenderTooSoon(previous: { revisionNumber: number; createdAt: D
 
 /**
  * Makes (or makes again) the priced photo for a quote: from the photo given, or else the quote's most
- * recent JPEG or PNG. Lines whose item has a photo prompt are looked for; the rest, and any SAM can't
- * find, stay on the legend as not located. Throws when every SAM call fails.
+ * recent JPEG or PNG. Every active item's photo prompt is looked for, so a member can later put what SAM
+ * found on a line it missed, but each line starts with only its own prompt's objects; the rest, and any
+ * SAM can't find, stay on the legend as not located. Made again for the same photo, a phrase already found
+ * there isn't sent to SAM again. Throws when every SAM call fails.
  */
 export async function createPricedPhoto(caller: Caller, input: { quoteId: string; source?: PricedPhotoSource }): Promise<PricedPhotoResult> {
   const { orgId } = caller;
@@ -68,7 +71,8 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
   if (!photo) return { pricedPhotoId: null, reason: "unreadable_photo" };
   if (photo.width < MIN_WIDTH) return { pricedPhotoId: null, reason: "photo_too_small" };
 
-  const items = new Map((await listItems(orgId, { includeRetired: true })).map((item) => [item.id, item]));
+  const priceBook = await listItems(orgId, { includeRetired: true });
+  const items = new Map(priceBook.map((item) => [item.id, item]));
   const lines: PhotoLine[] = quote.lines.map((line, index) => {
     const item = line.itemId ? items.get(line.itemId) : undefined;
     return {
@@ -82,46 +86,75 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
       phrase: item?.photoPrompt?.trim() || null,
     };
   });
-  const phrases = lines.flatMap((line) => (line.phrase ? [line.phrase] : []));
+  const kept = before?.candidates ?? [];
+  const prompts = [
+    ...lines.flatMap((line) => (line.phrase ? [line.phrase] : [])),
+    ...priceBook.flatMap((item) => (item.status === "active" && item.photoPrompt?.trim() ? [item.photoPrompt.trim()] : [])),
+  ];
+  const phrases = [...new Set(prompts)].filter((phrase) => !kept.some((c) => c.phrase === phrase));
   const calls: Array<{ phrase: string; images: number }> = [];
   const found =
     phrases.length > 0
       ? await segmentMany({ bytes: photo.bytes, mimeType: "image/jpeg" }, phrases, { size: photo, onCall: (call) => calls.push(call) })
       : new Map<string, SamObject[]>();
   await recordSamCalls(caller, quote.quoteId, calls);
-  const regions = selectRegions(lines, found, photo);
-  const paths = maskPaths(regions, found);
-  const png = await renderOverlay(photo, regions, paths, quote.totalCents, quote.customerLanguage);
-  const url = await storeInboundAttachment(`priced-${quote.quoteId}.png`, "image/png", png.png);
-  // The quantity-only copy is drawn every time, while the masks are in memory, so the business can hide
-  // line prices later and the link still has a photo to show.
-  const customerUrl = await storeInboundAttachment(
-    `priced-${quote.quoteId}-customer.png`,
-    "image/png",
-    (await renderOverlay(photo, regions, paths, quote.totalCents, quote.customerLanguage, { linePrices: false })).png,
-  );
+  const candidates = [...kept, ...[...found].flatMap(([phrase, objects]) => candidatesFrom(phrase, objects, () => newId("cand")))];
+  const byPhrase = new Map<string, PricedCandidate[]>();
+  for (const candidate of candidates) byPhrase.set(candidate.phrase, [...(byPhrase.get(candidate.phrase) ?? []), candidate]);
+  const regions = selectRegions(lines, byPhrase, photo);
+  const rendered = await renderBoth(photo, regions, candidates, { quoteId: quote.quoteId, totalCents: quote.totalCents, language: quote.customerLanguage });
 
   const values = {
     revisionNumber: quote.revisionNumber,
     sourceKind: source.kind,
     sourceId: source.id,
-    url,
-    customerUrl,
-    width: png.width,
-    height: png.height,
+    ...rendered,
+    photoHeight: photo.height,
     regions,
+    candidates,
     memberId: caller.memberId,
     createdAt: new Date(),
+    editedBy: null,
+    editedAt: null,
   };
   const [row] = await db()
     .insert(pricedPhotos)
     .values({ id: newId("ppho"), orgId, quoteId: quote.quoteId, sourceUrl: source.url, ...values })
     .onConflictDoUpdate({ target: [pricedPhotos.orgId, pricedPhotos.quoteId, pricedPhotos.sourceUrl], set: values })
     .returning({ id: pricedPhotos.id });
-  for (const old of [before?.url, before?.customerUrl]) {
-    if (old && old !== url && old !== customerUrl) await deleteBlob(old).catch((error) => console.error("priced photo: deleting the old render failed", error));
+  if (before) await deleteRenders(before, rendered);
+  return resultOf(row.id, rendered.url, regions);
+}
+
+type Renders = { url: string; customerUrl: string | null };
+
+/**
+ * Draws the priced copy and the quantity-only copy of `regions` on the photo, each object by its
+ * candidate's outline, and stores both. The quantity-only copy is drawn every time so the business can
+ * hide line prices later and the link still has a photo to show.
+ */
+async function renderBoth(
+  photo: Photo,
+  regions: PricedRegion[],
+  candidates: PricedCandidate[],
+  quote: { quoteId: string; totalCents: number; language: Language },
+): Promise<{ url: string; customerUrl: string; width: number; height: number }> {
+  const paths = maskPaths(regions, candidates);
+  const png = await renderOverlay(photo, regions, paths, quote.totalCents, quote.language);
+  const url = await storeInboundAttachment(`priced-${quote.quoteId}.png`, "image/png", png.png);
+  const customerUrl = await storeInboundAttachment(
+    `priced-${quote.quoteId}-customer.png`,
+    "image/png",
+    (await renderOverlay(photo, regions, paths, quote.totalCents, quote.language, { linePrices: false })).png,
+  );
+  return { url, customerUrl, width: png.width, height: png.height };
+}
+
+/** Deletes the renders `old` had that `kept` doesn't. A failure only logs. */
+async function deleteRenders(old: Renders, kept: Renders): Promise<void> {
+  for (const url of [old.url, old.customerUrl]) {
+    if (url && url !== kept.url && url !== kept.customerUrl) await deleteBlob(url).catch((error) => console.error("priced photo: deleting the old render failed", error));
   }
-  return resultOf(row.id, url, regions);
 }
 
 function resultOf(pricedPhotoId: string, url: string, regions: PricedRegion[]): PricedPhotoResult {
@@ -218,14 +251,19 @@ async function preparePhoto(url: string): Promise<Photo | null> {
   }
 }
 
-const boxKey = (box: PricedRegion["objects"][number]["box"]) => `${box.left},${box.top},${box.right},${box.bottom}`;
+const boxKey = (box: PricedBox) => `${box.left},${box.top},${box.right},${box.bottom}`;
 
-/** Each region's mask outlines, keyed by line index, in the order of its objects. */
-function maskPaths(regions: PricedRegion[], found: Map<string, SamObject[]>): Map<string, string[]> {
+/**
+ * Each region's mask outlines, keyed by line index, in the order of its objects: by the object's
+ * candidate, or (on a photo made before candidates were kept) by a candidate of the line's phrase with
+ * the same box. An object with neither is drawn as its box.
+ */
+function maskPaths(regions: PricedRegion[], candidates: PricedCandidate[]): Map<string, string[]> {
+  const byId = new Map(candidates.map((c) => [c.id, c.svgPath]));
   const paths = new Map<string, string[]>();
   for (const region of regions) {
-    const byBox = new Map((region.phrase ? (found.get(region.phrase) ?? []) : []).map((o) => [boxKey(o.box), o.svgPath]));
-    paths.set(String(region.lineIndex), region.objects.map((o) => byBox.get(boxKey(o.box)) ?? ""));
+    const byBox = new Map(candidates.filter((c) => c.phrase === region.phrase).map((c) => [boxKey(c.box), c.svgPath]));
+    paths.set(String(region.lineIndex), region.objects.map((o) => (o.candidateId ? byId.get(o.candidateId) : byBox.get(boxKey(o.box))) ?? ""));
   }
   return paths;
 }

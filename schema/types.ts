@@ -126,10 +126,17 @@ export type TraceUsage = {
   costUsd?: number;
 };
 
+/** A box in a priced photo's pixels, `right` and `bottom` exclusive. */
+export type PricedBox = { left: number; top: number; right: number; bottom: number };
+
+/** One object SAM found in the photo, kept whether or not a line uses it. svgPath is the mask outline in image pixel coordinates. */
+export type PricedCandidate = { id: string; phrase: string; box: PricedBox; areaPx: number; confidence: number | null; svgPath: string };
+
 /**
  * One quote line on a priced photo (`priced_photos.regions`): the line as quoted, the noun phrase it was
  * looked for by, and the objects kept for it. Boxes are in the priced photo's pixels, `right` and `bottom`
- * exclusive. A line with no phrase or no object kept has `located: false` and stays on the legend.
+ * exclusive. A line with no phrase or no object kept has `located: false` and stays on the legend. Each
+ * object names the candidate it is (null only on photos made before candidates were kept).
  */
 export type PricedRegion = {
   lineIndex: number;
@@ -139,6 +146,6 @@ export type PricedRegion = {
   unitLabel: string;
   totalCents: number | null;
   phrase: string | null;
-  objects: Array<{ box: { left: number; top: number; right: number; bottom: number }; areaPx: number; confidence: number | null }>;
+  objects: Array<{ candidateId: string | null; box: PricedBox; areaPx: number; confidence: number | null }>;
   located: boolean;
 };
