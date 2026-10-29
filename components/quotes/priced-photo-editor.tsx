@@ -276,7 +276,8 @@ export function PricedPhotoEditor({
   return (
     <div className="space-y-3">
       <div
-        className="relative w-full overflow-hidden rounded-[8px] bg-inset shadow-hairline"
+        // While a box is drawn, a drag never selects text and a touch never scrolls the page.
+        className={cn("relative w-full overflow-hidden rounded-[8px] bg-inset shadow-hairline", drawing && "touch-none select-none")}
         ref={stageRef}
         style={{ aspectRatio: `${state.width} / ${state.height}` }}
       >
@@ -290,7 +291,6 @@ export function PricedPhotoEditor({
           onPointerUp={drawing ? drawEnd : undefined}
           preserveAspectRatio="none"
           ref={svgRef}
-          style={{ touchAction: drawing ? "none" : undefined }}
           viewBox={`0 0 ${state.width} ${state.height}`}
         >
           {drawn.map((candidate) => {
@@ -474,7 +474,9 @@ export function PricedPhotoEditor({
       </div>
 
       {finding ? (
-        <form className="space-y-2 rounded-[10px] bg-inset p-3" onSubmit={find}>
+        // Relative so its sr-only label is placed inside it: with no positioned box above it, the label
+        // hangs off the document, which then scrolls and shifts the whole app shell.
+        <form className="relative space-y-2 rounded-[10px] bg-inset p-3" onSubmit={find}>
           <p className="text-[12px] text-ink-2">{finding.lineIndex !== null ? e.findLine(nameOf.get(finding.lineIndex) ?? "") : e.findInPhoto}</p>
           <div className="flex flex-wrap items-center gap-2">
             <label className="sr-only" htmlFor="priced-find-phrase">
