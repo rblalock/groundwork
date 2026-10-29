@@ -27,7 +27,7 @@ import {
   type LineResult,
   type RuleLine,
 } from "./calculator";
-import { getCustomer, type CustomerWithProperties } from "./customers";
+import { addressKey, getCustomer, saveCustomer, type CustomerWithProperties } from "./customers";
 import { db, newId, type Db, type Tx } from "./db";
 import { recordEvent } from "./events";
 import { cancelFollowups, cancelNotices, computeDueAt, queueNotice, scheduleFollowup } from "./followups";
@@ -52,10 +52,15 @@ export type ToolLine = {
 };
 export type ToolAdjustment = { kind: "override" | "discount"; amountCents: number; reason: string };
 
+/** A customer find_customer didn't find, in the member's words. */
+export type NewCustomer = { name: string; phone?: string; email?: string; address?: string; language?: Language };
+
 export interface CreateQuoteInput {
   title: string;
   customerId?: string;
   propertyId?: string;
+  /** Saved first, when there is no customerId, and the quote is theirs (at the address, when given). */
+  customer?: NewCustomer;
   lines: ToolLine[];
   ruleIds?: string[];
   adjustments?: ToolAdjustment[];
@@ -931,8 +936,21 @@ async function attachPhotos(quoteId: string, caller: Caller, since: Date | undef
   }
 }
 
+/**
+ * Saves `customer` (an address becomes their property) and points the quote at them and that property.
+ * A customerId wins: `customer` is then left out.
+ */
+async function withNewCustomer(input: Partial<CreateQuoteInput>, caller: Caller): Promise<Partial<CreateQuoteInput>> {
+  const { customer: stated, ...rest } = input;
+  if (!stated || rest.customerId) return rest;
+  const saved = await saveCustomer(caller.orgId, stated, caller.memberId);
+  const address = stated.address?.trim();
+  const property = address ? saved.properties.find((p) => addressKey(p.address) === addressKey(address)) : undefined;
+  return { ...rest, customerId: saved.id, propertyId: property?.id };
+}
+
 export async function createQuote(input: CreateQuoteInput, caller: Caller, deps?: SaveDeps): Promise<QuoteSummary> {
-  const quoteId = await saveRevision({ quoteId: null, input, caller, now: deps?.now ?? new Date() });
+  const quoteId = await saveRevision({ quoteId: null, input: await withNewCustomer(input, caller), caller, now: deps?.now ?? new Date() });
   await attachPhotos(quoteId, caller, deps?.photosSince);
   await deliverPdf(quoteId, caller, deps);
   return loadSummary(caller.orgId, quoteId);
@@ -964,7 +982,7 @@ export async function reviseQuote(input: ReviseQuoteInput, caller: Caller, deps?
       .where(and(eq(quotes.orgId, orgId), eq(quotes.id, id)));
     if (quote && quote.createdBy !== caller.memberId && !OPEN_STATUSES.includes(quote.status)) throw new Error("NOT_YOUR_QUOTE");
   }
-  const quoteId = await saveRevision({ quoteId: id, input: changes, caller, now });
+  const quoteId = await saveRevision({ quoteId: id, input: await withNewCustomer(changes, caller), caller, now });
   if (removePhotoIds.length > 0) {
     await db()
       .update(quoteAttachments)
