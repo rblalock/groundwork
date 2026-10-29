@@ -5,6 +5,7 @@ import { Check, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { LoadingState, Spinner } from "@/components/spinner";
 import type { Language } from "@/core/language";
+import { pluralUnit } from "@/core/units";
 import { money, quantity } from "@/lib/format";
 import { pageCopyFor } from "@/lib/page-copy";
 import {
@@ -558,7 +559,8 @@ export function PricedPhotoEditor({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-ink">{line.name}</span>
                   <span className="block text-[12px] text-ink-3">
-                    {quantity(line.quantity)} {line.unitLabel}
+                    {quantity(line.quantity)}
+                    {line.unitLabel ? ` ${pluralUnit(line.quantity, line.unitLabel, language)}` : ""}
                     {located ? "" : ` · ${e.notLocated}`}
                   </span>
                 </span>
