@@ -57,6 +57,13 @@
       "when": 1793291171061,
       "tag": "0007_priced-photo-candidates",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793364149497,
+      "tag": "0008_checklist-items",
+      "breakpoints": true
     }
   ]
 }

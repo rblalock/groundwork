@@ -1182,6 +1182,32 @@ export const workPhotos = pgTable(
   ],
 );
 
+/**
+ * The work's checklist: one item per line of its quote's current revision, in line order, made when its
+ * first visit is booked. `located` says the quote's priced photo outlines that line. The text is built in
+ * the reader's language from `name`, `quantity`, and `unit_label`, never stored. Anyone on the team ticks
+ * an item (`done_at`, `done_by_member_id`) or unticks it.
+ */
+export const checklistItems = pgTable(
+  "checklist_items",
+  {
+    id: text("id").primaryKey(),
+    orgId: orgId(),
+    jobId: text("job_id")
+      .notNull()
+      .references(() => serviceJobs.id),
+    lineIndex: integer("line_index").notNull(),
+    name: text("name").notNull(),
+    quantity: numeric("quantity", { mode: "number" }).notNull(),
+    unitLabel: text("unit_label").notNull(),
+    located: boolean("located").notNull().default(false),
+    doneAt: timestamptz("done_at"),
+    doneByMemberId: text("done_by_member_id").references(() => members.id),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("checklist_items_org_job_line_idx").on(t.orgId, t.jobId, t.lineIndex)],
+);
+
 /** Time off: a member (or, with no member, the whole business) can't take visits from `start_at` to `end_at`. */
 export const busyBlocks = pgTable(
   "busy_blocks",
