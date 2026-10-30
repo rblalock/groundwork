@@ -159,9 +159,10 @@ export function ScheduleBoard({
             />
           </label>
         </div>
-        <h2 className="min-w-0 flex-1 truncate text-[15px] font-semibold text-ink max-sm:order-first max-sm:basis-full">
-          {heading}
-          <span className="ml-2 text-[12px] font-normal text-ink-3">{page.timeZone.replaceAll("_", " ")}</span>
+        {/* The time zone drops under the date when they don't fit side by side; neither breaks inside. */}
+        <h2 className="flex flex-1 flex-wrap items-baseline gap-x-2 text-[15px] font-semibold text-ink max-sm:order-first max-sm:basis-full">
+          <span className="whitespace-nowrap">{heading}</span>
+          <span className="text-[12px] font-normal whitespace-nowrap text-ink-3">{page.timeZone.replaceAll("_", " ")}</span>
         </h2>
         <div className="flex flex-wrap items-center gap-1.5">
           {page.canManage ? (
@@ -196,16 +197,8 @@ export function ScheduleBoard({
         />
       ) : null}
 
-      {/*
-        The details sit beside the calendar where there's room, else below it, so every day stays in reach. Beside
-        a week, its days narrow (4.5rem at least) so all seven still fit without scrolling sideways.
-      */}
-      <div
-        className={cn(
-          (selected || timeOff) && "grid items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_20rem]",
-          (selected || timeOff) && !oneDay && "@5xl:[--week-day:4.5rem]",
-        )}
-      >
+      {/* The details sit beside the calendar where there's room, else below it, so every day stays in reach. */}
+      <div className={cn((selected || timeOff) && "grid items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_20rem]")}>
         <section className="min-w-0 overflow-hidden rounded-card bg-surface shadow-card">
           {page.view === "route" ? (
             <RouteBoard
