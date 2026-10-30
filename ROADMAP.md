@@ -117,6 +117,11 @@ owner approves anything that moves a customer. Done in the order below; each ste
   slot on a far day. Equipment matters: a price book item can list what it needs (trailer, mower
   deck size, sprayer license, chipper), a member can list what their truck carries, and a job only
   goes to a crew that carries all of it.
+  Shipped: `find_availability` ranks every free slot (for the crew named, or each member on their
+  own) by the driving it adds to the crew's day, and puts slots that would take a day over its capacity
+  last, marked; its lines say who and the minutes. Price book items and members list equipment (by text,
+  on the price book page, and on the Team page); members who lack it aren't offered, a named crew who
+  lack it hear what, and `book_visit` refuses them unless the owner says to book anyway.
 - **Running long.** `start_job` and `close_job` already time the work. When a stop passes its
   planned finish by a set number of minutes, or the crew texts that it will, the rest of the day
   re-plans from now. When the projected return runs past the end of the workday by more than a

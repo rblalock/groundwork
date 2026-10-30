@@ -48,6 +48,13 @@ would drive 10 minutes less, the route says so; nothing is moved. Crew get their
 text, the schedule's Route view lists everyone's for owners and a crew member's own for crew, and the
 assistant reads the same numbers from `read_schedule`.
 
+Asked when a job fits, the assistant offers the slots that add the least driving to a crew's day
+("Wed, Oct 21, 10:15 AM with Carlos (+5 min driving)"), ahead of an empty day across town, and marks a
+slot that would take the day over its capacity. A price book item can list what the work needs
+("trailer", "chipper") and a member what their truck carries, by text or on the price book and Team
+pages; a job is only offered to crew who carry all of it, and booking someone who doesn't needs the
+owner's say.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 
