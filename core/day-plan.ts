@@ -203,9 +203,9 @@ const later = (a: Date, b: Date) => (a > b ? a : b);
 export function replanFrom(plan: DayPlan, now: Date, settings: ReplanSettings): DayPlan {
   const touched = plan.stops.some((s) => s.startedAt || s.completedAt || s.status === "completed" || s.delayMinutes > 0);
   if (!touched) return { ...plan, replan: null, atRisk: false };
-  // A later stop marked done before its booked start was closed early; it isn't where the crew have got to,
-  // and the route chains past it.
-  const doneEarly = (s: PlanStop) => s.status === "completed" && s.completedAt !== null && s.completedAt < s.startAt;
+  // A later stop closed before its booked start without being started was ticked off early; it isn't where
+  // the crew have got to, and the route chains past it. One they started early and finished is in sequence.
+  const doneEarly = (s: PlanStop) => s.status === "completed" && s.startedAt === null && s.completedAt !== null && s.completedAt < s.startAt;
   const reached = plan.stops.findLastIndex((s) => s.startedAt || (s.status === "completed" && !doneEarly(s)));
   const underWay = reached >= 0 && plan.stops[reached].status !== "completed" ? reached : -1;
   let overdue = false;
@@ -235,7 +235,8 @@ export function replanFrom(plan: DayPlan, now: Date, settings: ReplanSettings): 
   });
   const delayed = stops.find((s) => s.status !== "completed" && s.delayMinutes > 0);
   const current = underWay >= 0 ? stops[underWay] : (delayed ?? null);
-  const last = stops.findLast((s) => !doneEarly(s)) ?? stops.at(-1)!;
+  // The return follows whichever stop in sequence leaves last.
+  const last = stops.filter((s) => !doneEarly(s)).reduce<PlanStop | null>((latest, s) => (!latest || s.plannedLeaveAt > latest.plannedLeaveAt ? s : latest), null) ?? stops.at(-1)!;
   const backAtYardAt = plan.legOut ? plus(last.plannedLeaveAt, plan.legOut.minutes) : null;
   const bookedEnd = plan.backAtYardAt ?? plan.stops.at(-1)!.plannedLeaveAt;
   const projectedEnd = backAtYardAt ?? last.plannedLeaveAt;
