@@ -16,7 +16,7 @@ import { addDays } from "../../../core/time";
 import { confirmedEmailForTests, truncateAll } from "../../../core/test-db";
 import { LIMIT_BOUNDS, setUsageLimits } from "../../../core/usage-limits";
 import { applyVerticalPack } from "../../../core/vertical-seed";
-import { VERTICALS } from "../../../verticals";
+import type { VerticalPack } from "../../../verticals";
 
 /**
  * Obviously fake. The only business in the database, so its owner is the one the local-dev principal
@@ -236,13 +236,21 @@ export async function seedEmailBusiness(): Promise<EmailBusiness> {
   return { ...business, owner: { ...owner, phoneE164: phone }, inbox, ownerEmail, ownerThreadId };
 }
 
+/** The business each pack's evals seed, owned by Pat Ortega. */
+export const VERTICAL_BUSINESSES: Record<string, string> = {
+  landscaping: "LOX Landscape Co",
+  irrigation: "LOX Irrigation Co",
+  pool: "LOX Pool Service",
+  tree: "LOX Tree Service",
+};
+
 /**
- * LOX Landscape Co with the landscaping pack loaded: its items, rules, notes, and $150 minimum. Run its
- * evals with VERTICAL=landscaping so the assistant gets the pack's instructions too.
+ * The pack's business (LOX Landscape Co for landscaping) with the pack loaded: its items, rules, notes,
+ * and minimum. Run its evals with VERTICAL=<pack id> so the assistant gets the pack's instructions too.
  */
-export async function seedLandscapingBusiness(): Promise<SeededBusiness & { itemIdsByName: Record<string, string> }> {
-  const owner = await seedBase({ business: "LOX Landscape Co", owner: "Pat Ortega" });
-  await applyVerticalPack(owner.orgId, owner.memberId, VERTICALS.landscaping);
+export async function seedVerticalBusiness(pack: VerticalPack): Promise<SeededBusiness & { itemIdsByName: Record<string, string> }> {
+  const owner = await seedBase({ business: VERTICAL_BUSINESSES[pack.id] ?? `LOX ${pack.label}`, owner: "Pat Ortega" });
+  await applyVerticalPack(owner.orgId, owner.memberId, pack);
   const itemIdsByName = Object.fromEntries((await listItems(owner.orgId)).map((item) => [item.name, item.id]));
   return { orgId: owner.orgId, owner, itemIds: null, itemIdsByName };
 }

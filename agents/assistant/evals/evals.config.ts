@@ -4,18 +4,19 @@ import { defineEvalConfig } from "eve/evals";
 import { languageModel, modelProviderOptions } from "../../../core/model-provider";
 import { forceOffline } from "../../../core/offline";
 import { truncateAll } from "../../../core/test-db";
+import { VERTICALS } from "../../../verticals";
 import {
   seedDraftQuote,
   seedDuplicateCustomers,
   seedEmailBusiness,
   seedEmptyBusiness,
   seedInvoices,
-  seedLandscapingBusiness,
   seedOneItemBusiness,
   seedPricedBusiness,
   seedScheduledBusiness,
   seedSiteNote,
   seedTodaysVisits,
+  seedVerticalBusiness,
   seedWorkToInvoice,
 } from "./seed";
 
@@ -63,7 +64,11 @@ export default defineEvalConfig({
         siteNote: seedSiteNote,
         duplicateCustomers: seedDuplicateCustomers,
         emailBusiness: seedEmailBusiness,
-        landscaping: seedLandscapingBusiness,
+        // One seed per trade pack, for the evals tagged with its id.
+        landscaping: () => seedVerticalBusiness(VERTICALS.landscaping),
+        irrigation: () => seedVerticalBusiness(VERTICALS.irrigation),
+        pool: () => seedVerticalBusiness(VERTICALS.pool),
+        tree: () => seedVerticalBusiness(VERTICALS.tree),
       },
     };
   },
