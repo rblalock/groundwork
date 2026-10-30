@@ -73,6 +73,18 @@ test("route days: arcs go to the weekdays that keep the most stops where they ar
   );
   assert.deepEqual(days.map((d) => [d.weekday, d.jobs.map((j) => j.jobId)]), [[1, ["east"]], [5, ["north", "north2"]]]);
   assert.equal(routeDaysReason(days, "en"), "3 recurring stops by area, one loop a weekday (Mon 1, Fri 2)");
+  // Four stops on two days with five days worked make two loops, not four single stops.
+  const two = planRouteDays(
+    yard,
+    [
+      { jobId: "oak1", place: toward(0, "").place, weekday: 1 },
+      { jobId: "oak2", place: toward(8, "").place, weekday: 1 },
+      { jobId: "pine1", place: toward(180, "").place, weekday: 3 },
+      { jobId: "pine2", place: toward(172, "").place, weekday: 1 },
+    ],
+    [1, 2, 3, 4, 5],
+  );
+  assert.deepEqual(two.map((d) => [d.weekday, d.jobs.map((j) => j.jobId).sort()]), [[1, ["oak1", "oak2"]], [3, ["pine1", "pine2"]]]);
 });
 
 test("route days: the drafts say the new weekday and the first visit on it, with no prices", () => {
