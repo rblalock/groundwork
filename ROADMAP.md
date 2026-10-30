@@ -107,6 +107,10 @@ owner approves anything that moves a customer. Done in the order below; each ste
   two-opt pass, which is enough at a crew's size. The plan is derived from the visits and recomputed
   when they change; it is never the record, the visits are. The morning line becomes the route: each
   stop with its arrival, a maps link, the gate note, and the drive to the next one.
+  Shipped: a plan per crew member per day (leave the yard, each stop's drive in, planned arrival and
+  finish, back at the yard, driving and on-site minutes, load against a day capacity the owner sets) in
+  booked order, with a shorter order suggested when it saves 10 minutes or more; the crew's morning
+  text is the route, and `read_schedule` returns it. Maps links and gate notes are still to come.
 - **Slots that fit the route.** `find_availability` offers the cheapest insertion into each crew's
   day (least added driving), inside working hours and under a day capacity (jobs plus driving fill no
   more than a set share of the day, so there is room for the unexpected), before it offers an empty
@@ -134,6 +138,9 @@ owner approves anything that moves a customer. Done in the order below; each ste
 - **The board.** The schedule page shows each crew's day as a route: the stops in order with drive
   legs between them, the running total against capacity, and what is at risk. A map comes after the
   list works; the list with honest minutes is the product, the map is the picture of it.
+  Shipped: the schedule's Route view lists each crew member's day (the default for crew with visits
+  that day): the stops in order with the drive into each, the leg back, and the day's minutes and load,
+  over capacity in the warning color, with a shorter order when there is one. The map is still to come.
 - **Crew phone.** Each crew member's day on their phone from a text: "next" for the next stop with
   the address link and notes, "done" to close it and re-plan, "running 30 late" to re-plan with the
   delay, and the owner sees the day shift on the board.

@@ -41,6 +41,13 @@ the crew's stop before, or the yard, and out to the next stop, or back; when a p
 holds today's default and says so. The schedule shows each visit's drive, and the crew's booking text
 says how far it is. `npm run places:backfill` places addresses saved before this.
 
+Each crew member's day is a route, worked out from their visits every time and never saved: when they
+leave the yard, each stop in booked order with the drive in, and when they're back, with the minutes
+driving and on site against a day capacity the owner sets (95% unless changed). When another order
+would drive 10 minutes less, the route says so; nothing is moved. Crew get their route as the morning
+text, the schedule's Route view lists everyone's for owners and a crew member's own for crew, and the
+assistant reads the same numbers from `read_schedule`.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 
