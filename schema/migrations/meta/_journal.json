@@ -127,6 +127,13 @@
       "when": 1793375169663,
       "tag": "0017_route-days",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793382963227,
+      "tag": "0018_trace-instructions",
+      "breakpoints": true
     }
   ]
 }

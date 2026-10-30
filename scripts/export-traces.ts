@@ -31,6 +31,8 @@ export function traceLine(trace: TurnTrace, options: { redact?: boolean } = {}):
     turnId: trace.turnId,
     source: trace.source,
     modelId: trace.modelId,
+    vertical: trace.vertical,
+    instructionsHash: trace.instructionsHash,
     status: trace.status,
     startedAt: trace.startedAt.toISOString(),
     finishedAt: trace.finishedAt?.toISOString() ?? null,

@@ -5,6 +5,8 @@
 import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { turnTraces } from "../schema/schema";
 import type { TraceStep, TraceUsage } from "../schema/types";
+import { activeVertical } from "../verticals";
+import { instructionsHash, readAgentInstructions } from "./agent-instructions";
 import { originOf, RETENTION_DAYS, type StreamEvent, type TurnAuth } from "./conversation-events";
 import { db, newId } from "./db";
 import { resolveCaller } from "./members";
@@ -20,6 +22,7 @@ const TERMINAL: Record<string, string> = { "turn.completed": "completed", "turn.
 /** The kinds a trace keeps; everything else is skipped before any lookup. */
 const KEPT = new Set([
   "turn.started",
+  "message.received",
   "step.started",
   "actions.requested",
   "action.result",
@@ -55,6 +58,23 @@ type Change = { steps: TraceStep[]; modelId?: string; usage?: TraceUsage; status
 function changeFor(event: StreamEvent, data: Record<string, unknown>): Change {
   const base = { eventId: event.meta.id, at: event.meta.at, stepIndex: typeof data.stepIndex === "number" ? data.stepIndex : null };
   switch (event.type) {
+    case "message.received": {
+      // The member's words, and their files by name and type only.
+      const body = capped(text(data.message) ?? "");
+      const parts = Array.isArray(data.parts) ? (data.parts as Array<Record<string, unknown>>) : [];
+      const files = parts.filter((part) => part?.type === "file").map((part) => ({ name: text(part.filename) ?? null, mediaType: text(part.mediaType) ?? null }));
+      return {
+        steps: [
+          {
+            ...base,
+            kind: "input",
+            text: body.value as string,
+            ...(files.length ? { files } : {}),
+            ...(body.truncated ? { truncated: true } : {}),
+          },
+        ],
+      };
+    }
     case "step.started": {
       // Eve reports the model as `<provider>/<id>`; the trace keeps the bare id.
       const modelId = text(data.modelId)?.replace(/^[a-z0-9-]+\//, "");
@@ -129,6 +149,13 @@ async function orgOf(auth: TurnAuth): Promise<string | null> {
   return caller?.orgId ?? null;
 }
 
+/** What the turn starts with: the hash of its instructions (null when they can't be read) and the pack. */
+function startedWith(): { instructionsHash: string | null; vertical: string | null } {
+  const pack = activeVertical();
+  const instructions = readAgentInstructions();
+  return { instructionsHash: instructions ? instructionsHash(instructions, pack?.instructions ?? null) : null, vertical: pack?.id ?? null };
+}
+
 /** Adds a turn's row if it isn't there yet. A late `turn.started` moves `started_at` back to it. */
 async function ensureTrace(session: { id: string; auth: TurnAuth }, turnId: string, at: string): Promise<boolean> {
   const who = await attributionFor({ auth: session.auth, eveSessionId: session.id, turnId, stepIndex: null });
@@ -143,6 +170,7 @@ async function ensureTrace(session: { id: string; auth: TurnAuth }, turnId: stri
       eveSessionId: session.id,
       turnId,
       source: originOf(session.auth),
+      ...startedWith(),
       startedAt: new Date(at),
     })
     .onConflictDoUpdate({

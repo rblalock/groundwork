@@ -111,3 +111,33 @@ withTestDb("a thread's turn is traced under its conversation, usage summed over 
   assert.equal(await traceFor(TEST_ORG, "ses_t", "t2"), null);
   assert.equal((await db().select().from(turnTraces)).length, 1);
 });
+
+withTestDb("a turn keeps the member's message with its files' names, the pack, and the instructions' hash", async () => {
+  const { member: m } = await member();
+  const session = { id: "ses_in", auth: { authenticator: "local-dev", principalId: "local", attributes: { orgId: TEST_ORG, memberId: m.id } } };
+  const saved = process.env.VERTICAL;
+  process.env.VERTICAL = "landscaping";
+  try {
+    const [started, ...rest] = quotingTurn("t1");
+    await recordTraceEvent(started, session);
+    await recordTraceEvent(
+      ev("message.received", {
+        turnId: "t1",
+        sequence: 2,
+        message: "Mow the front at 412 Oak St",
+        parts: [{ type: "text", text: "Mow the front at 412 Oak St" }, { type: "file", filename: "yard-front.jpg", mediaType: "image/jpeg", url: "data:..." }],
+      }, 50),
+      session,
+    );
+    for (const e of rest) await recordTraceEvent(e, session);
+  } finally {
+    if (saved === undefined) delete process.env.VERTICAL;
+    else process.env.VERTICAL = saved;
+  }
+  const trace = await traceFor(TEST_ORG, "ses_in", "t1");
+  assert.equal(trace?.vertical, "landscaping");
+  assert.match(trace?.instructionsHash ?? "", /^[0-9a-f]{16}$/);
+  const input = trace?.steps.find((s) => s.kind === "input");
+  assert.equal(input?.text, "Mow the front at 412 Oak St");
+  assert.deepEqual(input?.files, [{ name: "yard-front.jpg", mediaType: "image/jpeg" }]);
+});

@@ -94,8 +94,9 @@ export interface DeliveryProgress {
 }
 
 /**
- * One entry in a turn's trace (`turn_traces.steps`), from one eve stream event: a model step starting
- * or completing, a tool call or its result, the model's reasoning, or a message it wrote. `eventId` is
+ * One entry in a turn's trace (`turn_traces.steps`), from one eve stream event: the member's message
+ * (`input`), a model step starting or completing, a tool call or its result, the model's reasoning, or a
+ * message it wrote. `eventId` is
  * the event's id, so a re-delivered event is appended once. Inputs and outputs are stored as they were,
  * cut to 32 KB of JSON with `truncated` set.
  */
@@ -103,7 +104,7 @@ export type TraceStep = {
   eventId: string;
   at: string;
   stepIndex: number | null;
-  kind: "step" | "tool.call" | "tool.result" | "reasoning" | "message";
+  kind: "input" | "step" | "tool.call" | "tool.result" | "reasoning" | "message";
   toolName?: string;
   callId?: string;
   input?: unknown;
@@ -115,6 +116,8 @@ export type TraceStep = {
   usage?: Record<string, number>;
   finishReason?: string;
   truncated?: boolean;
+  /** The files an `input` step's message carried, by name and type; never their bytes. */
+  files?: Array<{ name: string | null; mediaType: string | null }>;
 };
 
 /** A turn's token and cost totals, summed over its steps. */

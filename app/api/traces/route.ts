@@ -31,7 +31,7 @@ export const GET = route(async (request: Request) => {
       usage,
       startedAt: trace.startedAt.toISOString(),
       finishedAt: trace.finishedAt?.toISOString() ?? null,
-      stepCount: trace.steps.length,
+      stepCount: trace.steps.filter((step) => step.kind !== "input").length,
     },
     { headers: { "Cache-Control": "private, no-store" } },
   );

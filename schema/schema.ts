@@ -1063,6 +1063,10 @@ export const turnTraces = pgTable(
     turnId: text("turn_id").notNull(),
     source: text("source").notNull(),
     modelId: text("model_id"),
+    /** The hash of the instructions the turn started with (core/agent-instructions.ts); null when they couldn't be read. */
+    instructionsHash: text("instructions_hash"),
+    /** The trade pack `VERTICAL` named when the turn started; null for none. */
+    vertical: text("vertical"),
     /** `running`, then `completed`, `failed`, or `cancelled`. */
     status: text("status").notNull().default("running"),
     steps: jsonb("steps").$type<TraceStep[]>().notNull().default([]),
