@@ -165,7 +165,8 @@ export async function scheduleFor(caller: AppCaller, input: { view?: string; dat
     invoices: await jobInvoicesFor(caller, schedule.visits.map((v) => v.jobId)),
     plans: view === "route" ? plans.map(planJson) : [],
     proposals: privileged ? await proposalsFor(caller, input.now) : [],
-    weather: weather[0]?.line ?? null,
+    // The strip sits under the day's own heading, so the line's day word ("Tomorrow:") is dropped.
+    weather: weather[0]?.line.replace(/^[^:]*: /, "") ?? null,
   };
 }
 

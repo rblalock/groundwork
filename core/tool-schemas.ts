@@ -190,7 +190,7 @@ export const profilePatchSchema = z
       .min(10)
       .max(100)
       .optional()
-      .describe("The chance of rain, in percent, at which a weather-sensitive stop is at risk and the evening check proposes moving it (\"call it off above 50% rain\" is 50). Default 60."),
+      .describe("The chance of rain, in percent, at which a weather-sensitive stop is at risk and the evening check proposes moving it (\"call it off at 50% rain or more\" is 50). Default 60."),
     heatThresholdF: z
       .number()
       .int()
