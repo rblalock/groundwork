@@ -7,6 +7,7 @@ import { cn } from "@/ui/lib/utils";
 import type { Language } from "@/core/language";
 import { pageCopyFor } from "@/lib/page-copy";
 import type { DayPlanJson, VisitJson } from "@/lib/pages/schedule";
+import { durationText } from "@/core/scheduling-time";
 import { timeLabel } from "./calendar";
 
 // The Schedule page's route view: each crew member's day as a list, from the yard and back, with the drive
@@ -117,7 +118,7 @@ function RouteCard({
         ) : null}
       </ol>
       <p className={cn("mt-2 px-2 text-[12px] tabular-nums", plan.overCapacity ? "font-medium text-orange" : "text-ink-2")}>
-        {r.summary(plan.driveMinutes, plan.workMinutes)} · {plan.load === null ? r.noHours : r.load(percent(plan.load))}
+        {r.summary(durationText(plan.driveMinutes, language), durationText(plan.workMinutes, language))} · {plan.load === null ? r.noHours : r.load(percent(plan.load))}
         {plan.overCapacity ? ` · ${r.over(percent(plan.capacityBp))}` : ""}
       </p>
       {plan.suggestedOrder && plan.savedDriveMinutes ? (
@@ -137,7 +138,7 @@ function YardRow({ icon, label, time, detail }: { icon: ReactNode; label: string
           {icon}
         </span>
         {label}
-        {detail ? <span className="text-[12px] text-ink-3 tabular-nums">· {detail}</span> : null}
+        {detail ? <span className="text-[12px] text-ink-3 tabular-nums">({detail})</span> : null}
       </span>
     </li>
   );
