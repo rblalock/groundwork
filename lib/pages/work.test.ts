@@ -12,12 +12,13 @@ import { messages } from "../../schema/schema";
 import { saveCustomer } from "../../core/customers";
 import { db, newId } from "../../core/db";
 import { updateProfile } from "../../core/profile";
-import { createQuote, getQuote, linkRecentAttachments } from "../../core/quotes";
+import { approveQuote, createQuote, getQuote, linkRecentAttachments, setQuoteOutcome } from "../../core/quotes";
 import { saveItems } from "../../core/pricebook";
-import { bookVisit } from "../../core/scheduling";
+import { bookVisit, getVisit } from "../../core/scheduling";
 import { TEST_ORG, withTestDb } from "../../core/test-db";
 import { attachTextedWorkPhotos, listWorkPhotos, resolveWorkTarget } from "../../core/work-photos";
 import type { Caller } from "../../core/members";
+import { PUT as checklistRoute } from "../../app/api/work/[id]/checklist/route";
 import { POST as photosRoute } from "../../app/api/work/[id]/photos/route";
 import { DELETE as removeRoute, GET as photoRoute } from "../../app/api/work/[id]/photos/[photoId]/route";
 import { workFor } from "./work";
@@ -155,4 +156,42 @@ withTestDb("the work's page: anyone adds photos; whoever added one, or an owner,
   const elsewhere = await otherBusiness();
   const outsider = await person("Lee Outsider", "owner", "+15555550109", elsewhere);
   refused(await upload(await signIn(outsider.phoneE164!), s.jobId), 404);
+});
+
+withTestDb("the work's page lists its checklist, and anyone on the team ticks it; the last tick marks the visit done", async () => {
+  const s = await seed();
+  const [item] = await saveItems(TEST_ORG, [{ name: "widget service", unitKind: "each", unitLabel: "widget", priceCents: 1200 }], s.owner.memberId);
+  const quote = await createQuote({ title: "5 Elm Rd", customerId: s.customer.id, lines: [{ itemId: item.id, quantity: 2 }] }, s.owner, { post: quiet });
+  await approveQuote(quote.quoteId, s.owner, { post: quiet });
+  await setQuoteOutcome(quote.quoteId, "won", s.owner, { post: quiet });
+  const booked = await bookVisit(s.owner, { quoteId: quote.quoteId, memberIds: [s.carlos.memberId], day: "2026-10-19", time: "11:00", allowOutsideHours: true }, { now: MONDAY_8AM, post: quiet });
+  const carlosHeaders = await signIn(s.carlos.phoneE164!);
+
+  assert.equal((await workFor(await appCaller(carlosHeaders), s.jobId)).checklist, null, "work with no quote has no list");
+  const page = await workFor(await appCaller(carlosHeaders), booked.visit.jobId);
+  assert.deepEqual(page.checklist && { ...page.checklist, items: page.checklist.items.map((i) => i.text) }, {
+    items: ["widget service, 2 widgets"],
+    done: 0,
+    total: 1,
+    photoHref: null,
+    canTick: true,
+  });
+  const itemId = page.checklist!.items[0].itemId;
+  const params = { id: booked.visit.jobId };
+
+  refused(await call(checklistRoute, carlosHeaders, { method: "PUT", params, body: { itemIds: ["chk_nope"] } }), 404, "CHECKLIST_ITEM_NOT_FOUND");
+  refused(await call(checklistRoute, await superAdminViewing(TEST_ORG), { method: "PUT", params, body: { itemIds: [itemId] } }), 403, "NOT_A_MEMBER");
+  const outsider = await person("Lee Outsider", "owner", "+15555550109", await otherBusiness());
+  refused(await call(checklistRoute, await signIn(outsider.phoneE164!), { method: "PUT", params, body: { itemIds: [itemId] } }), 404);
+
+  const ticked = await call(checklistRoute, carlosHeaders, { method: "PUT", params, body: { itemIds: [itemId] } });
+  assert.equal(ticked.status, 200, JSON.stringify(ticked.body));
+  assert.deepEqual(ticked.body, { allDone: true, visitCompleted: true });
+  assert.equal((await getVisit(s.owner, booked.visit.visitId))?.status, "completed");
+  const after = await workFor(await appCaller(carlosHeaders), booked.visit.jobId);
+  assert.equal(after.checklist?.done, 1);
+  assert.equal(after.checklist?.items[0].doneByName, "Carlos Crew");
+
+  const unticked = await call(checklistRoute, carlosHeaders, { method: "PUT", params, body: { itemIds: [itemId], undo: true } });
+  assert.deepEqual(unticked.body, { allDone: false, visitCompleted: false });
 });

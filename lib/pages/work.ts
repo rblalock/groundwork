@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { quotes } from "../../schema/schema";
 import { readStoredFile, storeInboundAttachment } from "../../core/blob";
 import { pairOf } from "../../core/before-after";
+import { checklistCounts, checklistFor, checklistPhoto, itemText, tickChecklist } from "../../core/checklist";
 import { db } from "../../core/db";
 import { invoicesForJobs, type InvoiceRef } from "../../core/invoices";
 import { isPrivileged } from "../../core/members";
@@ -15,8 +16,9 @@ import { notFound, refuse } from "./access";
 import { preparePhoto } from "./photo-upload";
 import { beforeAfterHref, pricedPhotoHref, type StoredFile } from "./quotes";
 
-// A piece of work (a service job) on its own page: its customer, quote, invoice, visits, and photos.
-// Everyone on the team sees it and adds photos; the invoice opens for owners and admins only.
+// A piece of work (a service job) on its own page: its customer, quote, invoice, visits, checklist, and
+// photos. Everyone on the team sees it, ticks its checklist, and adds photos; the invoice opens for owners
+// and admins only.
 
 export type WorkPage = {
   job: ServiceJobView;
@@ -25,12 +27,20 @@ export type WorkPage = {
   invoice: (Pick<InvoiceRef, "invoiceId" | "label" | "status"> & { canOpen: boolean }) | null;
   photos: Array<WorkPhotoView & { canRemove: boolean }>;
   canAddPhotos: boolean;
+  /** Its quote's lines to tick, each item's text in the viewer's language, with the priced photo they point to; null when it has no list. */
+  checklist: {
+    items: Array<{ itemId: string; text: string; doneAt: Date | null; doneByName: string | null }>;
+    done: number;
+    total: number;
+    photoHref: string | null;
+    canTick: boolean;
+  } | null;
 };
 
 export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPage> {
   const job = await getServiceJob(caller, jobId);
   if (!job) throw notFound();
-  const [quote, invoices, photos] = await Promise.all([
+  const [quote, invoices, photos, items] = await Promise.all([
     job.quoteId
       ? db()
           .select({ id: quotes.id, title: quotes.title })
@@ -40,8 +50,10 @@ export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPag
       : null,
     invoicesForJobs(caller.orgId, [job.id]),
     listWorkPhotos(caller.orgId, { jobId: job.id }),
+    checklistFor(caller.orgId, job.id),
   ]);
   const invoice = invoices.get(job.id);
+  const priced = items.length && job.quoteId ? await checklistPhoto(caller.orgId, job.quoteId) : null;
   const privileged = isPrivileged(caller.role);
   return {
     job,
@@ -49,7 +61,31 @@ export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPag
     invoice: invoice ? { invoiceId: invoice.invoiceId, label: invoice.label, status: invoice.status, canOpen: privileged } : null,
     photos: photos.map((photo) => ({ ...photo, canRemove: caller.memberId !== null && (privileged || photo.addedByMemberId === caller.memberId) })),
     canAddPhotos: caller.memberId !== null,
+    checklist: items.length
+      ? {
+          items: items.map((item) => ({ itemId: item.itemId, text: itemText(item, caller.language), doneAt: item.doneAt, doneByName: item.doneByName })),
+          ...checklistCounts(items),
+          photoHref: priced ? pricedPhotoHref(priced) : null,
+          canTick: caller.memberId !== null,
+        }
+      : null,
   };
+}
+
+/** Ticks a checklist item done, or unticks it, for anyone on the team; the last tick marks today's visit done. */
+export async function tickChecklistFromApp(caller: AppCaller, jobId: string, itemIds: string[], undo: boolean): Promise<{ allDone: boolean; visitCompleted: boolean }> {
+  const actor = memberCaller(caller);
+  const e = pageCopyFor(caller.language).work.errors;
+  try {
+    const ticked = await tickChecklist(actor, { jobId, itemIds, undo });
+    return { allDone: ticked.allDone, visitCompleted: ticked.visitCompleted !== null };
+  } catch (error) {
+    refuse(error, {
+      SERVICE_JOB_NOT_FOUND: [404, "That isn't here."],
+      NO_CHECKLIST: [404, e.itemGone],
+      CHECKLIST_ITEM_NOT_FOUND: [404, e.itemGone],
+    });
+  }
 }
 
 /** The photos on a customer's work, newest first, for their page. */

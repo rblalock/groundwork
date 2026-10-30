@@ -8,8 +8,9 @@ import { JumpBar, type JumpSection } from "@/components/record/jump-bar";
 import { EmptyFold, RailFact, RecordColumns, RecordSection } from "@/components/record/layout";
 import { ProgressLine } from "@/components/record/progress-line";
 import { WorkCard } from "@/components/schedule/work-card";
+import { ChecklistItems } from "@/components/work/checklist";
 import { AddWorkPhotosButton, RemoveWorkPhotoButton } from "@/components/work/work-photos";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatDateTime } from "@/lib/format";
 import { HttpError } from "@/lib/guards";
 import { pageCopyFor } from "@/lib/page-copy";
 import { pageMember } from "@/lib/page-session";
@@ -20,13 +21,14 @@ import { StatusPill } from "@/ui/beautiful/atoms/StatusPill";
 const TONES = { open: "accent", completed: "green", cancelled: "neutral" } as const;
 
 /**
- * One piece of work: where it stands, photos of it, and its visits, with who it's for, the quote it came
- * from, and its invoice in the rail. Everyone on the team sees it and adds photos.
+ * One piece of work: where it stands, its checklist, photos of it, and its visits, with who it's for, the
+ * quote it came from, and its invoice in the rail. Everyone on the team sees it, ticks the checklist, and
+ * adds photos.
  */
 export default async function WorkPage({ params }: { params: Promise<{ id: string }> }) {
   const caller = await pageMember();
   const { id } = await params;
-  const { job, quote, invoice, photos, canAddPhotos } = await workFor(caller, id).catch((error: unknown) => {
+  const { job, quote, invoice, photos, canAddPhotos, checklist } = await workFor(caller, id).catch((error: unknown) => {
     if (error instanceof HttpError && error.status === 404) notFound();
     throw error;
   });
@@ -53,6 +55,7 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
     r.workStages,
   );
   const sections: JumpSection[] = [
+    ...(checklist ? [{ id: "checklist", label: w.checklist, count: checklist.total }] : []),
     ...(photos.length > 0 ? [{ id: "photos", label: w.photos, count: photos.length }] : []),
     { id: "visits", label: w.visits, count: live.length },
   ];
@@ -79,6 +82,43 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
         <RecordColumns
           main={
             <>
+              {checklist ? (
+                <RecordSection id="checklist">
+                  <Card
+                    actions={<span className="text-[12px] whitespace-nowrap text-ink-3 tabular-nums">{w.checklistDone(checklist.done, checklist.total)}</span>}
+                    description={w.checklistHelp}
+                    title={w.checklist}
+                  >
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                      <div className="min-w-0 flex-1">
+                        <ChecklistItems
+                          canTick={checklist.canTick}
+                          jobId={job.id}
+                          language={language}
+                          rows={checklist.items.map((item) => ({
+                            itemId: item.itemId,
+                            text: item.text,
+                            done: item.doneAt !== null,
+                            tickedBy: item.doneAt && item.doneByName ? w.tickedBy(item.doneByName, formatDateTime(item.doneAt, language, timeZone)) : null,
+                          }))}
+                        />
+                      </div>
+                      {checklist.photoHref ? (
+                        <a
+                          className="block w-full shrink-0 overflow-hidden rounded-[8px] bg-inset shadow-hairline transition-opacity hover:opacity-90 sm:w-40"
+                          href={checklist.photoHref}
+                          rel="noopener"
+                          target="_blank"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
+                          <img alt={w.pricedPhoto} className="w-full" loading="lazy" src={checklist.photoHref} />
+                        </a>
+                      ) : null}
+                    </div>
+                  </Card>
+                </RecordSection>
+              ) : null}
+
               {photos.length > 0 ? (
                 <RecordSection id="photos">
                   <Card actions={canAddPhotos ? <AddWorkPhotosButton jobId={job.id} language={language} visitId={photoVisit} /> : null} title={w.photos}>
