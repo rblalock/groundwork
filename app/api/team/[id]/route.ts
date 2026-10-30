@@ -10,7 +10,7 @@ export const DELETE = route(async (request: Request, { params }: { params: Promi
 
 /**
  * An owner or admin sets the address a member forwards emails from (`{ email }`, blank removes it), or
- * changes their name, language, or role (`{ name?, language?, role? }`; roles only by the owner).
+ * changes their name, language, role, or equipment (`{ name?, language?, role?, equipment? }`; roles only by the owner).
  */
 export const PATCH = route(async (request: Request, { params }: { params: Promise<{ id: string }> }) => {
   const caller = await requirePrivileged(request.headers);

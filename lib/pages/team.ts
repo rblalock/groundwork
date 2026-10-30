@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { addTeamMember, listTeam, removeTeamMember, setForwardingEmail, updateTeamMember, type ForwardingResult, type TeamMember } from "../../core/team";
-import { languageSchema } from "../../core/tool-schemas";
+import { equipmentSchema, languageSchema } from "../../core/tool-schemas";
 import { HttpError, memberCaller, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { privilegedActor, refuse } from "./access";
@@ -67,17 +67,18 @@ export async function removeMemberFromApp(caller: AppCaller, memberId: string): 
 
 export const memberEmailSchema = z.object({ email: z.string().trim().max(200) }).strict();
 
-/** A change to someone's name, language, or role from the Team page; anything left out stays. */
+/** A change to someone's name, language, role, or equipment from the Team page; anything left out stays. */
 export const memberUpdateSchema = z
   .object({
     name: z.string().trim().min(1).max(100).optional(),
     language: languageSchema.optional(),
     role: z.enum(["member", "admin"]).optional(),
+    equipment: equipmentSchema.optional(),
   })
   .strict();
 
 /** The Account page's change to the member's own name or language. */
-export const ownProfileSchema = memberUpdateSchema.omit({ role: true });
+export const ownProfileSchema = memberUpdateSchema.omit({ role: true, equipment: true });
 
 const updateErrors = (caller: AppCaller) => {
   const errors = pageCopyFor(caller.language).team.errors;
@@ -90,11 +91,11 @@ const updateErrors = (caller: AppCaller) => {
   } as const;
 };
 
-export type UpdatedMember = { id: string; name: string; role: string; language: string };
+export type UpdatedMember = { id: string; name: string; role: string; language: string; equipment: string[] };
 
 /**
- * An owner or admin changes someone's name, language, or role through `updateTeamMember`: name and
- * language for themself or anyone below them, and roles only by the owner.
+ * An owner or admin changes someone's name, language, role, or equipment through `updateTeamMember`: name,
+ * language, and equipment for themself or anyone below them, and roles only by the owner.
  */
 export async function updateMemberFromApp(
   caller: AppCaller,
@@ -104,7 +105,7 @@ export async function updateMemberFromApp(
   const actor = privilegedActor(caller);
   try {
     const member = await updateTeamMember(actor, memberId, update);
-    return { id: member.id, name: member.name, role: member.role, language: member.language };
+    return { id: member.id, name: member.name, role: member.role, language: member.language, equipment: member.equipment };
   } catch (error) {
     refuse(error, updateErrors(caller));
   }
@@ -115,7 +116,7 @@ export async function updateOwnProfileFromApp(caller: AppCaller, update: z.infer
   const member = memberCaller(caller);
   try {
     const updated = await updateTeamMember(member, member.memberId, update);
-    return { id: updated.id, name: updated.name, role: updated.role, language: updated.language };
+    return { id: updated.id, name: updated.name, role: updated.role, language: updated.language, equipment: updated.equipment };
   } catch (error) {
     refuse(error, updateErrors(caller));
   }

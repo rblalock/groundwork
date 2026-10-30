@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import { Button } from "@/ui/beautiful/atoms/Button";
 import { StatusPill } from "@/ui/beautiful/atoms/StatusPill";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/ui/components/dialog";
+import { equipmentList } from "@/core/equipment";
 import type { Language } from "@/core/language";
 import type { PhoneStatus, Role } from "@/core/members";
 import { formatPhone } from "@/lib/format";
@@ -23,6 +24,8 @@ export type TeamRow = {
   email: string | null;
   /** An address asked for, waiting on the code texted to them. */
   pendingEmail: string | null;
+  /** What their truck carries. */
+  equipment: string[];
   /** `texted`: they have texted the assistant from this phone, not just verified it by signing in. */
   phones: Array<{ e164: string; status: PhoneStatus; texted: boolean }>;
 };
@@ -71,9 +74,10 @@ export function TeamManager({
     event.preventDefault();
     if (!editing) return;
     const data = new FormData(event.currentTarget);
-    const body: Record<string, string> = {
+    const body: Record<string, string | string[]> = {
       name: String(data.get("edit-name") ?? ""),
       language: String(data.get("edit-language") ?? editing.language),
+      equipment: equipmentList(String(data.get("edit-equipment") ?? "")),
     };
     if (canSetRole(editing)) body.role = String(data.get("edit-role") ?? editing.role);
     const saved = await memberEdit.send("edit", `/api/team/${editing.id}`, { method: "PATCH", body });
@@ -209,6 +213,7 @@ export function TeamManager({
                 <span className="font-medium">{member.name}</span>
                 {member.id === me ? <span className="ml-1.5 text-[12px] text-ink-3">({t.you})</span> : null}
                 <span className="block text-[12px] text-ink-3 sm:hidden">{t.roles[member.role]}</span>
+                {member.equipment.length ? <span className="block text-[12px] text-ink-3">{t.carries(member.equipment.join(", "))}</span> : null}
               </Td>
               <Td className="hidden whitespace-nowrap @xl:table-cell">{t.roles[member.role]}</Td>
               <Td>
@@ -272,6 +277,15 @@ export function TeamManager({
                   <option value="es">{copy.common.languages.es}</option>
                 </NativeSelect>
               </Field>
+              <Field
+                autoComplete="off"
+                defaultValue={editing.equipment.join(", ")}
+                hint={t.equipmentHint}
+                id="edit-equipment"
+                label={t.equipment}
+                maxLength={600}
+                placeholder={t.equipmentPlaceholder}
+              />
               {canSetRole(editing) ? (
                 <Field hint={t.roleHelp} id="edit-role" label={t.role}>
                   <NativeSelect defaultValue={editing.role} id="edit-role" name="edit-role">

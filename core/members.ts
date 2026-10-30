@@ -3,6 +3,7 @@ import { customerContacts, memberPhones, members, organization, user } from "../
 import { db, newId } from "./db";
 import { isEmailAddress } from "./email";
 import { cancelClaims, claimedByAnother, startClaim, type StartedClaim } from "./email-claims";
+import { cleanEquipment } from "./equipment";
 import { isLanguage, type Language } from "./language";
 import { businessLanguage } from "./profile";
 
@@ -190,6 +191,17 @@ export async function setMemberLanguage(orgId: string, memberId: string, languag
   const [row] = await db()
     .update(members)
     .set({ language })
+    .where(and(eq(members.orgId, orgId), eq(members.id, memberId), eq(members.status, "active")))
+    .returning();
+  if (!row) throw new Error("MEMBER_NOT_FOUND");
+  return row;
+}
+
+/** Sets what an active member's truck carries, tidied (`cleanEquipment`). Throws `MEMBER_NOT_FOUND`. */
+export async function setMemberEquipment(orgId: string, memberId: string, equipment: string[]): Promise<Member> {
+  const [row] = await db()
+    .update(members)
+    .set({ equipment: cleanEquipment(equipment) })
     .where(and(eq(members.orgId, orgId), eq(members.id, memberId), eq(members.status, "active")))
     .returning();
   if (!row) throw new Error("MEMBER_NOT_FOUND");

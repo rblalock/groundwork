@@ -19,6 +19,7 @@ import { db } from "./db";
 import { pricebookChanges } from "../schema/schema";
 import { listItems, listRules, retireRule, saveItems, saveItemsWithOutcome, saveRule, updateItem, versions } from "./pricebook";
 import { getCustomer, saveCustomer, searchCustomers } from "./customers";
+import { updateTeamMember } from "./team";
 
 withTestDb("getProfile creates the default row once", async () => {
   const a = await getProfile(TEST_ORG);
@@ -250,6 +251,26 @@ withTestDb("price changes are logged and unchanged saves do not bump the version
   assert.equal(price?.sourceMessageId, "msg1");
   const [again] = await saveItems(TEST_ORG, [{ ...input, name: "widget service std" }], owner.id);
   assert.equal(again.id, item.id);
+});
+
+withTestDb("equipment: what an item needs and what a member carries, tidied, logged once, and set by who may", async () => {
+  const owner = await createMember({ orgId: TEST_ORG, name: "Pat Ortega", role: "owner" });
+  const crew = await createMember({ orgId: TEST_ORG, name: "Carlos Reyes", role: "member" });
+  const other = await createMember({ orgId: TEST_ORG, name: "Ana Crew", role: "member" });
+  const input = { name: "Mulch", unitKind: "each" as const, unitLabel: "yard", priceCents: 4500, equipment: [" Trailer ", "trailers", ""] };
+  const [item] = await saveItems(TEST_ORG, [input], owner.id);
+  assert.deepEqual(item.equipment, ["Trailer"]);
+  const same = await updateItem(TEST_ORG, item.id, { equipment: ["Trailer"] }, owner.id);
+  assert.equal(same.version, 1, "the same list changes nothing");
+  const needs = await updateItem(TEST_ORG, item.id, { equipment: ["Trailer", "wheelbarrow"] }, owner.id);
+  assert.deepEqual(needs.equipment, ["Trailer", "wheelbarrow"]);
+  const [change] = await db().select().from(pricebookChanges);
+  assert.deepEqual([change.field, change.oldValue, change.newValue], ["equipment", "Trailer", "Trailer, wheelbarrow"]);
+
+  const as = (m: typeof owner) => ({ orgId: TEST_ORG, memberId: m.id, name: m.name, role: m.role, language: "en" as const, phoneE164: "+15555550100" });
+  assert.deepEqual((await updateTeamMember(as(owner), crew.id, { equipment: ["trailer", "60in  mower"] })).equipment, ["trailer", "60in mower"]);
+  assert.deepEqual((await updateTeamMember(as(crew), crew.id, { equipment: ["trailer"] })).equipment, ["trailer"], "crew set their own");
+  await assert.rejects(updateTeamMember(as(crew), other.id, { equipment: ["chipper"] }), /NOT_PRIVILEGED/);
 });
 
 withTestDb("saveCustomer updates, dedupes contact details and addresses, and searches by phone", async () => {

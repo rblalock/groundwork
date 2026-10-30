@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { pricebookChanges, pricebookItems, rules } from "../schema/schema";
 import type { RuleEffect, UnitKind } from "./calculator";
 import { db, newId, type Db, type Tx } from "./db";
+import { cleanEquipment } from "./equipment";
 import { recordEvent } from "./events";
 import { bumpVersion, getProfileWith } from "./profile";
 
@@ -17,10 +18,12 @@ export type NewItem = {
   notes?: string;
   /** The noun phrase that finds the item in a photo, for the priced photo. */
   photoPrompt?: string;
+  /** What doing it needs ("trailer"); see `core/equipment.ts`. */
+  equipment?: string[];
   createdFromQuoteId?: string;
 };
 export type ItemPatch = Partial<
-  Pick<Item, "name" | "unitLabel" | "unitKind" | "priceCents" | "taxable" | "status" | "group" | "notes" | "photoPrompt">
+  Pick<Item, "name" | "unitLabel" | "unitKind" | "priceCents" | "taxable" | "status" | "group" | "notes" | "photoPrompt" | "equipment">
 >;
 
 /** Lowercase, trim, collapse whitespace, strip punctuation except `/` and `-`. */
@@ -59,6 +62,7 @@ const TRACKED_FIELDS = [
   "group",
   "notes",
   "photoPrompt",
+  "equipment",
 ] as const satisfies readonly (keyof ItemPatch)[];
 
 const FIELD_NAMES: Record<(typeof TRACKED_FIELDS)[number], string> = {
@@ -71,7 +75,12 @@ const FIELD_NAMES: Record<(typeof TRACKED_FIELDS)[number], string> = {
   group: "group",
   notes: "notes",
   photoPrompt: "photo_prompt",
+  equipment: "equipment",
 };
+
+/** A field's value as the change log keeps it: a list as its words joined by commas. */
+const fieldText = (value: unknown) => (Array.isArray(value) ? value.join(", ") : String(value));
+const sameValue = (a: unknown, b: unknown) => (Array.isArray(a) && Array.isArray(b) ? a.join("\n") === b.join("\n") : a === b);
 
 /** Applies a patch to an existing item. Logs one change row per changed field. Returns null when nothing changed. */
 async function applyPatch(
@@ -82,7 +91,7 @@ async function applyPatch(
   sourceMessageId?: string,
 ): Promise<Item | null> {
   const changed = TRACKED_FIELDS.filter(
-    (field) => patch[field] !== undefined && patch[field] !== current[field],
+    (field) => patch[field] !== undefined && !sameValue(patch[field], current[field]),
   );
   if (changed.length === 0) return null;
   const version = current.version + 1;
@@ -100,8 +109,8 @@ async function applyPatch(
       orgId: current.orgId,
       itemId: current.id,
       field: FIELD_NAMES[field],
-      oldValue: current[field] === null ? null : String(current[field]),
-      newValue: String(patch[field]),
+      oldValue: current[field] === null ? null : fieldText(current[field]),
+      newValue: fieldText(patch[field]),
       memberId,
       sourceMessageId: sourceMessageId ?? null,
       version,
@@ -159,6 +168,7 @@ export async function saveItemsWithOutcome(
             group: input.group ?? null,
             notes: input.notes ?? null,
             photoPrompt: input.photoPrompt ?? null,
+            equipment: cleanEquipment(input.equipment ?? []),
             createdFromQuoteId: input.createdFromQuoteId ?? null,
           })
           .returning();
@@ -177,6 +187,7 @@ export async function saveItemsWithOutcome(
           group: input.group,
           notes: input.notes,
           photoPrompt: input.photoPrompt,
+          equipment: input.equipment && cleanEquipment(input.equipment),
           status: "active",
         },
         memberId,
@@ -190,7 +201,7 @@ export async function saveItemsWithOutcome(
   });
 }
 
-/** Edits one item (rename, reprice, retire). Throws `ITEM_NOT_FOUND` or `NAME_TAKEN`. */
+/** Edits one item (rename, reprice, what it needs, retire). Throws `ITEM_NOT_FOUND` or `NAME_TAKEN`. */
 export async function updateItem(
   orgId: string,
   itemId: string,
@@ -213,7 +224,8 @@ export async function updateItem(
         .where(and(eq(pricebookItems.orgId, orgId), eq(pricebookItems.nameKey, key)));
       if (clash && clash.id !== itemId) throw new Error("NAME_TAKEN");
     }
-    const updated = await applyPatch(tx, current, patch, memberId, sourceMessageId);
+    const tidy = patch.equipment ? { ...patch, equipment: cleanEquipment(patch.equipment) } : patch;
+    const updated = await applyPatch(tx, current, tidy, memberId, sourceMessageId);
     if (!updated) return current;
     await bumpVersion(orgId, "pricebook", tx);
     return updated;

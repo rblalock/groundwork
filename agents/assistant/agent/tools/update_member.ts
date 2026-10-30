@@ -1,24 +1,25 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { updateTeamMember } from "../../../../core/team";
-import { languageSchema } from "../../../../core/tool-schemas";
+import { equipmentSchema, languageSchema } from "../../../../core/tool-schemas";
 import { plain, refuseFromEmail, requireCaller, toolError } from "../../../../core/tool-context";
 
 export default defineTool({
   description:
-    "Change a team member's name, language, or role (\"call me Pat\", \"Carlos reads Spanish\", \"make Ana an admin\", \"Ana is crew now\"). Without memberId it's the member texting. Anyone changes their own name and language; the owner or an admin changes them for someone below them. Only the owner changes roles, between admin and crew (member), never their own, and the owner's role never changes here. Find ids in read_business members. Pass only what they said.",
+    "Change a team member's name, language, role, or what their truck carries (\"call me Pat\", \"Carlos reads Spanish\", \"make Ana an admin\", \"Ana is crew now\", \"Carlos's truck has the trailer and the 60in mower\"). Without memberId it's the member texting. Anyone changes their own name, language, and equipment; the owner or an admin changes them for someone below them. equipment is the whole list and replaces it: read_business members show what's saved. Only the owner changes roles, between admin and crew (member), never their own, and the owner's role never changes here. Find ids in read_business members. Pass only what they said.",
   inputSchema: z.object({
     memberId: z.string().optional().describe("Someone else's id from read_business; omit for the member texting."),
     name: z.string().trim().min(1).max(100).optional(),
     language: languageSchema.optional(),
     role: z.enum(["member", "admin"]).optional().describe("member is crew."),
+    equipment: equipmentSchema.optional().describe("What their truck carries, in their words."),
   }),
   async execute({ memberId, ...update }, ctx) {
     try {
       refuseFromEmail(ctx);
       const caller = await requireCaller(ctx);
       const member = await updateTeamMember(caller, memberId ?? caller.memberId, update);
-      return plain({ member: { id: member.id, name: member.name, role: member.role, language: member.language } });
+      return plain({ member: { id: member.id, name: member.name, role: member.role, language: member.language, equipment: member.equipment } });
     } catch (error) {
       return toolError(error);
     }

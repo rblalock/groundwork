@@ -18,7 +18,7 @@ export default async function TeamPage() {
           language={language}
           me={caller.memberId}
           myRole={caller.role}
-          team={team.map(({ id, name, role, language, hasLogin, email, pendingEmail, phones }) => ({
+          team={team.map(({ id, name, role, language, hasLogin, email, pendingEmail, equipment, phones }) => ({
             id,
             name,
             role,
@@ -26,6 +26,7 @@ export default async function TeamPage() {
             hasLogin,
             email,
             pendingEmail,
+            equipment,
             phones: phones.map(({ e164, status, lastInboundAt }) => ({ e164, status, texted: lastInboundAt !== null })),
           }))}
         />

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { listMembers } from "../../core/members";
 import { acceptRule, findItemByName, listItems, listRules, nameKey, retireRule, saveItems, saveRule, updateItem, type Item, type Rule } from "../../core/pricebook";
-import { cents, ruleKindSchema } from "../../core/tool-schemas";
+import { cents, equipmentSchema, ruleKindSchema } from "../../core/tool-schemas";
 import { HttpError, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { privilegedActor, refuse } from "./access";
@@ -46,11 +46,12 @@ export const itemPatchSchema = z
     priceCents: price.optional(),
     taxable: z.boolean().optional(),
     status: z.enum(["active", "retired"]).optional(),
+    equipment: equipmentSchema.optional(),
   })
   .strict()
   .refine((patch) => Object.values(patch).some((value) => value !== undefined), "Pass something to change.");
 
-/** Edits an item (name, unit, price, taxable) or retires or restores it, through `updateItem`, which logs the change and bumps the price book's version. */
+/** Edits an item (name, unit, price, taxable, what it needs) or retires or restores it, through `updateItem`, which logs the change and bumps the price book's version. */
 export async function updateItemFromApp(caller: AppCaller, itemId: string, patch: z.infer<typeof itemPatchSchema>): Promise<Item> {
   const actor = privilegedActor(caller);
   const e = pageCopyFor(caller.language).pricebook.errors;
@@ -66,7 +67,7 @@ export async function updateItemFromApp(caller: AppCaller, itemId: string, patch
 }
 
 export const newItemSchema = z
-  .object({ name: itemName, unitKind: z.enum(UNIT_KINDS), unitLabel, priceCents: price, taxable: z.boolean().optional() })
+  .object({ name: itemName, unitKind: z.enum(UNIT_KINDS), unitLabel, priceCents: price, taxable: z.boolean().optional(), equipment: equipmentSchema.optional() })
   .strict();
 
 /**

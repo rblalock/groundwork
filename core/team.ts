@@ -10,6 +10,7 @@ import {
   findMemberByPhone,
   normalizeE164,
   reactivateMember,
+  setMemberEquipment,
   setMemberLanguage,
   setMemberName,
   setMemberRole,
@@ -127,6 +128,8 @@ export type TeamMember = {
   email: string | null;
   /** An address asked for and waiting on its code. */
   pendingEmail: string | null;
+  /** What their truck carries. */
+  equipment: string[];
   phones: Array<{ e164: string; status: PhoneStatus; assignedLine: string | null; lastInboundAt: Date | null }>;
   createdAt: Date;
 };
@@ -156,6 +159,7 @@ export async function listTeam(orgId: string): Promise<TeamMember[]> {
     hasLogin: p.userId !== null,
     email: p.email,
     pendingEmail: claims.find((c) => c.memberId === p.id)?.address ?? null,
+    equipment: p.equipment,
     phones: phones
       .filter((ph) => ph.memberId === p.id)
       .map((ph) => ({ e164: ph.e164, status: ph.status, assignedLine: ph.assignedLine, lastInboundAt: ph.lastInboundAt })),
@@ -271,11 +275,12 @@ export async function removeTeamMember(caller: Caller, memberId: string): Promis
   return removeMember(caller.orgId, memberId);
 }
 
-export type MemberUpdate = { name?: string; language?: Language; role?: "member" | "admin" };
+export type MemberUpdate = { name?: string; language?: Language; role?: "member" | "admin"; equipment?: string[] };
 
 /**
- * Changes a member's name, language, or role, for update_member and the Team and Account pages.
- * Anyone changes their own name and language; an owner or admin changes them for someone below them.
+ * Changes a member's name, language, role, or what their truck carries, for update_member and the Team and
+ * Account pages. Anyone changes their own name, language, and equipment; an owner or admin changes them for
+ * someone below them.
  * Only an owner changes roles (an admin promoting someone would make a peer), never their own, and no
  * one's role becomes or stops being owner here. A role that's already theirs changes nothing. Throws
  * `MEMBER_NOT_FOUND`, `NOT_PRIVILEGED`, `ROLE_OWNER_ONLY`, `OWN_ROLE`, or `IS_OWNER`.
@@ -285,7 +290,7 @@ export async function updateTeamMember(caller: Caller, memberId: string, update:
   if (!target || target.status !== "active") throw new Error("MEMBER_NOT_FOUND");
   const self = target.id === caller.memberId;
   const name = update.name?.trim();
-  if ((name !== undefined || update.language !== undefined) && !self) assertOutranks(caller, target);
+  if ((name !== undefined || update.language !== undefined || update.equipment !== undefined) && !self) assertOutranks(caller, target);
   const roleChanges = update.role !== undefined && update.role !== target.role;
   if (roleChanges) {
     if (caller.role !== "owner") throw new Error("ROLE_OWNER_ONLY");
@@ -297,5 +302,6 @@ export async function updateTeamMember(caller: Caller, memberId: string, update:
     target = await setMemberLanguage(caller.orgId, target.id, update.language);
   }
   if (roleChanges && update.role) target = await setMemberRole(caller.orgId, target.id, update.role);
+  if (update.equipment !== undefined) target = await setMemberEquipment(caller.orgId, target.id, update.equipment);
   return target;
 }

@@ -2,12 +2,12 @@ import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { privilegedOnly } from "../../../../core/policies";
 import { updateItem } from "../../../../core/pricebook";
-import { cents, unitKindSchema } from "../../../../core/tool-schemas";
+import { cents, equipmentSchema, unitKindSchema } from "../../../../core/tool-schemas";
 import { latestInbound, plain, refuseFromEmail, requireCaller, toolError } from "../../../../core/tool-context";
 
 export default defineTool({
   description:
-    "Change one saved pricebook item: reprice, rename, change its unit, mark it taxable or not, or retire it (status retired). Existing quotes keep the price they were made with. Prices are integer cents.",
+    "Change one saved pricebook item: reprice, rename, change its unit, mark it taxable or not, set what the work needs (equipment: \"mulch jobs need the trailer\"), or retire it (status retired). equipment is the whole list and replaces it: read_business shows what's saved, and [] clears it. Existing quotes keep the price they were made with. Prices are integer cents.",
   inputSchema: z.object({
     itemId: z.string(),
     priceCents: cents.optional(),
@@ -16,6 +16,7 @@ export default defineTool({
     unitKind: unitKindSchema.optional(),
     taxable: z.boolean().optional(),
     status: z.enum(["active", "retired"]).optional(),
+    equipment: equipmentSchema.optional(),
   }),
   approval: privilegedOnly("change prices"),
   async execute({ itemId, ...patch }, ctx) {

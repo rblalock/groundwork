@@ -6,6 +6,7 @@ import { Button } from "@/ui/beautiful/atoms/Button";
 import { Dialog, DialogClose, DialogContent, DialogFooter, DialogTitle } from "@/ui/components/dialog";
 import { StatusPill } from "@/ui/beautiful/atoms/StatusPill";
 import type { Language } from "@/core/language";
+import { equipmentList } from "@/core/equipment";
 import { formatCents, parseMoneyToCents } from "@/core/money";
 import type { RuleEffect, UnitKind } from "@/core/calculator";
 import { pageCopyFor } from "@/lib/page-copy";
@@ -22,6 +23,8 @@ export type ItemRow = {
   taxable: boolean;
   status: "active" | "retired";
   group: string | null;
+  /** What doing it needs. */
+  equipment: string[];
 };
 
 export type RuleRow = {
@@ -37,7 +40,7 @@ const UNIT_KINDS: UnitKind[] = ["each", "sqft", "linear_ft", "hour", "visit", "f
 const dollars = (cents: number) => (cents / 100).toFixed(2);
 
 /**
- * Adds an item, or edits one (name, unit, price, taxable), through the same library as the assistant.
+ * Adds an item, or edits one (name, unit, price, taxable, what it needs), through the same library as the assistant.
  * Without `item`, it's the "Add an item" button.
  */
 export function ItemDialog({ item, language }: { item?: ItemRow; language: Language }) {
@@ -57,6 +60,7 @@ export function ItemDialog({ item, language }: { item?: ItemRow; language: Langu
       unitLabel: String(form.get("unitLabel") ?? "").trim(),
       priceCents,
       taxable: form.get("taxable") === "on",
+      equipment: equipmentList(String(form.get("equipment") ?? "")),
     };
     const saved = item
       ? await send("save", `/api/price-book/items/${item.id}`, { method: "PATCH", body: fields })
@@ -103,6 +107,15 @@ export function ItemDialog({ item, language }: { item?: ItemRow; language: Langu
                 {p.fields.taxable}
               </label>
             </div>
+            <Field
+              autoComplete="off"
+              defaultValue={item?.equipment.join(", ") ?? ""}
+              hint={p.equipmentHint}
+              id="equipment"
+              label={p.fields.equipment}
+              maxLength={600}
+              placeholder={p.equipmentPlaceholder}
+            />
             <ErrorLine>{error}</ErrorLine>
             <DialogFooter>
               <DialogClose render={<Button size="sm" type="button" variant="quiet" />}>{copy.common.cancel}</DialogClose>
@@ -145,6 +158,7 @@ export function PricebookItems({ items, language, canEdit }: { items: ItemRow[];
               <Td>
                 <span className={cn("font-medium", retired ? "text-ink-3" : "text-ink")}>{item.name}</span>
                 <span className="block text-[12px] text-ink-3 sm:hidden">{item.unitLabel}</span>
+                {item.equipment.length ? <span className="block text-[12px] text-ink-3">{p.needs(item.equipment.join(", "))}</span> : null}
               </Td>
               <Td className="hidden text-ink-2 @xl:table-cell">{item.unitLabel}</Td>
               <Td className="text-right whitespace-nowrap tabular-nums">{formatCents(item.priceCents, language)}</Td>

@@ -350,6 +350,8 @@ export const members = pgTable(
     status: memberStatus("status").notNull().default("active"),
     /** This member's own working hours; null works the business's (`business_profile.work_hours`). */
     workHours: jsonb("work_hours").$type<WorkingInterval[]>(),
+    /** What this member's truck carries, in the owner's words ("trailer", "60in mower"); matched in `core/equipment.ts`. */
+    equipment: text("equipment").array().notNull().default([]),
     /**
      * The address this member forwards emails from, lowercase, once proven theirs (`email_claims`). An
      * email to the business's inbox is theirs only when it comes from this address and its sender verifies;
@@ -486,6 +488,8 @@ export const pricebookItems = pgTable(
     notes: text("notes"),
     /** The noun phrase that finds this item in a photo ("mulch bed"), for the priced photo; null for none. */
     photoPrompt: text("photo_prompt"),
+    /** What doing this work needs, in the owner's words ("trailer", "chipper"); a crew booked for it should carry all of it. */
+    equipment: text("equipment").array().notNull().default([]),
     status: itemStatus("status").notNull().default("active"),
     createdFromQuoteId: text("created_from_quote_id"),
     version: integer("version").notNull().default(1),

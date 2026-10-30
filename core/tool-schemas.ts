@@ -1,5 +1,6 @@
 // Zod schemas shared by more than one tool. Money is integer cents; percentages are basis points.
 import { z } from "zod";
+import { MAX_EQUIPMENT, MAX_EQUIPMENT_LENGTH } from "./equipment";
 
 export const cents = z.number().int().min(0);
 
@@ -38,6 +39,9 @@ export const adjustmentSchema = z.object({
 });
 
 export const languageSchema = z.enum(["en", "es"]);
+
+/** A whole list of equipment in the member's words; it replaces what was saved. */
+export const equipmentSchema = z.array(z.string().trim().min(1).max(MAX_EQUIPMENT_LENGTH)).max(MAX_EQUIPMENT);
 
 export const quoteStatusSchema = z.enum(["draft", "needs_owner", "approved", "sent", "won", "lost", "void"]);
 

@@ -11,7 +11,7 @@ import { plain, requireCaller, toolError } from "../../../../core/tool-context";
 
 export default defineTool({
   description:
-    "Read who this business is and who you're talking to (you: their name and role; member means crew): its profile (name, contact facts, minimum charge, tax rate, quote validity, follow-up days, invoice payment terms), how its PDFs look (logo, accent color, closing notes, which facts print), the active pricebook items, the rules (active ones, and crew suggestions waiting on the owner), the members, the business notes (how the business does things: procedures, policies, warranty terms, crew instructions; long ones are cut short, so read_note them when they matter), and the glossary (its own Spanish words for its English terms). Site notes on customers and kept documents aren't here: find them with search_records. Call it at the start of a conversation and whenever prices or rules might have changed. Money is integer cents; tax and percent rules are basis points (700 = 7%).",
+    "Read who this business is and who you're talking to (you: their name and role; member means crew): its profile (name, contact facts, minimum charge, tax rate, quote validity, follow-up days, invoice payment terms), how its PDFs look (logo, accent color, closing notes, which facts print), the active pricebook items (with what each needs, when saved), the rules (active ones, and crew suggestions waiting on the owner), the members (with what each one's truck carries), the business notes (how the business does things: procedures, policies, warranty terms, crew instructions; long ones are cut short, so read_note them when they matter), and the glossary (its own Spanish words for its English terms). Site notes on customers and kept documents aren't here: find them with search_records. Call it at the start of a conversation and whenever prices or rules might have changed. Money is integer cents; tax and percent rules are basis points (700 = 7%).",
   inputSchema: z.object({}),
   async execute(_input, ctx) {
     try {
@@ -56,6 +56,7 @@ export default defineTool({
           taxable: i.taxable,
           group: i.group,
           notes: i.notes,
+          ...(i.equipment.length ? { equipment: i.equipment } : {}),
         })),
         rules: rules.map((r) => ({ id: r.id, text: r.text, kind: r.kind, effect: r.effect, status: r.status })),
         pdf: {
@@ -67,7 +68,7 @@ export default defineTool({
         },
         minimumCents: profile.minimumChargeCents,
         versions: current,
-        members: people.map((m) => ({ id: m.id, name: m.name, role: m.role })),
+        members: people.map((m) => ({ id: m.id, name: m.name, role: m.role, ...(m.equipment.length ? { equipment: m.equipment } : {}) })),
         notes: notes.map((n) => ({
           noteId: n.id,
           kind: n.kind,

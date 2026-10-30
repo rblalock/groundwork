@@ -23,7 +23,7 @@ export default async function PricebookPage() {
         <Card actions={canEdit ? <ItemDialog language={language} /> : null} flush title={p.items}>
           <PricebookItems
             canEdit={canEdit}
-            items={items.map(({ id, name, unitKind, unitLabel, priceCents, taxable, status, group }) => ({ id, name, unitKind, unitLabel, priceCents, taxable, status, group }))}
+            items={items.map(({ id, name, unitKind, unitLabel, priceCents, taxable, status, group, equipment }) => ({ id, name, unitKind, unitLabel, priceCents, taxable, status, group, equipment }))}
             language={language}
           />
         </Card>
