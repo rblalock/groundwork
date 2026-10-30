@@ -12,6 +12,8 @@ export type JumpSection = { id: string; label: string; count?: number };
  */
 export function JumpBar({ sections, label, end }: { sections: JumpSection[]; label: string; end?: ReactNode }) {
   const bar = useRef<HTMLElement>(null);
+  // Whether the reader has scrolled the page themselves: kept across the sections changing.
+  const moved = useRef(false);
   const [active, setActive] = useState(sections[0]?.id);
   const ids = sections.map((s) => s.id).join(" ");
 
@@ -35,7 +37,11 @@ export function JumpBar({ sections, label, end }: { sections: JumpSection[]; lab
       const first = targets.find((t) => seen.get(t.id));
       if (first) setActive(first.id);
     };
-    const pinToHash = () => {
+    // The page streams in after the browser's own jump to the address has given up, so the bar makes the jump
+    // itself once its sections are there (the scroll margin keeps it clear of the bar), unless the reader has
+    // scrolled by then. Until they scroll, it holds there while photos above it load.
+    let held: HTMLElement | null = null;
+    const pinToHash = (jump: boolean) => {
       let hash = window.location.hash.slice(1);
       try {
         hash = decodeURIComponent(hash);
@@ -44,15 +50,24 @@ export function JumpBar({ sections, label, end }: { sections: JumpSection[]; lab
       }
       const el = hash ? document.getElementById(hash) : null;
       const section = el ? targets.find((t) => t.contains(el)) : undefined;
-      if (!section) return;
+      if (!el || !section) return;
       pinned = section.id;
       setActive(section.id);
+      if (!jump) return;
+      held = el;
+      el.scrollIntoView({ block: "start" });
     };
+    const hold = new ResizeObserver(() => {
+      if (pinned && held) held.scrollIntoView({ block: "start" });
+    });
+    if (scroller?.firstElementChild) hold.observe(scroller.firstElementChild);
     const unpin = () => {
+      moved.current = true;
       if (!pinned) return;
       pinned = null;
       read();
     };
+    const onHashChange = () => pinToHash(true);
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) seen.set(entry.target.id, entry.isIntersecting);
@@ -61,7 +76,7 @@ export function JumpBar({ sections, label, end }: { sections: JumpSection[]; lab
       { root, rootMargin: `-${Math.round(top)}px 0px -55% 0px` },
     );
     for (const target of targets) observer.observe(target);
-    pinToHash();
+    pinToHash(!moved.current);
     // At the very bottom, the last section is the one being read, however short it is.
     const onScroll = () => {
       if (!pinned && scroller && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4) setActive(targets[targets.length - 1].id);
@@ -70,12 +85,13 @@ export function JumpBar({ sections, label, end }: { sections: JumpSection[]; lab
     const handBack = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
     scroller?.addEventListener("scroll", onScroll, { passive: true });
     for (const type of handBack) scroller?.addEventListener(type, unpin, { passive: true });
-    window.addEventListener("hashchange", pinToHash);
+    window.addEventListener("hashchange", onHashChange);
     return () => {
       observer.disconnect();
+      hold.disconnect();
       scroller?.removeEventListener("scroll", onScroll);
       for (const type of handBack) scroller?.removeEventListener(type, unpin);
-      window.removeEventListener("hashchange", pinToHash);
+      window.removeEventListener("hashchange", onHashChange);
     };
   }, [ids]);
 
