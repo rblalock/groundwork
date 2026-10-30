@@ -25,7 +25,7 @@ import { recordEvent } from "./events";
 import { isLanguage, type Language } from "./language";
 import { isPrivileged, type Caller, type Member } from "./members";
 import { getProfileWith } from "./profile";
-import type { CrewChecklist } from "./checklist";
+import { crewChecklist, type CrewChecklist } from "./checklist";
 import type { Poster } from "./quotes";
 import {
   dayText,
@@ -1123,8 +1123,6 @@ async function crewBrief(orgId: string, visitId: string): Promise<CrewChecklist 
   const [row] = await db().select({ jobId: visits.jobId }).from(visits).where(and(eq(visits.orgId, orgId), eq(visits.id, visitId)));
   if (!row) return null;
   try {
-    // Imported here: the checklist module imports this one.
-    const { crewChecklist } = await import("./checklist");
     return await crewChecklist(orgId, row.jobId);
   } catch (error) {
     console.error("scheduling: the visit's checklist was left off the crew text", error);
