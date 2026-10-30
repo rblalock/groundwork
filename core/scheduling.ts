@@ -725,21 +725,33 @@ export function slotLine(slot: Slot, timeZone: string, language: Language): stri
   return `${when} ${words.with} ${crewNames(slot.crew, language)}${notes.length ? ` (${notes.join("; ")})` : ""}`;
 }
 
+/** Two offers on one crew's day sit at least this far apart, so three lines aren't three quarter-hours of one morning. */
+const OFFER_GAP_MS = 2 * 60 * 60 * 1000;
+
 /**
  * The few slots to offer, as lines: the best-ranked one for each crew and day, in rank order, so the offer is a
- * spread rather than the first minutes of one morning.
+ * spread rather than the first minutes of one morning. When that leaves fewer than `count` (one crew asked
+ * about one day), the next-ranked slots fill in, each a couple of hours from the others on its day.
  */
 export function slotLines(slots: Slot[], timeZone: string, language: Language, count = 3): string[] {
   const seen = new Set<string>();
-  const lines: string[] = [];
+  const chosen: Slot[] = [];
+  const keyOf = (slot: Slot) => `${slot.crew.map((c) => c.memberId).join("+")}:${slot.date}`;
   for (const slot of slots) {
-    const key = `${slot.crew.map((c) => c.memberId).join("+")}:${slot.date}`;
+    const key = keyOf(slot);
     if (seen.has(key)) continue;
     seen.add(key);
-    lines.push(slotLine(slot, timeZone, language));
-    if (lines.length >= count) break;
+    chosen.push(slot);
+    if (chosen.length >= count) break;
   }
-  return lines;
+  for (const slot of slots) {
+    if (chosen.length >= count) break;
+    if (chosen.includes(slot)) continue;
+    const key = keyOf(slot);
+    const crowded = chosen.some((c) => keyOf(c) === key && Math.abs(c.startAt.getTime() - slot.startAt.getTime()) < OFFER_GAP_MS);
+    if (!crowded) chosen.push(slot);
+  }
+  return chosen.map((slot) => slotLine(slot, timeZone, language));
 }
 
 const DAY = 24 * 60 * MINUTE;

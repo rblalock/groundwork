@@ -273,6 +273,13 @@ test("slot lines: when, who, the driving it adds, and a day over capacity, one p
     "Tue, Nov 3, 9 AM with Ana (+10 min driving)",
     "Wed, Nov 4, 9 AM with Carlos (+10 min driving)",
   ]);
+  // One crew asked about one day: the next-ranked slots fill in, a couple of hours apart.
+  const oneDay = slotLines([slot("2026-11-03T09:00"), slot("2026-11-03T09:15"), slot("2026-11-03T11:00"), slot("2026-11-03T12:30"), slot("2026-11-03T14:00")], NY, "en");
+  assert.deepEqual(oneDay, [
+    "Tue, Nov 3, 9 AM with Carlos (+10 min driving)",
+    "Tue, Nov 3, 11 AM with Carlos (+10 min driving)",
+    "Tue, Nov 3, 2 PM with Carlos (+10 min driving)",
+  ]);
 });
 
 withTestDb("slots fit the route: least added driving before a far day, under the day's capacity, and each member when nobody is named", async () => {
