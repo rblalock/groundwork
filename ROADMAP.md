@@ -92,10 +92,16 @@ owner approves anything that moves a customer. Done in the order below; each ste
 - **Places.** Geocode every property and the business's yard once, when the address is saved (the
   US Census geocoder needs no key; a paid one can replace it behind the same function). A property
   that can't be placed says so on its card and is left out of route math, never guessed.
+  Shipped: properties and the yard are placed when saved (or by `npm run places:backfill`); a property
+  card says when its address couldn't be placed; `PLACES_FAKE` stands in locally and in tests.
 - **Drive times.** Straight-line distance times a road factor at a town speed, between any two
   places. No road graph, no routing service: a landscaping crew's day is one county, and the number
   only has to be honest to the quarter hour. Visit buffers stop being a guess: `book_visit` and
   `find_availability` take the drive from the previous stop and to the next one into account.
+  Shipped: a visit's buffers are the drive in from the crew's stop before or the yard and out to the
+  next or back (factor 1.3 at 28 mph, 5 minutes at least, owner-set by text or in Settings), falling
+  back to the default with `driveEstimated: false` when a place is missing; tool results, the
+  schedule's visit panel, and the crew's booking text show the minutes.
 - **The crew's day.** A plan per crew per day: ordered stops with planned arrival and finish, the
   legs between them, leaving from and returning to the yard. Ordering is nearest-neighbor with a
   two-opt pass, which is enough at a crew's size. The plan is derived from the visits and recomputed

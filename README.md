@@ -33,6 +33,14 @@ priced photo, drawn for them with quantities only. They tick items by text ("mul
 anyone on the team ticks them on the work's page, and the schedule shows how many are done. The tick
 that finishes the list marks the work's visit done when its day has come.
 
+Every property and the business's yard (its address) are placed on the map when saved, through the
+US Census geocoder. An address that can't be placed says so on its card and is never guessed. A
+drive is the straight-line distance times a road factor at a town speed (1.3 and 28 mph unless the
+owner changes them, by text or in Settings), rounded up to 5 minutes. Booking holds the drive in from
+the crew's stop before, or the yard, and out to the next stop, or back; when a place is missing it
+holds today's default and says so. The schedule shows each visit's drive, and the crew's booking text
+says how far it is. `npm run places:backfill` places addresses saved before this.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 
@@ -135,6 +143,8 @@ Each switch stands in for an outside service on this machine. Never set them in 
   For photos sent in web chat, set `BLOB_LOCAL_DIR=.local-blobs` so the stored copy opens on the quote
   page; the model is sent the photo's bytes either way. The priced photo needs the stored bytes too:
   with only `BLOB_FAKE=1`, `price_photo` reports the photo as unreadable.
+- `PLACES_FAKE=1`: places the seeded addresses at made-up points without asking the geocoder. On by
+  default locally when unset; `PLACES_FAKE=0` asks the US Census geocoder.
 - `LOGIN_CODE_LOG=1`: prints sign-in codes to the server console.
 
 ## Tests, evals, and tools
