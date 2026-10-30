@@ -2,11 +2,11 @@ import { and, eq } from "drizzle-orm";
 import { quotes } from "../../schema/schema";
 import { readStoredFile, storeInboundAttachment } from "../../core/blob";
 import { pairOf } from "../../core/before-after";
-import { checklistCounts, checklistFor, checklistPhoto, itemText, tickChecklist } from "../../core/checklist";
+import { checklistCounts, checklistFor, checklistPhoto, itemText, markOutlined, tickChecklist } from "../../core/checklist";
 import { db } from "../../core/db";
 import { invoicesForJobs, type InvoiceRef } from "../../core/invoices";
 import { isPrivileged } from "../../core/members";
-import { pricedPhotosForCustomer } from "../../core/priced-photo";
+import { crewCopy, pricedPhotosForCustomer } from "../../core/priced-photo";
 import { getServiceJob, type ServiceJobView } from "../../core/scheduling";
 import { addUploadedWorkPhoto, listWorkPhotos, removeWorkPhoto, workPhoto, type WorkPhotoView } from "../../core/work-photos";
 import { sniffImage } from "../../core/logo";
@@ -55,6 +55,7 @@ export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPag
   const invoice = invoices.get(job.id);
   const priced = items.length && job.quoteId ? await checklistPhoto(caller.orgId, job.quoteId) : null;
   const privileged = isPrivileged(caller.role);
+  const mark = markOutlined(items);
   return {
     job,
     quote,
@@ -63,13 +64,23 @@ export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPag
     canAddPhotos: caller.memberId !== null,
     checklist: items.length
       ? {
-          items: items.map((item) => ({ itemId: item.itemId, text: itemText(item, caller.language), doneAt: item.doneAt, doneByName: item.doneByName })),
+          items: items.map((item) => ({ itemId: item.itemId, text: itemText({ ...item, located: item.located && mark }, caller.language), doneAt: item.doneAt, doneByName: item.doneByName })),
           ...checklistCounts(items),
-          photoHref: priced ? pricedPhotoHref(priced) : null,
+          // The crew copy: quantities only, no prices, whoever is looking.
+          photoHref: priced ? `/api/work/${encodeURIComponent(job.id)}/checklist/photo?v=${(priced.editedAt ?? priced.createdAt).getTime()}` : null,
           canTick: caller.memberId !== null,
         }
       : null,
   };
+}
+
+/** The checklist's priced photo as crew see it (quantities, no prices), in the viewer's language; null without one. */
+export async function checklistPhotoFile(caller: AppCaller, jobId: string): Promise<StoredFile | null> {
+  const job = await getServiceJob(caller, jobId);
+  if (!job) throw notFound();
+  const priced = job.quoteId ? await checklistPhoto(caller.orgId, job.quoteId) : null;
+  const png = priced ? await crewCopy(priced, caller.language) : null;
+  return png ? { filename: "priced-photo.png", contentType: "image/png", bytes: png } : null;
 }
 
 /** Ticks a checklist item done, or unticks it, for anyone on the team; the last tick marks today's visit done. */

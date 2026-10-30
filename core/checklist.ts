@@ -58,9 +58,18 @@ export function itemText(item: Pick<ItemSeed, "name" | "quantity" | "unitLabel" 
   return `${oneLine(item.name)}, ${quantityText(item.quantity)}${unit ? ` ${unit}` : ""}${item.located ? ` (${OUTLINED[language]})` : ""}`;
 }
 
+/**
+ * Whether items say "outlined in the photo": only when some are and some aren't, so the mark tells
+ * them apart. A list with every item outlined, or none, says nothing on each line.
+ */
+export function markOutlined(items: Array<Pick<ChecklistItemView, "located">>): boolean {
+  return items.some((item) => item.located) && items.some((item) => !item.located);
+}
+
 /** The list as lines to send, numbered, each done item marked: "1. Mulch installed, 3 cubic yards ✓". */
 export function checklistText(items: Array<Pick<ChecklistItemView, "name" | "quantity" | "unitLabel" | "located" | "doneAt">>, language: Language): string {
-  return items.map((item, index) => `${index + 1}. ${itemText(item, language)}${item.doneAt ? ` ${DONE_MARK}` : ""}`).join("\n");
+  const mark = markOutlined(items);
+  return items.map((item, index) => `${index + 1}. ${itemText({ ...item, located: item.located && mark }, language)}${item.doneAt ? ` ${DONE_MARK}` : ""}`).join("\n");
 }
 
 export function checklistCounts(items: Array<Pick<ChecklistItemView, "doneAt">>): { done: number; total: number } {
@@ -70,11 +79,12 @@ export function checklistCounts(items: Array<Pick<ChecklistItemView, "doneAt">>)
 /** The list as tools return it: each item's text and whether, by whom, and when it was ticked; `text` is ready to send. */
 export function checklistForTool(items: ChecklistItemView[], timeZone: string, language: Language) {
   const { done, total } = checklistCounts(items);
+  const mark = markOutlined(items);
   return {
     items: items.map((item, index) => ({
       itemId: item.itemId,
       number: index + 1,
-      text: itemText(item, language),
+      text: itemText({ ...item, located: item.located && mark }, language),
       done: Boolean(item.doneAt),
       ...(item.doneAt ? { doneBy: item.doneByName, doneAt: `${dayText(wallClock(item.doneAt, timeZone).date, language)}, ${timeText(item.doneAt, timeZone, language)}` } : {}),
     })),

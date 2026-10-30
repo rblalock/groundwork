@@ -49,6 +49,8 @@ test("the list's lines are numbered and mark what's done", () => {
   ];
   assert.equal(checklistText(items, "en"), "1. Mulch installed, 3 cubic yards (outlined in the photo) ✓\n2. Bed edging, 40 linear feet");
   assert.deepEqual(checklistCounts(items), { done: 1, total: 2 });
+  // Every item outlined: the mark tells nothing apart, so it's left off.
+  assert.equal(checklistText(items.map((item) => ({ ...item, located: true })), "en"), "1. Mulch installed, 3 cubic yards ✓\n2. Bed edging, 40 linear feet");
 });
 
 test("a finished list completes the latest open visit from today or earlier, never one on a later day", () => {
