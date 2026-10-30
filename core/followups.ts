@@ -3,6 +3,7 @@
 // are enforced by `postToMember`.
 import { and, asc, count, eq, inArray, lte } from "drizzle-orm";
 import { conversations, events, followups, memberPhones, members, ownerRequests, quotes } from "../schema/schema";
+import { dayPlanFor, routeLine, type DayPlan } from "./day-plan";
 import { db, newId, type Db, type Tx } from "./db";
 import { recordEvent } from "./events";
 import { isLanguage, type Language } from "./language";
@@ -162,6 +163,8 @@ export async function dueNudges(
 // Copy
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+/** Ends with a period, unless it already does ("11:50 a.m."). */
+const sentence = (text: string) => (text.endsWith(".") ? text : `${text}.`);
 
 const NUDGE: Record<Language, (what: string, days: number | undefined) => string> = {
   en: (what, days) =>
@@ -185,14 +188,22 @@ type MorningCounts = {
   overdueCents?: number;
 };
 
-/** Today's visits for the morning line: a crew member's own (`mine`), or the whole business's. */
-export type MorningDay = { visits: VisitView[]; timeZone: string; mine: boolean };
+/**
+ * Today's visits for the morning line: a crew member's own (`mine`), or the whole business's. A crew member's
+ * `plan` makes their line the route (`core/day-plan.ts`).
+ */
+export type MorningDay = { visits: VisitView[]; timeZone: string; mine: boolean; plan?: DayPlan | null };
 
 const MORNING_VISITS_LISTED = 4;
 
 const MORNING: Record<
   Language,
-  { greeting: string; parts: (c: MorningCounts) => string[]; day: (items: string[], total: number, mine: boolean) => string }
+  {
+    greeting: string;
+    parts: (c: MorningCounts) => string[];
+    day: (items: string[], total: number, mine: boolean) => string;
+    route: (line: string) => string;
+  }
 > = {
   en: {
     greeting: "Good morning.",
@@ -205,6 +216,7 @@ const MORNING: Record<
     ].filter((p): p is string => Boolean(p)),
     day: (items, total, mine) =>
       `${mine ? "Your day" : `${plural(total, "visit", "visits")} today`}: ${items.join(", ")}${total > items.length ? `, and ${total - items.length} more` : ""}.`,
+    route: (line) => sentence(`Your day: ${line}`),
   },
   es: {
     greeting: "Buenos días.",
@@ -219,6 +231,7 @@ const MORNING: Record<
     ].filter((p): p is string => Boolean(p)),
     day: (items, total, mine) =>
       `${mine ? "Tu día" : `${plural(total, "visita", "visitas")} hoy`}: ${items.join(", ")}${total > items.length ? ` y ${total - items.length} más` : ""}.`,
+    route: (line) => sentence(`Tu día: ${line}`),
   },
 };
 
@@ -228,13 +241,18 @@ function morningVisit(visit: VisitView, day: MorningDay, language: Language): st
   return `${timeText(visit.startAt, day.timeZone, language)} ${visit.title}${crew}`;
 }
 
-/** The morning line, or null on a quiet day: today's visits first, then what's waiting on quotes. */
+/**
+ * The morning line, or null on a quiet day: today's visits first, then what's waiting on quotes. A crew member's
+ * own day is their route: each stop's time, title, and drive in, from the yard and back.
+ */
 export function morningLineText(counts: MorningCounts, language: Language, day?: MorningDay): string | null {
   const copy = MORNING[language];
   const parts = copy.parts(counts);
   const visits = day?.visits ?? [];
   const sentences: string[] = [];
-  if (day && visits.length > 0) {
+  if (day?.mine && day.plan && day.plan.stops.length > 0) {
+    sentences.push(copy.route(routeLine(day.plan, day.timeZone, language)));
+  } else if (day && visits.length > 0) {
     const items = visits.slice(0, MORNING_VISITS_LISTED).map((v) => morningVisit(v, day, language));
     sentences.push(copy.day(items, visits.length, day.mine));
   }
@@ -435,10 +453,12 @@ async function sendMorningLines(orgId: string, now: Date, profile: Profile): Pro
       if (!inserted) continue;
       // Owners and admins hear the whole business's day; crew hear their own.
       const mine = !isPrivileged(member.role);
+      const visits = await visitsOnDay(orgId, local.ymd, profile.timeZone, mine ? member.id : undefined);
       const day: MorningDay = {
-        visits: await visitsOnDay(orgId, local.ymd, profile.timeZone, mine ? member.id : undefined),
+        visits,
         timeZone: profile.timeZone,
         mine,
+        plan: mine && visits.length > 0 ? await dayPlanFor(orgId, member.id, local.ymd, { profile, visits }) : null,
       };
       const text = morningLineText(await morningCounts(member, now), isLanguage(member.language) ? member.language : "en", day);
       if (!text) continue;

@@ -1,13 +1,15 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { planForTool, plansIn } from "../../../../core/day-plan";
 import { isPrivileged } from "../../../../core/members";
+import { getProfile } from "../../../../core/profile";
 import { readSchedule, timeOffText, toSchedule, visitForTool } from "../../../../core/scheduling";
 import { dayText, wallClock } from "../../../../core/scheduling-time";
 import { plain, requireCaller, toolError } from "../../../../core/tool-context";
 
 export default defineTool({
   description:
-    "Read the schedule: the visits (and time off) from a day for a number of days, in the business's time zone, earliest first. Use it for \"what's on today?\", \"what's Carlos doing Tuesday?\", \"when is Oak St?\", and before moving or cancelling a visit, for its visitId. day is YYYY-MM-DD, today, tomorrow, or a weekday name, resolved by the code. query keeps visits whose title, customer, or address match. Crew see only their own visits. For owners and admins it also lists work waiting to be scheduled. Each visit's line is ready to send.",
+    "Read the schedule: the visits (and time off) from a day for a number of days, in the business's time zone, earliest first. Use it for \"what's on today?\", \"what's Carlos doing Tuesday?\", \"when is Oak St?\", and before moving or cancelling a visit, for its visitId. day is YYYY-MM-DD, today, tomorrow, or a weekday name, resolved by the code. query keeps visits whose title, customer, or address match. Crew see only their own visits. For owners and admins it also lists work waiting to be scheduled. Each visit's line is ready to send. routes (for up to 7 days) is each crew member's day as a route, worked out by the code: when they leave the yard and are back, minutes driving and on site, how full the day is against the business's capacity, stops they'd reach late, and a shorter order when one saves driving; crew get only their own. For one person's day, send the route's line.",
   inputSchema: z.object({
     day: z.string().default("today").describe("YYYY-MM-DD, today, tomorrow, or a weekday name, as the member said it."),
     days: z.number().int().min(1).max(42).default(1),
@@ -25,6 +27,7 @@ export default defineTool({
         words.every((w) => [v.title, v.customerName, v.address].some((field) => field?.toLowerCase().includes(w))),
       );
       const waiting = isPrivileged(caller.role) ? await toSchedule(caller.orgId) : [];
+      const routes = days <= 7 ? plansIn(caller, schedule, await getProfile(caller.orgId)) : [];
       return plain({
         timeZone,
         today: `${dayText(schedule.today, caller.language)} (${schedule.today})`,
@@ -39,6 +42,7 @@ export default defineTool({
           reason: b.reason,
         })),
         crew: schedule.crew.map((c) => ({ memberId: c.memberId, name: c.name, hours: c.hours, ownHours: c.ownHours })),
+        routes: routes.map((plan) => planForTool(plan, timeZone, caller.language)),
         ...(isPrivileged(caller.role)
           ? {
               toSchedule: waiting.slice(0, 10).map((w) =>

@@ -334,8 +334,9 @@ withTestDb("closing a job: visits ahead are asked about, started ones are marked
   assert.deepEqual((await toSchedule(TEST_ORG)).map((t) => t.kind === "job" && t.jobId), [shed.job.id]);
 });
 
-withTestDb("the morning line names today's visits: crew their own day, owners the business's, never in quiet hours", async () => {
+withTestDb("the morning line names today's visits: crew their own route, owners the business's, never in quiet hours", async () => {
   const s = await seed();
+  await updateProfile(TEST_ORG, { address: "100 Bridge Rd, Tequesta, FL" }, s.owner.memberId);
   const sentTo: Record<string, string[]> = {};
   let n = 0;
   setTransportForTests({
@@ -353,8 +354,11 @@ withTestDb("the morning line names today's visits: crew their own day, owners th
 
   const counts = await runOrgTick(TEST_ORG, MONDAY_8AM);
   assert.equal(counts.mornings, 3);
-  assert.deepEqual(sentTo["thread:+15555550102"], ["Good morning. Your day: 9 AM 12 Oak St, 1:30 PM 12 Oak St."]);
-  assert.deepEqual(sentTo["thread:+15555550103"], ["Good morning. Your day: 1:30 PM 12 Oak St."]);
+  // Crew hear their day as a route: from the yard, each stop with the drive in, and back.
+  assert.deepEqual(sentTo["thread:+15555550102"], [
+    "Good morning. Your day: leave the yard 8:50 AM → 9 AM 12 Oak St (10 min) → 1:30 PM 12 Oak St → back by 2:40 PM.",
+  ]);
+  assert.deepEqual(sentTo["thread:+15555550103"], ["Good morning. Your day: leave the yard 1:20 PM → 1:30 PM 12 Oak St (10 min) → back by 2:40 PM."]);
   assert.deepEqual(sentTo["thread:+15555550101"], [
     "Good morning. 2 visits today: 9 AM 12 Oak St (Carlos), 1:30 PM 12 Oak St (Carlos, Ana). 1 draft in progress.",
   ]);

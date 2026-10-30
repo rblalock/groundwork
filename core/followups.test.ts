@@ -4,11 +4,13 @@ import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { eq } from "drizzle-orm";
 import { followups, messages, quotes } from "../schema/schema";
+import { planDay } from "./day-plan";
 import { db } from "./db";
 import { computeDueAt, dueNudges, hourlyTick, morningLineText, nudgeText, runHourlyTick } from "./followups";
 import hourly from "../agents/assistant/agent/schedules/hourly";
 import { setTransportForTests } from "./imessage";
 import { addPhone, createMember, recordInbound, removeMember, type Caller } from "./members";
+import { DEFAULT_DRIVE } from "./places";
 import type { Profile } from "./profile";
 import { saveItems } from "./pricebook";
 import {
@@ -20,6 +22,7 @@ import {
   type Poster,
   type QuoteSummary,
 } from "./quotes";
+import type { VisitView } from "./scheduling";
 import { TEST_ORG, withTestDb } from "./test-db";
 
 let sent: Array<{ threadId: string; text: string }> = [];
@@ -85,6 +88,43 @@ test("morningLineText is null when nothing is open and counts otherwise", () => 
     morningLineText({ waitingOnCustomers: 2, waitingOnOwner: 1, drafts: 0 }, "es"),
     "Buenos días. 2 cotizaciones esperando a los clientes, 1 borrador del equipo esperando por ti.",
   );
+});
+
+test("morningLineText gives crew their own day as the route, in both languages", () => {
+  const stop = (id: string, label: string, lat: number, start: string, end: string) =>
+    ({
+      visitId: id,
+      title: label,
+      address: label,
+      place: { lat, lng: -80.1, label },
+      crew: [{ memberId: "mem_carlos", name: "Carlos Reyes" }],
+      startAt: new Date(`2026-11-03T${start}:00-05:00`),
+      endAt: new Date(`2026-11-03T${end}:00-05:00`),
+      status: "scheduled",
+      checklist: null,
+    }) as VisitView;
+  const visits = [stop("v1", "412 Oak St", 26.95, "09:00", "10:00"), stop("v2", "7 Pine Ave", 27.0, "10:30", "11:30")];
+  const plan = planDay({
+    memberId: "mem_carlos",
+    name: "Carlos Reyes",
+    date: "2026-11-03",
+    hours: [{ day: 2, start: "08:00", end: "16:00" }],
+    yard: { lat: 26.9, lng: -80.1, label: "100 Bridge Rd" },
+    settings: DEFAULT_DRIVE,
+    capacityBp: 9500,
+    visits,
+  });
+  const counts = { waitingOnCustomers: 0, waitingOnOwner: 0, drafts: 1 };
+  const day = { visits, timeZone: "America/New_York", mine: true, plan };
+  assert.equal(
+    morningLineText(counts, "en", day),
+    "Good morning. Your day: leave the yard 8:50 AM → 9 AM 412 Oak St (10 min) → 10:30 AM 7 Pine Ave (10 min) → back by 11:50 AM. 1 draft in progress.",
+  );
+  assert.equal(
+    morningLineText(counts, "es", day),
+    "Buenos días. Tu día: sales de la base 8:50 a.m. → 9 a.m. 412 Oak St (10 min) → 10:30 a.m. 7 Pine Ave (10 min) → de vuelta a las 11:50 a.m. 1 borrador en progreso.",
+  );
+  assert.equal(morningLineText(counts, "en", { ...day, plan: null }), "Good morning. Your day: 9 AM 412 Oak St, 10:30 AM 7 Pine Ave. 1 draft in progress.");
 });
 
 test("nudgeText names the quote, total, and days in both languages", () => {
