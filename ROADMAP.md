@@ -132,13 +132,22 @@ owner approves anything that moves a customer. Done in the order below; each ste
   today's route re-plans from now: a stop under way finishes no sooner than now, a done stop leaves when
   it was marked done, and the stops after shift with their drives. A stop under way 30 minutes past its
   finish (the owner's setting), or a delay, is running long; with the return past the workday's end plus
-  a 15-minute grace, the day is at risk on the Route view. A ten-minute check finds those days; the
-  proposals it will raise, and the 45-minute lead time they keep, are still to come.
+  a 15-minute grace, the day is at risk on the Route view. A ten-minute check finds those days and
+  raises a proposal for each (below): the last stops not yet started, keeping any within the 45-minute
+  lead time, to someone else that day who carries what they need, else to the same crew's next day
+  with room.
 - **Proposals.** A move is a proposal, not a change: the stops moved, from where to where, the reason
   in one line, and a drafted text per customer and per receiving crew member. It goes to the owner as
   a numbered confirm, by text or on the web, with items they can drop; applying it is one transaction
   that re-checks every item still holds. Customer texts are drafts the member forwards, as invoices
   are today. Nothing reaches a customer because a rule fired.
+  Shipped: a proposal per crew member and day, with the reason in one line and each stop's move, a
+  customer draft in the customer's language, and the line the receiving crew will get. The owners and
+  admins get it as a numbered text (quiet hours hold it) and as a card on the Schedule page with a box
+  per stop; "all", the numbers, or "no" by text, or Apply and Drop on the web, decide it. Applying is one
+  transaction that re-checks each stop (unchanged since, the time still free, the crew carry what it
+  needs), moves the ones that hold, says why the rest didn't, and texts the crew; the customer drafts
+  come back to forward. Open proposals expire when their day ends.
 - **Route days.** Recurring work (weekly mowing, monthly beds) is placed by area: the assistant
   proposes which weekday each neighborhood gets so a crew's recurring day is one loop, and new
   recurring customers land on the day their neighbors have.

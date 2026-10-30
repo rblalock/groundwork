@@ -62,6 +62,14 @@ as the crew go. A stop 30 minutes past its finish, or a declared delay, is runni
 return runs past the workday's end plus a 15-minute grace (both settings) the Route view marks the
 day at risk. Nothing moves and no customer is texted.
 
+A day at risk becomes a proposal: the code takes the crew's last stops not yet started off the end
+until the return fits, keeping any stop within the 45-minute lead time, and places each with someone
+else that day who carries what it needs, else with the same crew on their next day with room. The
+owners get it as a numbered text ("Move 2 stops for Carlos? 1. 4 Elm Rd → Pat today 2 PM 2. 40 Pine
+Ave → Carlos tomorrow 8:15 AM. Reply the numbers to keep, 'all', or 'no'.") and as a card on the
+Schedule page. Applying it re-checks every stop in one transaction, moves the ones that still hold,
+and texts the crew; the customer texts come back as drafts for the owner to forward.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 
