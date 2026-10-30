@@ -66,6 +66,59 @@ Turn each located line of the priced photo into a checklist item for the visit (
 beds, trim the outlined hedge) and send it with the photo to the crew booked on it. Crew mark items
 done by text, and the visit closes when they are.
 
+## Dispatch: routes for crews and jobs
+
+Today the schedule is visits with a crew, a start, an end, and buffers a person guesses. Dispatch
+makes the day a route: where each crew goes, in what order, how long the driving takes, and what to
+do when the day stops fitting. The rules decide; the model explains and writes the messages; the
+owner approves anything that moves a customer. Done in the order below; each step is useful alone.
+
+- **Places.** Geocode every property and the business's yard once, when the address is saved (the
+  US Census geocoder needs no key; a paid one can replace it behind the same function). A property
+  that can't be placed says so on its card and is left out of route math, never guessed.
+- **Drive times.** Straight-line distance times a road factor at a town speed, between any two
+  places. No road graph, no routing service: a landscaping crew's day is one county, and the number
+  only has to be honest to the quarter hour. Visit buffers stop being a guess: `book_visit` and
+  `find_availability` take the drive from the previous stop and to the next one into account.
+- **The crew's day.** A plan per crew per day: ordered stops with planned arrival and finish, the
+  legs between them, leaving from and returning to the yard. Ordering is nearest-neighbor with a
+  two-opt pass, which is enough at a crew's size. The plan is derived from the visits and recomputed
+  when they change; it is never the record, the visits are. The morning line becomes the route: each
+  stop with its arrival, a maps link, the gate note, and the drive to the next one.
+- **Slots that fit the route.** `find_availability` offers the cheapest insertion into each crew's
+  day (least added driving), inside working hours and under a day capacity (jobs plus driving fill no
+  more than a set share of the day, so there is room for the unexpected), before it offers an empty
+  slot on a far day. Equipment matters: a price book item can list what it needs (trailer, mower
+  deck size, sprayer license, chipper), a member can list what their truck carries, and a job only
+  goes to a crew that carries all of it.
+- **Running long.** `start_job` and `close_job` already time the work. When a stop passes its
+  planned finish by a set number of minutes, or the crew texts that it will, the rest of the day
+  re-plans from now. When the projected return runs past the end of the workday by more than a
+  grace, the assistant proposes moving the crew's last unstarted stops: to another crew today when
+  one nearby has room, else to the customer's next open day. A stop starting within the lead time
+  stays; the crew is already on its way.
+- **Proposals.** A move is a proposal, not a change: the stops moved, from where to where, the reason
+  in one line, and a drafted text per customer and per receiving crew member. It goes to the owner as
+  a numbered confirm, by text or on the web, with items they can drop; applying it is one transaction
+  that re-checks every item still holds. Customer texts are drafts the member forwards, as invoices
+  are today. Nothing reaches a customer because a rule fired.
+- **Route days.** Recurring work (weekly mowing, monthly beds) is placed by area: the assistant
+  proposes which weekday each neighborhood gets so a crew's recurring day is one loop, and new
+  recurring customers land on the day their neighbors have.
+- **Weather.** The forecast from api.weather.gov (no key) for each crew's day: rain probability and
+  heat by hour for the yard's grid point. A day with a high chance of rain over a mowing route gets
+  a proposal the evening before, with the next dry day per customer. Thresholds are business
+  settings the owner can change by text, with sensible defaults, not constants in code.
+- **The board.** The schedule page shows each crew's day as a route: the stops in order with drive
+  legs between them, the running total against capacity, and what is at risk. A map comes after the
+  list works; the list with honest minutes is the product, the map is the picture of it.
+- **Crew phone.** Each crew member's day on their phone from a text: "next" for the next stop with
+  the address link and notes, "done" to close it and re-plan, "running 30 late" to re-plan with the
+  delay, and the owner sees the day shift on the board.
+
+Out of scope: live truck positions, a road graph, radar, parcels, and anything that needs a
+telematics or routing service. The record stays the visit; the route is always computed from it.
+
 ## Real Stripe Connect onboarding
 
 The demo runs on `STRIPE_FAKE`. The Connect code creates the business's account and Stripe's hosted
