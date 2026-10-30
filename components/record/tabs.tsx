@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { cn } from "@/ui/lib/utils";
+import { ActiveTabInView } from "../pages/active-tab-in-view";
 
 export type RecordTab = { key: string; label: string; href: string; count?: number };
 
@@ -29,6 +30,7 @@ export function RecordTabs({ tabs, active, label }: { tabs: RecordTab[]; active:
           {tab.count ? <span className="text-[11px] text-ink-3 tabular-nums">{tab.count}</span> : null}
         </Link>
       ))}
+      <ActiveTabInView />
     </nav>
   );
 }

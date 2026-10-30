@@ -22,28 +22,72 @@ export function JumpBar({ sections, label, end }: { sections: JumpSection[]; lab
       .map((id) => document.getElementById(id))
       .filter((el): el is HTMLElement => el !== null);
     if (targets.length === 0) return;
-    // The section nearest the top of the view is the one being read.
+    const scroller = root instanceof HTMLElement ? root : null;
+    // The section nearest the top of the view, below the bar, is the one being read. The bar sticks below
+    // the page's top padding, so the view's top is the padding plus the bar.
+    const top = (scroller ? parseFloat(getComputedStyle(scroller).paddingTop) || 0 : 0) + (bar.current?.offsetHeight ?? 0);
     const seen = new Map<string, boolean>();
+    // A section the address points into is the one marked, until the reader scrolls: the jump to it can
+    // land with the section before it still in view, and the page can shift as its photos load.
+    let pinned: string | null = null;
+    const read = () => {
+      if (pinned) return;
+      const first = targets.find((t) => seen.get(t.id));
+      if (first) setActive(first.id);
+    };
+    const pinToHash = () => {
+      let hash = window.location.hash.slice(1);
+      try {
+        hash = decodeURIComponent(hash);
+      } catch {
+        // A malformed escape: look it up as it is.
+      }
+      const el = hash ? document.getElementById(hash) : null;
+      const section = el ? targets.find((t) => t.contains(el)) : undefined;
+      if (!section) return;
+      pinned = section.id;
+      setActive(section.id);
+    };
+    const unpin = () => {
+      if (!pinned) return;
+      pinned = null;
+      read();
+    };
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) seen.set(entry.target.id, entry.isIntersecting);
-        const first = targets.find((t) => seen.get(t.id));
-        if (first) setActive(first.id);
+        read();
       },
-      { root, rootMargin: "-56px 0px -55% 0px" },
+      { root, rootMargin: `-${Math.round(top)}px 0px -55% 0px` },
     );
     for (const target of targets) observer.observe(target);
+    pinToHash();
     // At the very bottom, the last section is the one being read, however short it is.
-    const scroller = root instanceof HTMLElement ? root : null;
     const onScroll = () => {
-      if (scroller && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4) setActive(targets[targets.length - 1].id);
+      if (!pinned && scroller && scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4) setActive(targets[targets.length - 1].id);
     };
+    // Only the reader's own scrolling hands the mark back; the browser's jump to the address scrolls too.
+    const handBack = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
     scroller?.addEventListener("scroll", onScroll, { passive: true });
+    for (const type of handBack) scroller?.addEventListener(type, unpin, { passive: true });
+    window.addEventListener("hashchange", pinToHash);
     return () => {
       observer.disconnect();
       scroller?.removeEventListener("scroll", onScroll);
+      for (const type of handBack) scroller?.removeEventListener(type, unpin);
+      window.removeEventListener("hashchange", pinToHash);
     };
   }, [ids]);
+
+  // On a phone the bar scrolls sideways; keep the marked section's tab in it.
+  useEffect(() => {
+    const row = bar.current;
+    const current = row?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!row || !current) return;
+    const tab = current.getBoundingClientRect();
+    const view = row.getBoundingClientRect();
+    if (tab.left < view.left || tab.right > view.right) row.scrollLeft += tab.left - view.left - (view.width - tab.width) / 2;
+  }, [active]);
 
   return (
     <nav
