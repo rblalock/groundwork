@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Home, MapPin, Truck } from "lucide-react";
+import { AlertTriangle, Check, Home, MapPin, Truck } from "lucide-react";
 import type { ReactNode } from "react";
 import { StatusPill } from "@/ui/beautiful/atoms/StatusPill";
 import { cn } from "@/ui/lib/utils";
@@ -11,8 +11,10 @@ import { durationText } from "@/core/scheduling-time";
 import { timeLabel } from "./calendar";
 
 // The Schedule page's route view: each crew member's day as a list, from the yard and back, with the drive
-// into each stop and the day's load against the business's capacity. It only draws the plan the server
-// worked out (`core/day-plan.ts`); nothing here changes a visit. A row opens the visit's details.
+// into each stop and the day's load against the business's capacity. Today's re-planned day shows when the
+// crew got on site, the projected times of the stops they'd reach late, and whether the day is at risk. It
+// only draws the plan the server worked out (`core/day-plan.ts`); nothing here changes a visit. A row opens
+// the visit's details.
 
 const STATUS_TONE = { proposed: "orange", scheduled: "accent", completed: "green", cancelled: "neutral" } as const;
 
@@ -70,6 +72,11 @@ function RouteCard({
         ) : null}
         {plan.stops.map((stop) => {
           const visit = visits.find((v) => v.visitId === stop.visitId);
+          const done = stop.status === "completed";
+          // Re-planned, a stop under way says since when and, running over, about when it'll be done; one ahead
+          // they'd reach late says about when they get there.
+          const underWay = plan.replan && stop.startedAt && !done;
+          const ahead = plan.replan && !stop.startedAt && !done && stop.lateMinutes > 0;
           return (
             <li key={stop.visitId}>
               <button
@@ -103,7 +110,14 @@ function RouteCard({
                         {s.checklistDone(stop.checklist.done, stop.checklist.total)}
                       </span>
                     ) : null}
-                    {stop.lateMinutes > 0 ? <span className="text-orange tabular-nums">{r.late(stop.lateMinutes)}</span> : null}
+                    {underWay && stop.startedAt ? (
+                      <span className="tabular-nums">
+                        {r.onSite(time(stop.startedAt))}
+                        {Date.parse(stop.plannedLeaveAt) > Date.parse(stop.endAt) ? <span className="text-orange"> · {r.ends(time(stop.plannedLeaveAt))}</span> : null}
+                      </span>
+                    ) : null}
+                    {ahead ? <span className="text-orange tabular-nums">{r.arrives(time(stop.plannedArriveAt))}</span> : null}
+                    {stop.lateMinutes > 0 && !underWay && !done ? <span className="text-orange tabular-nums">{r.late(stop.lateMinutes)}</span> : null}
                   </span>
                 </span>
                 <StatusPill className="shrink-0" dot tone={STATUS_TONE[stop.status]}>
@@ -114,13 +128,24 @@ function RouteCard({
           );
         })}
         {plan.backAtYardAt && plan.legOut ? (
-          <YardRow detail={r.drive(plan.legOut.minutes)} icon={<Home className="size-3.5" />} label={r.back} time={time(plan.backAtYardAt)} />
+          <YardRow
+            detail={r.drive(plan.legOut.minutes)}
+            icon={<Home className="size-3.5" />}
+            label={plan.replan && plan.replan.shiftMinutes !== 0 ? r.backProjected : r.back}
+            time={time(plan.backAtYardAt)}
+          />
         ) : null}
       </ol>
       <p className={cn("mt-2 px-2 text-[12px] tabular-nums", plan.overCapacity ? "font-medium text-orange" : "text-ink-2")}>
         {r.summary(durationText(plan.driveMinutes, language), durationText(plan.workMinutes, language))} · {plan.load === null ? r.noHours : r.load(percent(plan.load))}
         {plan.overCapacity ? ` · ${r.over(percent(plan.capacityBp))}` : ""}
       </p>
+      {plan.atRisk && plan.replan?.dayEndAt ? (
+        <p className="mt-1 flex items-center gap-1.5 px-2 text-[12px] font-medium text-orange tabular-nums" role="status">
+          <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
+          {r.atRisk(time(plan.backAtYardAt ?? plan.stops[plan.stops.length - 1].plannedLeaveAt), time(plan.replan.dayEndAt))}
+        </p>
+      ) : null}
       {plan.suggestedOrder && plan.savedDriveMinutes ? (
         <p className="mt-1 px-2 text-[12px] text-ink-3">{r.shorter(plan.suggestedOrder.map((o) => o.title).join(" → "), plan.savedDriveMinutes)}</p>
       ) : null}

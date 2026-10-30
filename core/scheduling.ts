@@ -81,6 +81,11 @@ export type VisitView = {
   bufferBeforeMinutes: number;
   bufferAfterMinutes: number;
   status: VisitStatus;
+  /** When the crew said they're on site; null until then. */
+  startedAt: Date | null;
+  completedAt: Date | null;
+  /** A delay the crew declared on it, in minutes; 0 for none. */
+  delayMinutes: number;
   notes: string | null;
   revision: number;
   /** How much of the work's checklist is ticked; null when it has none. */
@@ -261,6 +266,9 @@ async function loadVisitViews(orgId: string, where: SQL[], executor: Db | Tx = d
     bufferBeforeMinutes: visit.bufferBeforeMinutes,
     bufferAfterMinutes: visit.bufferAfterMinutes,
     status: visit.status,
+    startedAt: visit.startedAt,
+    completedAt: visit.completedAt,
+    delayMinutes: visit.delayMinutes,
     notes: visit.notes,
     revision: visit.revision,
     checklist: checklists.get(job.id) ?? null,

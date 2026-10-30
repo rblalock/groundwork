@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { organization } from "../schema/schema";
 import { saveCustomer } from "./customers";
 import { db } from "./db";
-import { dayPlans, planDay, planForTool, routeLine, type PlanInput } from "./day-plan";
+import { dayEndAt, dayPlans, planDay, planForTool, replanFrom, routeLine, type PlanInput } from "./day-plan";
 import { createMember, type Caller } from "./members";
 import { DEFAULT_DRIVE, type Place } from "./places";
 import { updateProfile } from "./profile";
@@ -40,6 +40,9 @@ function visit(id: string, place: Place | null, start: string, end: string, extr
     bufferBeforeMinutes: 10,
     bufferAfterMinutes: 10,
     status: "scheduled",
+    startedAt: null,
+    completedAt: null,
+    delayMinutes: 0,
     notes: null,
     revision: 1,
     checklist: null,
@@ -137,6 +140,92 @@ test("route line: each stop's start, title, and drive in, between leaving the ya
   assert.deepEqual([tool.leaveYardAt, tool.backAtYardAt, tool.driveMinutes, tool.loadPercent, tool.capacityPercent], ["08:50", "12:20", 30, 31, 95]);
   assert.deepEqual(tool.unplaced, ["Unplaced Ln"]);
   assert.match(tool.line, /^Carlos Reyes, Tue, Nov 3: leave the yard 8:50 AM → /);
+});
+
+const settings = (end: string | null, extra: { lateAfterMinutes?: number; graceMinutes?: number } = {}) => ({
+  lateAfterMinutes: 30,
+  graceMinutes: 15,
+  dayEndAt: end ? local(end) : null,
+  ...extra,
+});
+
+test("re-plan: nothing started, done, or delayed leaves the day as booked", () => {
+  const plan = planDay(input([visit("v1", oak, "09:00", "10:00"), visit("v2", pine, "10:30", "11:30")]));
+  const same = replanFrom(plan, local("09:30"), settings("16:00"));
+  assert.equal(same.replan, null);
+  assert.equal(same.atRisk, false);
+  assert.deepEqual(same.stops, plan.stops);
+});
+
+test("re-plan: a stop under way past its finish pushes the stops after it, and slack takes it up", () => {
+  const visits = (extra = {}) => [
+    visit("v1", oak, "09:00", "10:00", { startedAt: local("09:00"), ...extra }),
+    visit("v2", pine, "10:30", "11:30"),
+    visit("v3", elm, "13:00", "14:00"),
+  ];
+  const plan = replanFrom(planDay(input(visits())), local("10:40"), settings("16:00"));
+  assert.equal(clock(plan.stops[0].plannedLeaveAt), "15:40", "10:40 AM: not done, so it runs at least until now");
+  assert.equal(clock(plan.stops[1].plannedArriveAt), "15:50", "10:50 AM: now plus the 10-minute drive");
+  assert.equal(plan.stops[1].lateMinutes, 20);
+  assert.equal(clock(plan.stops[1].plannedLeaveAt), "16:50");
+  assert.equal(plan.stops[2].lateMinutes, 0, "the gap before 1 PM takes up the rest");
+  assert.equal(clock(plan.backAtYardAt), "19:30", "2:30 PM, as booked");
+  assert.deepEqual([plan.replan?.visitId, plan.replan?.runningLong, plan.replan?.shiftMinutes], ["v1", true, 0]);
+  assert.equal(plan.atRisk, false, "the return doesn't move");
+  assert.match(routeLine(plan, TZ, "en"), /10:30 AM 7 Pine Ave \(10 min\), 20 min late → 1 PM 4 Elm Rd/);
+  assert.match(routeLine(plan, TZ, "es"), /7 Pine Ave \(10 min\), 20 min tarde/);
+
+  const early = replanFrom(planDay(input(visits())), local("10:20"), settings("16:00"));
+  assert.equal(early.replan?.runningLong, false, "twenty minutes past is under the 30-minute mark");
+  assert.equal(replanFrom(planDay(input(visits())), local("10:20"), settings("16:00", { lateAfterMinutes: 20 })).replan?.runningLong, true);
+});
+
+test("re-plan: running long into the end of the day puts it at risk", () => {
+  const visits = [visit("v1", oak, "13:00", "14:00", { startedAt: local("13:05") }), visit("v2", pine, "14:10", "15:30")];
+  const booked = planDay(input(visits));
+  assert.equal(clock(booked.backAtYardAt), "20:50", "3:50 PM");
+  const plan = replanFrom(booked, local("14:50"), settings("16:00"));
+  assert.equal(clock(plan.stops[0].plannedLeaveAt), "19:50", "2:50 PM");
+  assert.equal(plan.stops[0].lateMinutes, 5, "started five minutes after its booked start");
+  assert.equal(plan.stops[1].lateMinutes, 50);
+  assert.equal(clock(plan.backAtYardAt), "21:40", "4:40 PM");
+  assert.deepEqual([plan.replan?.shiftMinutes, clock(plan.replan?.latestBackAt ?? null)], [50, "21:15"]);
+  assert.equal(plan.atRisk, true, "past 4 PM plus 15 minutes, later than booked, and running long");
+
+  const notYet = replanFrom(booked, local("14:20"), settings("16:00"));
+  assert.deepEqual([notYet.replan?.runningLong, notYet.replan?.shiftMinutes, notYet.atRisk], [false, 20, false], "pushed, but not running long yet");
+  assert.equal(replanFrom(booked, local("14:50"), settings("16:00", { graceMinutes: 60 })).atRisk, false, "an hour's grace covers it");
+  assert.equal(replanFrom(booked, local("14:50"), settings(null)).atRisk, false, "no hours, no workday end to pass");
+});
+
+test("re-plan: a done stop leaves when it was marked done, and a declared delay moves the next arrival", () => {
+  const visits = (extra = {}) => [visit("v1", oak, "09:00", "10:00", { status: "completed", completedAt: local("10:20") }), visit("v2", pine, "10:30", "11:30", extra)];
+  const done = replanFrom(planDay(input(visits(), { hours: [{ day: 2, start: "08:00", end: "12:00" }] })), local("10:25"), settings("12:00"));
+  assert.equal(clock(done.stops[1].plannedArriveAt), "15:30", "10:30 AM: done at 10:20 plus the drive");
+  assert.deepEqual([done.stops[1].lateMinutes, done.replan?.runningLong, done.atRisk], [0, false, false]);
+
+  const delayed = replanFrom(planDay(input(visits({ delayMinutes: 30 }), { hours: [{ day: 2, start: "08:00", end: "12:00" }] })), local("10:25"), settings("12:00"));
+  assert.equal(clock(delayed.stops[1].plannedArriveAt), "16:00", "11 AM: thirty minutes after its booked start");
+  assert.equal(delayed.stops[1].lateMinutes, 30);
+  assert.equal(clock(delayed.backAtYardAt), "17:20", "12:20 PM");
+  assert.deepEqual([delayed.replan?.visitId, delayed.replan?.runningLong, delayed.replan?.shiftMinutes, delayed.atRisk], ["v2", true, 30, true]);
+
+  const early = replanFrom(planDay(input([visit("v1", oak, "09:00", "10:00", { status: "completed", completedAt: local("09:40") }), visit("v2", pine, "10:30", "11:30")])), local("09:45"), settings("16:00"));
+  assert.equal(clock(early.stops[1].plannedArriveAt), "14:50", "9:50 AM: early, so they wait for 10:30");
+  assert.equal(clock(early.stops[1].plannedLeaveAt), "16:30", "11:30 AM, as booked");
+  assert.equal(early.stops[1].lateMinutes, 0);
+});
+
+test("re-plan: a delay on the stop under way moves its finish, and the day's end is the last working stretch", () => {
+  const visits = [visit("v1", oak, "09:00", "10:00", { startedAt: local("09:00"), delayMinutes: 20 }), visit("v2", pine, "10:10", "11:00")];
+  const plan = replanFrom(planDay(input(visits)), local("09:30"), settings("16:00"));
+  assert.equal(clock(plan.stops[0].plannedLeaveAt), "15:20", "10:20 AM: its finish plus the delay, though now is earlier");
+  assert.equal(plan.stops[1].lateMinutes, 20);
+  assert.equal(plan.replan?.runningLong, true);
+  assert.equal(plan.suggestedOrder, null);
+
+  assert.equal(dayEndAt(DATE, [{ day: 2, start: "08:00", end: "12:00" }, { day: 2, start: "13:00", end: "17:00" }], TZ)?.toISOString(), "2026-11-03T22:00:00.000Z");
+  assert.equal(dayEndAt(DATE, [{ day: 1, start: "08:00", end: "16:00" }], TZ), null, "Tuesday is a day off");
 });
 
 async function member(name: string, role: Caller["role"], orgId = TEST_ORG): Promise<Caller> {

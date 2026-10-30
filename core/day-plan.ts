@@ -6,12 +6,16 @@
 //
 // v1 keeps the booked order, since visits have times. It suggests a shorter one (`core/route-order.ts`) when
 // that drives at least `SUGGEST_SAVES_MINUTES` less; applying it is for later.
+//
+// Today's plan re-plans from now (`replanFrom`) once the crew are under way: a stop they're on, one marked
+// done, or a delay they declared moves the stops after it, and the day is at risk when it's running long and
+// the return runs past the workday's end by more than the business's grace.
 import { isPrivileged } from "./members";
 import { driveMinutes, driveSettingsOf, yardOf, type DriveSettings, type Leg, type Place } from "./places";
 import { getProfile, type Profile } from "./profile";
 import { routeDriveMinutes, suggestOrder } from "./route-order";
 import { readSchedule, scheduleCrew, type ScheduleWindow, type Viewer, type VisitStatus, type VisitView } from "./scheduling";
-import { dayText, timeText, wallClock, workingSegments, type WorkingInterval } from "./scheduling-time";
+import { dayText, minutesClock, resolveLocalTime, timeText, wallClock, workingSegments, type WorkingInterval } from "./scheduling-time";
 import { addDays } from "./time";
 import type { Language } from "./language";
 
@@ -26,16 +30,38 @@ export type PlanStop = {
   place: Place | null;
   status: VisitStatus;
   checklist: { done: number; total: number } | null;
+  /** When the crew said they were on site, and when it was marked done; null until then. */
+  startedAt: Date | null;
+  completedAt: Date | null;
+  /** A delay the crew declared on it, in minutes. */
+  delayMinutes: number;
   /** The drive in from the stop before or the yard; null when either end is unplaced. */
   legIn: Leg | null;
-  /** When the crew get there leaving the stop before as it ends (the first: its start). */
+  /** When the crew get there leaving the stop before as it ends (the first: its start). Re-planned: projected. */
   plannedArriveAt: Date;
   startAt: Date;
   endAt: Date;
-  /** When they're done and leave: its end, later when they arrive late. */
+  /** When they're done and leave: its end, later when they arrive late. Re-planned: projected. */
   plannedLeaveAt: Date;
   /** How many minutes after its start they'd get there; 0 on time. */
   lateMinutes: number;
+};
+
+/** How a day re-planned from now (`replanFrom`). */
+export type Replan = {
+  at: Date;
+  /** The stop under way or running late, when there is one. */
+  visitId: string | null;
+  title: string | null;
+  /** How many minutes later than booked the crew are back (or leave the last stop, without a placed yard). */
+  shiftMinutes: number;
+  /** The stop under way is `lateAfterMinutes` past its finish and not done, or the crew declared a delay. */
+  runningLong: boolean;
+  bookedBackAtYardAt: Date | null;
+  /** The end of the member's workday; null on a day with no hours. */
+  dayEndAt: Date | null;
+  /** The workday's end plus the grace: the latest the return may run before the day is at risk. */
+  latestBackAt: Date | null;
 };
 
 export type DayPlan = {
@@ -64,6 +90,10 @@ export type DayPlan = {
   /** A shorter order, when it drives `SUGGEST_SAVES_MINUTES` or more less than the booked one; else null. */
   suggestedOrder: Array<{ visitId: string; title: string }> | null;
   savedDriveMinutes: number | null;
+  /** Set on today's plan once it re-planned from now; null on the booked plan. */
+  replan: Replan | null;
+  /** Running long, and back past the workday's end plus the grace, later than booked. */
+  atRisk: boolean;
 };
 
 export type PlanInput = {
@@ -100,6 +130,9 @@ export function planDay(input: PlanInput): DayPlan {
       place: v.place,
       status: v.status,
       checklist: v.checklist,
+      startedAt: v.startedAt,
+      completedAt: v.completedAt,
+      delayMinutes: v.delayMinutes,
       legIn,
       plannedArriveAt,
       startAt: v.startAt,
@@ -137,7 +170,111 @@ export function planDay(input: PlanInput): DayPlan {
     yardPlaced: yard !== null,
     suggestedOrder: suggestion?.order ?? null,
     savedDriveMinutes: suggestion?.saved ?? null,
+    replan: null,
+    atRisk: false,
   };
+}
+
+export type ReplanSettings = {
+  /** A stop under way this many minutes past its finish counts as running long. */
+  lateAfterMinutes: number;
+  /** How far past the workday's end the return may run before the day is at risk. */
+  graceMinutes: number;
+  /** The end of the member's workday (`dayEndAt`); null on a day with no hours. */
+  dayEndAt: Date | null;
+};
+
+const later = (a: Date, b: Date) => (a > b ? a : b);
+
+/**
+ * The day re-planned from `now`. Pure: the booked plan, the crew's starts, finishes, and delays in; the projected
+ * plan out. Unchanged (`replan` null) until a stop is started, done, or has a delay.
+ *
+ * - A stop marked done left when it was marked done, and got there when it was started (else as planned).
+ * - The stop under way (the last one started and not done, with nothing after it started) finishes at its start
+ *   plus its length, plus a declared delay, and never before `now` while it isn't done. It's running long once
+ *   `now` is `lateAfterMinutes` past that finish.
+ * - Every stop after gets there when the one before finishes plus the drive (or at the one before's finish,
+ *   unplaced), never before its booked start; a delay declared on a stop not yet started puts its arrival that
+ *   many minutes after its booked start. `lateMinutes` is the projected arrival less the booked start.
+ * - At risk: running long (or a delay), and the projected return passes the workday's end plus the grace, later
+ *   than the booked return.
+ */
+export function replanFrom(plan: DayPlan, now: Date, settings: ReplanSettings): DayPlan {
+  const touched = plan.stops.some((s) => s.startedAt || s.completedAt || s.status === "completed" || s.delayMinutes > 0);
+  if (!touched) return { ...plan, replan: null, atRisk: false };
+  const reached = plan.stops.findLastIndex((s) => s.startedAt || s.status === "completed");
+  const underWay = reached >= 0 && plan.stops[reached].status !== "completed" ? reached : -1;
+  let overdue = false;
+  let leave: Date | null = null;
+  const stops = plan.stops.map((s, i): PlanStop => {
+    const length = minutesBetween(s.startAt, s.endAt);
+    const chained: Date = leave === null ? s.plannedArriveAt : s.legIn ? plus(leave, s.legIn.minutes) : later(leave, s.startAt);
+    let arrive: Date;
+    let leaves: Date;
+    if (s.status === "completed") {
+      leaves = s.completedAt ?? plus(later(chained, s.startAt), length);
+      arrive = s.startedAt ?? (chained < leaves ? chained : leaves);
+    } else if (s.startedAt) {
+      arrive = s.startedAt;
+      const finish = plus(s.startedAt, length + s.delayMinutes);
+      leaves = i === underWay ? later(finish, now) : finish;
+      if (i === underWay && now.getTime() >= finish.getTime() + settings.lateAfterMinutes * MINUTE) overdue = true;
+    } else {
+      arrive = s.delayMinutes > 0 ? later(chained, plus(s.startAt, s.delayMinutes)) : chained;
+      leaves = plus(later(arrive, s.startAt), length);
+    }
+    leave = leaves;
+    return { ...s, plannedArriveAt: arrive, plannedLeaveAt: leaves, lateMinutes: Math.max(0, minutesBetween(s.startAt, arrive)) };
+  });
+  const delayed = stops.find((s) => s.status !== "completed" && s.delayMinutes > 0);
+  const current = underWay >= 0 ? stops[underWay] : (delayed ?? null);
+  const last = stops.at(-1)!;
+  const backAtYardAt = plan.legOut ? plus(last.plannedLeaveAt, plan.legOut.minutes) : null;
+  const bookedEnd = plan.backAtYardAt ?? plan.stops.at(-1)!.plannedLeaveAt;
+  const projectedEnd = backAtYardAt ?? last.plannedLeaveAt;
+  const shiftMinutes = minutesBetween(bookedEnd, projectedEnd);
+  const runningLong = overdue || delayed !== undefined;
+  const latestBackAt = settings.dayEndAt ? plus(settings.dayEndAt, settings.graceMinutes) : null;
+  return {
+    ...plan,
+    stops,
+    backAtYardAt,
+    suggestedOrder: null,
+    savedDriveMinutes: null,
+    replan: {
+      at: now,
+      visitId: current?.visitId ?? null,
+      title: current?.title ?? null,
+      shiftMinutes,
+      runningLong,
+      bookedBackAtYardAt: plan.backAtYardAt,
+      dayEndAt: settings.dayEndAt,
+      latestBackAt,
+    },
+    atRisk: runningLong && latestBackAt !== null && projectedEnd > latestBackAt && shiftMinutes > 0,
+  };
+}
+
+/** When the member's working hours end on `date`, in the business's time zone; null on a day off. */
+export function dayEndAt(date: string, hours: WorkingInterval[], timeZone: string): Date | null {
+  const last = workingSegments(date, hours).at(-1);
+  if (!last) return null;
+  try {
+    return resolveLocalTime(date, minutesClock(Math.min(last.end, 23 * 60 + 59)), timeZone);
+  } catch {
+    return null;
+  }
+}
+
+/** Today's plan re-planned from `now` with the business's settings; any other day's as booked. */
+function replanned(plan: DayPlan, hours: WorkingInterval[], profile: Profile, now: Date): DayPlan {
+  if (plan.date !== wallClock(now, profile.timeZone).date) return plan;
+  return replanFrom(plan, now, {
+    lateAfterMinutes: profile.lateAfterMinutes,
+    graceMinutes: profile.dayEndGraceMinutes,
+    dayEndAt: dayEndAt(plan.date, hours, profile.timeZone),
+  });
 }
 
 /**
@@ -158,10 +295,10 @@ const visitsOf = (visits: VisitView[], memberId: string, date: string, timeZone:
   visits.filter((v) => v.crew.some((c) => c.memberId === memberId) && wallClock(v.startAt, timeZone).date === date);
 
 /**
- * Each member's plan for each day of a schedule window that has visits for them. Owners and admins (and a super
- * admin's look-only view) get everyone in the window; crew get only their own.
+ * Each member's plan for each day of a schedule window that has visits for them, today's re-planned from `now`.
+ * Owners and admins (and a super admin's look-only view) get everyone in the window; crew get only their own.
  */
-export function plansIn(viewer: Viewer, schedule: ScheduleWindow, profile: Profile): DayPlan[] {
+export function plansIn(viewer: Viewer, schedule: ScheduleWindow, profile: Profile, now: Date = new Date()): DayPlan[] {
   const crew = isPrivileged(viewer.role) ? schedule.crew : schedule.crew.filter((c) => c.memberId === viewer.memberId);
   const yard = yardOf(profile);
   const settings = driveSettingsOf(profile);
@@ -170,7 +307,8 @@ export function plansIn(viewer: Viewer, schedule: ScheduleWindow, profile: Profi
     for (const member of crew) {
       const visits = visitsOf(schedule.visits, member.memberId, date, schedule.timeZone);
       if (visits.length === 0) continue;
-      plans.push(planDay({ memberId: member.memberId, name: member.name, date, hours: member.hours, yard, settings, capacityBp: profile.capacityBp, visits }));
+      const plan = planDay({ memberId: member.memberId, name: member.name, date, hours: member.hours, yard, settings, capacityBp: profile.capacityBp, visits });
+      plans.push(replanned(plan, member.hours, profile, now));
     }
   }
   return plans;
@@ -181,7 +319,7 @@ export async function dayPlans(viewer: Viewer, input: { date: string; memberId?:
   const memberId = isPrivileged(viewer.role) ? input.memberId : (viewer.memberId ?? undefined);
   if (!isPrivileged(viewer.role) && !memberId) return { timeZone: (await getProfile(viewer.orgId)).timeZone, date: input.date, plans: [] };
   const [profile, schedule] = await Promise.all([getProfile(viewer.orgId), readSchedule(viewer, { from: input.date, days: 1, memberId }, deps)]);
-  return { timeZone: schedule.timeZone, date: schedule.from, plans: plansIn(viewer, schedule, profile) };
+  return { timeZone: schedule.timeZone, date: schedule.from, plans: plansIn(viewer, schedule, profile, deps?.now) };
 }
 
 /** One member's plan for `date` from the visits given (the morning line's, say); null when they aren't a member. */
@@ -204,9 +342,9 @@ export async function dayPlanFor(orgId: string, memberId: string, date: string, 
 // ---------------------------------------------------------------------------------------------
 // Words
 
-const ROUTE: Record<Language, { leave: (at: string) => string; back: (at: string) => string }> = {
-  en: { leave: (at) => `leave the yard ${at}`, back: (at) => `back by ${at}` },
-  es: { leave: (at) => `sales de la base ${at}`, back: (at) => `de vuelta a las ${at}` },
+const ROUTE: Record<Language, { leave: (at: string) => string; back: (at: string) => string; late: (minutes: number) => string }> = {
+  en: { leave: (at) => `leave the yard ${at}`, back: (at) => `back by ${at}`, late: (minutes) => `${minutes} min late` },
+  es: { leave: (at) => `sales de la base ${at}`, back: (at) => `de vuelta a las ${at}`, late: (minutes) => `${minutes} min tarde` },
 };
 
 /**
@@ -220,7 +358,8 @@ export function routeLine(plan: DayPlan, timeZone: string, language: Language): 
   if (plan.leaveYardAt) parts.push(copy.leave(timeText(plan.leaveYardAt, timeZone, language)));
   for (const stop of plan.stops) {
     const drive = stop.legIn && stop.legIn.minutes > 0 ? ` (${stop.legIn.minutes} min)` : "";
-    parts.push(`${timeText(stop.startAt, timeZone, language)} ${stop.title}${drive}`);
+    const late = plan.replan && stop.lateMinutes > 0 && !stop.startedAt && stop.status !== "completed" ? `, ${copy.late(stop.lateMinutes)}` : "";
+    parts.push(`${timeText(stop.startAt, timeZone, language)} ${stop.title}${drive}${late}`);
   }
   if (plan.backAtYardAt) parts.push(copy.back(timeText(plan.backAtYardAt, timeZone, language)));
   return parts.join(" → ");
@@ -243,6 +382,18 @@ export function planForTool(plan: DayPlan, timeZone: string, language: Language)
     ...(plan.stops.some((s) => s.lateMinutes > 0) ? { late: plan.stops.filter((s) => s.lateMinutes > 0).map((s) => ({ title: s.title, minutes: s.lateMinutes })) } : {}),
     ...(plan.unplaced.length ? { unplaced: plan.unplaced } : {}),
     ...(plan.suggestedOrder ? { suggestedOrder: plan.suggestedOrder.map((s) => s.title), savedDriveMinutes: plan.savedDriveMinutes } : {}),
+    ...(plan.replan
+      ? {
+          replanned: {
+            onStop: plan.replan.title,
+            shiftMinutes: plan.replan.shiftMinutes,
+            runningLong: plan.replan.runningLong,
+            bookedBackAtYardAt: clock(plan.replan.bookedBackAtYardAt),
+            dayEndsAt: clock(plan.replan.dayEndAt),
+          },
+          atRisk: plan.atRisk,
+        }
+      : {}),
     line: `${plan.name}, ${dayText(plan.date, language)}: ${routeLine(plan, timeZone, language)}`,
   };
 }

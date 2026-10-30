@@ -499,6 +499,12 @@ function VisitDetail({
             <span className="tabular-nums">{d.driveFrom(visit.drive.fromPrevious.minutes, visit.drive.fromPrevious.yard ? null : visit.drive.fromPrevious.label)}</span>
           </Row>
         ) : null}
+        {open && (visit.startedAt || visit.delayMinutes > 0) ? (
+          <Row icon={<MapPin className="size-3.5" />} label={d.onSite}>
+            {visit.startedAt ? <span className="block tabular-nums">{d.onSiteSince(timeLabel(visit.startedAt, timeZone, language))}</span> : null}
+            {visit.delayMinutes > 0 ? <span className="block text-orange tabular-nums">{d.delay(visit.delayMinutes)}</span> : null}
+          </Row>
+        ) : null}
         <Row icon={<Users className="size-3.5" />} label={d.crew}>
           {visit.crew.map((c) => c.name).join(", ")}
         </Row>
