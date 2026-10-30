@@ -31,14 +31,18 @@ import {
   distinctCandidates,
   DRAWN_PHRASE,
   drawnCandidate,
+  MAX_PROMPT_POINTS,
   newCandidates,
+  offLines,
+  sameBox,
   selectRegions,
+  SELECTED_PHRASE,
   withKept,
   type Assignment,
   type PhotoLine,
 } from "./priced-photo-select";
 import { getQuote } from "./quotes";
-import { SAM_MODEL, segment, segmentMany, type SamObject } from "./sam";
+import { SAM_MODEL, segment, segmentMany, segmentObjects, type SamObject, type SamPrompt } from "./sam";
 import { pluralUnit } from "./units";
 import { recordModelCall } from "./usage";
 
@@ -236,7 +240,8 @@ export async function pricedPhotosForCustomer(orgId: string, customerId: string,
 }
 
 // ---------------------------------------------------------------------------------------------
-// Editing: moving the kept candidates between lines, looking for one more phrase, and outlining by hand
+// Editing: moving the kept candidates between lines, asking SAM for one more phrase or one boxed
+// object, and outlining by hand
 
 /** A priced photo on the quote, with the name of the member who last edited it; null when the quote has no such photo. */
 export async function pricedPhotoOnQuote(orgId: string, quoteId: string, pricedId: string): Promise<(PricedPhoto & { editedByName: string | null }) | null> {
@@ -271,35 +276,57 @@ export async function assignPricedPhoto(caller: Caller, quoteId: string, pricedI
 }
 
 /**
- * Asks SAM once for `phrase` on the photo, keeps what it finds (inside `box`, by each object's middle,
- * when one is given) as new candidates, and puts them on the line at `lineIndex` when one is given; then
- * draws both copies again. `found` counts the candidates added: an object already kept for the phrase
- * isn't added twice, one kept under another phrase is added only in place of it when SAM is surer of it
- * now (`distinctCandidates`), and with none added nothing is drawn. Throws `BAD_PHRASE`, `UNKNOWN_LINE`,
- * `SAM_FAILED`, and what `assignPricedPhoto` throws.
+ * What a member asks SAM for on a priced photo: a phrase, kept inside `box` when one is given; or, with
+ * no phrase, the one object `box` and `points` name, in place of the candidate `replace` when an earlier
+ * ask of the same box found the wrong thing.
+ */
+export type FindAsk = { phrase?: string; box?: PricedBox; points?: SamPrompt["points"]; lineIndex?: number; replace?: string };
+
+/**
+ * Asks SAM once on the photo (`FindAsk`), keeps what it finds as new candidates, and puts them on the
+ * line at `lineIndex` when one is given; then draws both copies again. A boxed object is kept under the
+ * line's name, or `SELECTED_PHRASE` with no line. `found` counts the candidates added: an object already
+ * kept for the phrase isn't added twice, one kept under another phrase is added only in place of it when
+ * SAM is surer of it now (`distinctCandidates`), and with none added (and none replaced) nothing is
+ * drawn. `candidateIds` is what SAM found as it's kept: each new candidate, or the one kept already in its
+ * place. Throws `BAD_PHRASE`, `BAD_PROMPT`, `UNKNOWN_LINE`, `UNKNOWN_CANDIDATE` (`replace` isn't an
+ * object SAM found on the photo), `SAM_FAILED`, and what `assignPricedPhoto` throws.
  */
 export async function findInPricedPhoto(
   caller: Caller,
   quoteId: string,
   pricedId: string,
-  ask: { phrase: string; box?: PricedBox; lineIndex?: number },
-): Promise<{ photo: PricedPhoto; found: number }> {
-  const phrase = ask.phrase.trim();
-  if (phrase.length === 0 || phrase.length > MAX_FIND_PHRASE) throw new Error("BAD_PHRASE");
+  ask: FindAsk,
+): Promise<{ photo: PricedPhoto; found: number; candidateIds: string[] }> {
+  const phrase = ask.phrase?.trim() ?? "";
+  const boxed = phrase.length === 0 && ask.box !== undefined;
+  if (!boxed && (phrase.length === 0 || phrase.length > MAX_FIND_PHRASE)) throw new Error("BAD_PHRASE");
+  // SAM takes a phrase or an object prompt, never both.
+  if (!boxed && (ask.points?.length || ask.replace !== undefined)) throw new Error("BAD_PROMPT: points with a phrase");
+  if ((ask.points?.length ?? 0) > MAX_PROMPT_POINTS) throw new Error("BAD_PROMPT: too many points");
   const row = await editable(caller.orgId, quoteId, pricedId);
-  if (ask.lineIndex !== undefined && !row.regions.some((region) => region.lineIndex === ask.lineIndex)) throw new Error(`UNKNOWN_LINE: ${ask.lineIndex}`);
+  const region = ask.lineIndex === undefined ? undefined : row.regions.find((r) => r.lineIndex === ask.lineIndex);
+  if (ask.lineIndex !== undefined && !region) throw new Error(`UNKNOWN_LINE: ${ask.lineIndex}`);
+  const replaced = ask.replace === undefined ? undefined : row.candidates.find((c) => c.id === ask.replace);
+  if (ask.replace !== undefined && (!replaced || replaced.source === "hand")) throw new Error(`UNKNOWN_CANDIDATE: ${ask.replace}`);
+  const before = replaced ? row.candidates.filter((c) => c !== replaced) : row.candidates;
   const photo = await readPhoto(row);
-  const call = await segment({ bytes: photo.bytes, mimeType: "image/jpeg" }, phrase, { size: photo });
-  await recordSamCalls(caller, quoteId, [{ phrase, images: call.images }]);
-  const objects = ask.box ? call.objects.filter((o) => centeredIn(ask.box!, o.box)) : call.objects;
-  const fresh = newCandidates(row.candidates, candidatesFrom(phrase, objects, () => newId("cand")));
+  const image = { bytes: photo.bytes, mimeType: "image/jpeg" };
+  const name = boxed ? (region?.name ?? SELECTED_PHRASE) : phrase;
+  const call = boxed ? await segmentObjects(image, { box: ask.box, points: ask.points }, { size: photo }) : await segment(image, phrase, { size: photo });
+  await recordSamCalls(caller, quoteId, [{ phrase: name, images: call.images }]);
+  const objects = !boxed && ask.box ? call.objects.filter((o) => centeredIn(ask.box!, o.box)) : call.objects;
+  const answered = candidatesFrom(name, objects, () => newId("cand"));
+  const fresh = newCandidates(before, answered);
   // An object already kept under another phrase stays one candidate: the one SAM was surer of.
-  const { kept: candidates, same } = distinctCandidates([...row.candidates, ...fresh]);
+  const { kept: candidates, same } = distinctCandidates([...before, ...fresh]);
   const added = fresh.filter((candidate) => candidates.includes(candidate));
-  if (added.length === 0) return { photo: row, found: 0 };
-  const onKept = withKept(row.regions, same);
+  const keptAs = (c: PricedCandidate) => before.find((e) => e.phrase === c.phrase && sameBox(e.box, c.box)) ?? same.get(c.id) ?? c;
+  const candidateIds = [...new Set(answered.map((c) => keptAs(c).id))];
+  if (added.length === 0 && !replaced) return { photo: row, found: 0, candidateIds };
+  const onKept = withKept(replaced ? offLines(row.regions, replaced.id) : row.regions, same);
   const regions = ask.lineIndex === undefined ? onKept : addToLine(onKept, ask.lineIndex, added);
-  return { photo: await saveEdit(caller, row, photo, regions, candidates), found: added.length };
+  return { photo: await saveEdit(caller, row, photo, regions, candidates), found: added.length, candidateIds };
 }
 
 /**

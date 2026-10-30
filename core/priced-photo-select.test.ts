@@ -11,6 +11,7 @@ import {
   distinctCandidates,
   drawnCandidate,
   MAX_DRAWN_POINTS,
+  offLines,
   polygonArea,
   SAME_OBJECT_IOU,
   selectRegions,
@@ -156,6 +157,23 @@ test("assignments set every line's objects; one not listed is on no line", () =>
   assert.throws(() => applyAssignments(candidates, regions, [{ candidateId: "cand_99", lineIndexes: [0] }]), /UNKNOWN_CANDIDATE/);
   assert.throws(() => applyAssignments(candidates, regions, [{ candidateId: "cand_1", lineIndexes: [2] }]), /UNKNOWN_LINE/);
   assert.throws(() => addToLine(regions, 5, candidates), /UNKNOWN_LINE/);
+});
+
+test("a candidate taken off every line leaves the rest, and a line left with nothing isn't located", () => {
+  const candidates = PROBE.get("hedge")!;
+  const regions = selectRegions([line(0, "Hedge trimming", "hour", 1, "hedge"), line(1, "Shrub trimming", "hour", 1, null)], PROBE, IMAGE);
+  const both = applyAssignments(candidates, regions, [
+    { candidateId: "cand_1", lineIndexes: [0, 1] },
+    { candidateId: "cand_3", lineIndexes: [0] },
+  ]);
+  assert.deepEqual(
+    offLines(both, "cand_1").map((r) => [r.located, r.objects.map((o) => o.candidateId)]),
+    [
+      [true, ["cand_3"]],
+      [false, []],
+    ],
+  );
+  assert.equal(offLines(both, "cand_99")[0], both[0], "a line without it is left as it was");
 });
 
 test("an object is inside a box when its middle is", () => {

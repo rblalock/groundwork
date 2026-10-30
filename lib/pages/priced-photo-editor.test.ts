@@ -1,5 +1,6 @@
 // The priced photo editor's routes: anyone on the team reads the editor's state, moves the photo's
-// objects between lines, and outlines one by hand; a bad edit is a 400, another business's photo a 404.
+// objects between lines, asks SAM for the thing in a box, and outlines one by hand; a bad edit is a
+// 400, another business's photo a 404.
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +21,7 @@ import { DELETE as drawnDelete } from "../../app/api/quotes/[id]/priced/[pricedI
 import { call, installTransport, otherBusiness, person, refused, signIn, superAdminViewing } from "./test-support";
 
 const YARD = readFileSync(new URL("../../agents/assistant/evals/fixtures/yard-front.jpg", import.meta.url));
+const LAWN_STREAM = readFileSync(new URL("../../test-fixtures/sam/lawn.stream.txt", import.meta.url), "utf8");
 const quiet: Poster = async () => ({ posted: true });
 
 /** A quote with a photo and a priced photo of it: a hedge line, a shrub line, and one shrub SAM found on neither. */
@@ -164,4 +166,59 @@ withTestDb("the priced photo editor: an outline drawn by hand goes on a line, an
   refused(await call(drawPost, await superAdminViewing(TEST_ORG), { params, body: { points: square(10, 10, 50) } }), 403);
   const outsider = await person("Lee Outsider", "owner", "+15555550109", await otherBusiness());
   refused(await call(drawPost, await signIn(outsider.phoneE164!), { params, body: { points: square(10, 10, 50) } }), 404);
+});
+
+withTestDb("the priced photo editor: a box with no phrase asks SAM for the one thing in it, and a tap off it asks again", async () => {
+  const { crew, shrub, params } = await seeded();
+  const crewHeaders = await signIn(crew.phoneE164!);
+  // Every SAM call answers with the recorded lawn stream: three objects.
+  const sent: string[] = [];
+  const real = globalThis.fetch;
+  globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (!String(url).endsWith("/responses")) return real(url, init);
+    sent.push(JSON.parse(String(init?.body)).input[0].content[0].text);
+    return new Response(LAWN_STREAM, { headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  try {
+    type Found = PricedPhotoEditorState & { found: number; candidateIds: string[] };
+    const box = { left: 0, top: 588, right: 1024, bottom: 1024 };
+    const first = await call(findPost, crewHeaders, { params, body: { box } });
+    assert.equal(first.status, 200, JSON.stringify(first.body));
+    const state = first.body as unknown as Found;
+    assert.deepEqual(sent, ["<0f>1<|box;x1=0;y1=588;x2=1023;y2=1023;w=1024;h=1024|>"], "an object prompt, not a phrase");
+    assert.equal(state.found, 3);
+    const boxed = state.candidates.filter((c) => state.candidateIds.includes(c.id));
+    assert.ok(boxed.length === 3 && boxed.every((c) => c.phrase === "selected"), "kept as selected, on no line");
+    assert.ok(state.regions.every((r) => r.objects.every((o) => o.candidateId === shrub.id)));
+
+    // Asked again onto a line, the same objects are kept already: nothing is added, and the answer names them.
+    const same = await call(findPost, crewHeaders, { params, body: { box, lineIndex: 1 } });
+    const sameState = same.body as unknown as Found;
+    assert.deepEqual([sameState.found, new Set(sameState.candidateIds), sameState.regions[1].located], [0, new Set(state.candidateIds), false]);
+
+    // Not the largest: a tap off it asks again with the box and that spot, and the answer, kept under the
+    // line's name, takes its place.
+    const wrong = boxed.reduce((a, b) => (b.areaPx > a.areaPx ? b : a));
+    const points = [{ x: 500.6, y: 900.2, negative: true }];
+    const again = await call(findPost, crewHeaders, { params, body: { box, points, lineIndex: 1, replace: wrong.id } });
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    const next = again.body as unknown as Found;
+    assert.equal(sent[2], "<0f>1<|box;x1=0;y1=588;x2=1023;y2=1023;w=1024;h=1024|>-<|point;x=500;y=900;w=1024;h=1024|>");
+    assert.equal(next.found, 1);
+    assert.ok(!next.candidates.some((c) => c.id === wrong.id), "the wrong one is gone");
+    assert.equal(next.candidates.length, 4);
+    const answer = next.candidates.find((c) => !state.candidates.some((s) => s.id === c.id))!;
+    assert.equal(answer.phrase, "Shrub trimming");
+    assert.deepEqual(next.regions[1].objects.map((o) => o.candidateId), [answer.id]);
+
+    const calls = sent.length;
+    refused(await call(findPost, crewHeaders, { params, body: {} }), 400, "INVALID_INPUT");
+    refused(await call(findPost, crewHeaders, { params, body: { phrase: "hedge", box, points } }), 400, "BAD_PROMPT");
+    refused(await call(findPost, crewHeaders, { params, body: { box: { left: 1100, top: 0, right: 1200, bottom: 50 } } }), 400, "BAD_PROMPT");
+    refused(await call(findPost, crewHeaders, { params, body: { box, points: [...points, ...points, ...points, ...points] } }), 400, "INVALID_INPUT");
+    refused(await call(findPost, crewHeaders, { params, body: { box, replace: "cand_nope" } }), 400, "UNKNOWN_CANDIDATE");
+    assert.equal(sent.length, calls, "no SAM call for a refused ask");
+  } finally {
+    globalThis.fetch = real;
+  }
 });

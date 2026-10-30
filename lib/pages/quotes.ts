@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { workPhotos } from "../../schema/schema";
-import type { PricedBox, PricedPhotoEditorState } from "../../schema/types";
+import type { PricedPhotoEditorState } from "../../schema/types";
 import { BEFORE_AFTER_DRAWING, beforeAfterFor, pairOf, renderBeforeAfter, type BeforeAfter } from "../../core/before-after";
 import { readStoredFile } from "../../core/blob";
 import { db } from "../../core/db";
@@ -20,10 +20,11 @@ import {
   pricedPhotosFor,
   removeDrawnFromPricedPhoto,
   MAX_FIND_PHRASE,
+  type FindAsk,
   type PricedPhoto,
   type PricedPhotoResult,
 } from "../../core/priced-photo";
-import { MAX_DRAWN_POINTS, MIN_DRAWN_POINTS, type Assignment } from "../../core/priced-photo-select";
+import { MAX_DRAWN_POINTS, MAX_PROMPT_POINTS, MIN_DRAWN_POINTS, type Assignment } from "../../core/priced-photo-select";
 import { customerLinkFor } from "../../core/quote-link";
 import { quoteTimeline, type TimelineEntry } from "../../core/quote-timeline";
 import { callToAction, POST_FORMATS, postLines, SOCIAL_POST_DRAWING, socialCaption, socialPostFor, type PostFormat } from "../../core/social-post";
@@ -382,13 +383,14 @@ export async function pricePhotoFromApp(caller: AppCaller, quoteId: string): Pro
 }
 
 // The priced photo editor on the quote page: anyone on the team who may see the quote moves the objects
-// SAM found between its lines, asks SAM for one more thing, or outlines one by hand. Refusals are 400s with
+// SAM found between its lines, asks SAM for one more thing (by a phrase or a box), or outlines one by hand. Refusals are 400s with
 // a short reason.
 const EDIT_REFUSALS = {
   PRICED_PHOTO_NOT_FOUND: [404, "That isn't here."],
   UNKNOWN_CANDIDATE: [400, "That object isn't on this photo."],
   UNKNOWN_LINE: [400, "That line isn't on this photo."],
-  BAD_PHRASE: [400, `Say what to look for in 1 to ${MAX_FIND_PHRASE} characters.`],
+  BAD_PHRASE: [400, `Say what to look for in 1 to ${MAX_FIND_PHRASE} characters, or drag a box around it.`],
+  BAD_PROMPT: [400, `Drag a box around one thing on the photo, and tap at most ${MAX_PROMPT_POINTS} spots that aren't it.`],
   BAD_OUTLINE: [400, `Draw an outline of ${MIN_DRAWN_POINTS} to ${MAX_DRAWN_POINTS} points around something on the photo.`],
   NOT_DRAWN: [400, "Only an outline drawn by hand can be removed."],
   ON_A_LINE: [409, "Take that outline off its lines first."],
@@ -416,19 +418,23 @@ export async function assignPricedPhotoFromApp(caller: AppCaller, quoteId: strin
   }
 }
 
-/** Asks SAM for one more phrase on the photo, optionally inside a box and onto a line, and draws it again. */
+/**
+ * Asks SAM for one more phrase on the photo, optionally inside a box, or with no phrase for the one
+ * object a box and points name; onto a line when one is named. Draws the photo again when anything was
+ * added. `candidateIds` is what SAM found, as the photo keeps it.
+ */
 export async function findInPricedPhotoFromApp(
   caller: AppCaller,
   quoteId: string,
   pricedId: string,
-  ask: { phrase: string; box?: PricedBox; lineIndex?: number },
-): Promise<PricedPhotoEditorState & { found: number }> {
+  ask: FindAsk,
+): Promise<PricedPhotoEditorState & { found: number; candidateIds: string[] }> {
   const actor = memberCaller(caller);
   await assertVisible(caller, quoteId);
   try {
-    const { photo, found } = await findInPricedPhoto(actor, quoteId, pricedId, ask);
+    const { photo, found, candidateIds } = await findInPricedPhoto(actor, quoteId, pricedId, ask);
     const editedBy = photo.editedBy === actor.memberId ? actor.name : ((await pricedPhotoOnQuote(caller.orgId, quoteId, pricedId))?.editedByName ?? null);
-    return { ...(await editorState(caller, photo, editedBy)), found };
+    return { ...(await editorState(caller, photo, editedBy)), found, candidateIds };
   } catch (error) {
     refuse(error, EDIT_REFUSALS);
   }

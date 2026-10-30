@@ -114,7 +114,8 @@ export function candidatesFrom(phrase: string, objects: SamObject[], newId: () =
     });
 }
 
-const sameBox = (a: PricedBox, b: PricedBox) => a.left === b.left && a.top === b.top && a.right === b.right && a.bottom === b.bottom;
+/** Whether two boxes are the same box. */
+export const sameBox = (a: PricedBox, b: PricedBox) => a.left === b.left && a.top === b.top && a.right === b.right && a.bottom === b.bottom;
 
 /** The fewest and most points a hand-drawn outline takes. */
 export const MIN_DRAWN_POINTS = 3;
@@ -123,6 +124,10 @@ export const MAX_DRAWN_POINTS = 200;
 export const MIN_DRAWN_AREA = 100;
 /** What a hand-drawn outline not put on a line is called. */
 export const DRAWN_PHRASE = "drawn";
+/** What an object a member boxed for SAM, not put on a line, is called. */
+export const SELECTED_PHRASE = "selected";
+/** The most points a member taps to tell SAM what a boxed object is not. */
+export const MAX_PROMPT_POINTS = 3;
 
 /**
  * A member's polygon as a candidate: its points rounded to whole pixels, with a point repeating the
@@ -257,6 +262,15 @@ export function applyAssignments(candidates: PricedCandidate[], regions: PricedR
   }
   return regions.map((region) => {
     const objects = lines.get(region.lineIndex)!.sort((a, b) => b.areaPx - a.areaPx).map(regionObject);
+    return { ...region, objects, located: objects.length > 0 };
+  });
+}
+
+/** `regions` with the candidate off every line. */
+export function offLines(regions: PricedRegion[], candidateId: string): PricedRegion[] {
+  return regions.map((region) => {
+    if (!region.objects.some((o) => o.candidateId === candidateId)) return region;
+    const objects = region.objects.filter((o) => o.candidateId !== candidateId);
     return { ...region, objects, located: objects.length > 0 };
   });
 }
