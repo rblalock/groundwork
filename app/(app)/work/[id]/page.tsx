@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProfile } from "@/core/profile";
+import { jobRecurrenceText } from "@/core/scheduling";
 import { InvoiceStatusPill } from "@/components/invoices/kit";
 import { Card, Crumb, PageBody, ViewingNotice } from "@/components/pages/kit";
 import { PaperPage } from "@/components/paper";
@@ -21,7 +22,7 @@ import { StatusPill } from "@/ui/beautiful/atoms/StatusPill";
 const TONES = { open: "accent", completed: "green", cancelled: "neutral" } as const;
 
 /**
- * One piece of work: where it stands, its checklist, photos of it, and its visits, with who it's for, the
+ * One piece of work: where it stands (and how it repeats), its checklist, photos of it, and its visits, with who it's for, the
  * quote it came from, and its invoice in the rail. Everyone on the team sees it, ticks the checklist, and
  * adds photos.
  */
@@ -37,6 +38,7 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
   const w = copy.work;
   const r = copy.record;
   const { timeZone } = await getProfile(caller.orgId);
+  const recurring = jobRecurrenceText(job, timeZone, language);
   // A photo added here goes on the visit that happened last (or the only one), when there is one.
   const now = Date.now();
   const live = job.visits.filter((v) => v.status !== "cancelled");
@@ -73,6 +75,7 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
             </StatusPill>
           </div>
           {job.address ? <p className="text-[13px] text-ink-2">{job.address}</p> : null}
+          {recurring ? <p className="text-[13px] text-ink-2">{recurring}</p> : null}
         </header>
 
         <ProgressLine nextLabel={r.next} stages={stages} />

@@ -46,6 +46,7 @@ function visit(id: string, place: Place | null, start: string, end: string, extr
     notes: null,
     revision: 1,
     checklist: null,
+    recurrence: null,
     ...extra,
   };
 }

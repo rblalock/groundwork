@@ -32,6 +32,7 @@ import { crewAddedDrive, crewDrives, driveSettingsOf, legsAround, placeOf, yardO
 import { getProfileWith, type Profile } from "./profile";
 import { crewChecklist, type CrewChecklist } from "./checklist";
 import type { Poster } from "./quotes";
+import { everyOf, recurrenceText, type Recurrence, type Recurring } from "./recurrence";
 import {
   dayText,
   intervalsOverlap,
@@ -43,6 +44,7 @@ import {
   resolveLocalTime,
   timeText,
   wallClock,
+  weekdayOf,
   whenText,
   withinWorkingHours,
   workHoursSchema,
@@ -90,6 +92,8 @@ export type VisitView = {
   revision: number;
   /** How much of the work's checklist is ticked; null when it has none. */
   checklist: { done: number; total: number } | null;
+  /** How the work repeats (`core/recurrence.ts`); null for one-off work. */
+  recurrence: Recurrence | null;
   /**
    * The drives around it on its first crew member's day (`withDrives`): from the stop before or the yard, and to
    * the stop after or back to the yard. A side is null when either end is unplaced. Absent when not worked out.
@@ -272,6 +276,7 @@ async function loadVisitViews(orgId: string, where: SQL[], executor: Db | Tx = d
     notes: visit.notes,
     revision: visit.revision,
     checklist: checklists.get(job.id) ?? null,
+    recurrence: job.recurrence ?? null,
   }));
 }
 
@@ -832,7 +837,26 @@ async function jobForQuote(orgId: string, quoteId: string, executor: Db | Tx): P
   return row ?? null;
 }
 
-type JobInput = { quoteId?: string; customerId?: string; propertyId?: string; title?: string; notes?: string };
+type JobInput = {
+  quoteId?: string;
+  customerId?: string;
+  propertyId?: string;
+  title?: string;
+  notes?: string;
+  /** The work repeats: its weekday, clock, and length come from its first visit (`fromVisit`). */
+  recurring?: Recurring;
+};
+
+/** A recurrence's weekday, clock, and length from a visit: what repeats, when it wasn't given. */
+function fromVisit(recurrence: Pick<Recurrence, "every">, visit: { startAt: Date; endAt: Date }, timeZone: string): Recurrence {
+  const local = wallClock(visit.startAt, timeZone);
+  return {
+    every: recurrence.every,
+    weekday: weekdayOf(local.date),
+    time: local.time,
+    durationMinutes: Math.round((visit.endAt.getTime() - visit.startAt.getTime()) / MINUTE),
+  };
+}
 
 /**
  * Finds or makes the job. From a quote, the quote must be approved, sent, or won (the money is agreed),
@@ -861,6 +885,7 @@ async function ensureJob(actor: Actor, input: JobInput, tx: Tx, now: Date): Prom
         quoteId: quote.id,
         quoteRevisionId: quote.currentRevisionId,
         notes: input.notes?.trim() || null,
+        recurrence: input.recurring ? { every: everyOf(input.recurring) } : null,
         createdByMemberId: actor.memberId,
         createdAt: now,
         updatedAt: now,
@@ -889,6 +914,7 @@ async function ensureJob(actor: Actor, input: JobInput, tx: Tx, now: Date): Prom
       customerId: input.customerId ?? null,
       propertyId: input.propertyId ?? null,
       notes: input.notes?.trim() || null,
+      recurrence: input.recurring ? { every: everyOf(input.recurring) } : null,
       createdByMemberId: actor.memberId,
       createdAt: now,
       updatedAt: now,
@@ -898,15 +924,66 @@ async function ensureJob(actor: Actor, input: JobInput, tx: Tx, now: Date): Prom
   return { job, created: true };
 }
 
-/** Opens a job without booking it yet: from a quote (`quoteId`) or on its own (`title`). Owners and admins. */
+/**
+ * Opens a job without booking it yet: from a quote (`quoteId`) or on its own (`title`). Owners and admins.
+ * `recurring` on the quote's job it already has sets how it repeats, from its next visit when it has one.
+ */
 export async function createServiceJob(actor: Actor, input: JobInput, deps?: Deps): Promise<{ job: ServiceJobView; created: boolean }> {
   requirePrivileged(actor);
   const now = deps?.now ?? new Date();
   const { job, created } = await db().transaction(async (tx) => {
     await lockSchedule(tx, actor.orgId);
-    return ensureJob(actor, input, tx, now);
+    const made = await ensureJob(actor, input, tx, now);
+    if (!made.created && input.recurring) await recordRecurrence(tx, actor, made.job, input.recurring, now);
+    return made;
   });
   return { job: (await getServiceJob(actor, job.id)) as ServiceJobView, created };
+}
+
+/**
+ * Sets how a job repeats, or (`none`) stops it repeating. A job already repeating keeps its weekday, clock, and
+ * length when only how often changes; otherwise they come from its next open visit, else its last one, else
+ * its first visit to be booked.
+ */
+async function recordRecurrence(tx: Tx, actor: Actor, job: ServiceJob, recurring: Recurring | "none", now: Date): Promise<Recurrence | null> {
+  const { orgId } = actor;
+  let recurrence: Recurrence | null = null;
+  if (recurring !== "none") {
+    const every = everyOf(recurring);
+    if (job.recurrence?.weekday !== undefined) {
+      recurrence = { ...job.recurrence, every };
+    } else {
+      const timeZone = (await getProfileWith(orgId, tx)).timeZone;
+      const booked = await loadVisitViews(orgId, [eq(visits.jobId, job.id), ne(visits.status, "cancelled")], tx);
+      const visit = booked.find((v) => OPEN_VISIT.includes(v.status)) ?? booked.at(-1);
+      recurrence = visit ? fromVisit({ every }, visit, timeZone) : { every };
+    }
+  }
+  await tx.update(serviceJobs).set({ recurrence, updatedAt: now }).where(and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.id, job.id)));
+  await recordEvent({ orgId, kind: "service_job.recurrence", refId: job.id, memberId: actor.memberId, data: { recurrence } }, tx);
+  return recurrence;
+}
+
+/**
+ * Sets how open work repeats ("weekly", "biweekly", "monthly"), or stops it ("none"), owners and admins only. The
+ * visits already booked stay: returns the work and its next open visit, for the member to be asked about it.
+ */
+export async function setRecurrence(
+  actor: Actor,
+  input: { jobId: string; recurring: Recurring | "none" },
+  deps?: Deps,
+): Promise<{ job: ServiceJobView; nextVisit: VisitView | null }> {
+  requirePrivileged(actor);
+  const now = deps?.now ?? new Date();
+  await db().transaction(async (tx) => {
+    await lockSchedule(tx, actor.orgId);
+    const job = await jobRow(actor.orgId, input.jobId, tx);
+    if (!job) throw new Error("SERVICE_JOB_NOT_FOUND");
+    if (job.status !== "open") throw new Error("JOB_CLOSED");
+    await recordRecurrence(tx, actor, job, input.recurring, now);
+  });
+  const job = (await getServiceJob(actor, input.jobId)) as ServiceJobView;
+  return { job, nextVisit: job.visits.find((v) => OPEN_VISIT.includes(v.status)) ?? null };
 }
 
 /** A job with its visits. */
@@ -921,6 +998,17 @@ export async function getServiceJob(viewer: Viewer, jobId: string): Promise<Serv
   if (!row) return null;
   const jobVisits = await loadVisitViews(orgId, [eq(visits.jobId, jobId)]);
   return { ...row.job, customerName: row.customerName, address: row.address, visits: jobVisits };
+}
+
+/**
+ * How a job repeats, in a line ("Every week on Tuesdays at 9 AM"); null for one-off work. A monthly one's weekday
+ * of the month is its next open visit's, else its last one's.
+ */
+export function jobRecurrenceText(job: Pick<ServiceJobView, "recurrence" | "visits">, timeZone: string, language: Language): string | null {
+  if (!job.recurrence) return null;
+  const live = job.visits.filter((v) => v.status !== "cancelled");
+  const visit = live.find((v) => OPEN_VISIT.includes(v.status)) ?? live.at(-1);
+  return recurrenceText(job.recurrence, language, visit ? wallClock(visit.startAt, timeZone).date : undefined);
 }
 
 /** The jobs on a quote or a customer, newest first, each with its visits. */
@@ -946,7 +1034,16 @@ export async function serviceJobsAbout(viewer: Viewer, about: { quoteId: string 
 
 export type ToSchedule =
   | { kind: "quote"; quoteId: string; title: string; customerName: string | null; address: string | null; since: Date }
-  | { kind: "job"; jobId: string; quoteId: string | null; title: string; customerName: string | null; address: string | null; since: Date };
+  | {
+      kind: "job";
+      jobId: string;
+      quoteId: string | null;
+      title: string;
+      customerName: string | null;
+      address: string | null;
+      since: Date;
+      recurrence: Recurrence | null;
+    };
 
 /**
  * Work waiting for a visit, oldest first: won quotes with no job yet, and open jobs with no visit
@@ -1004,6 +1101,7 @@ export async function toSchedule(orgId: string): Promise<ToSchedule[]> {
       customerName,
       address,
       since: job.createdAt,
+      recurrence: job.recurrence ?? null,
     })),
   ];
   return items.sort((a, b) => a.since.getTime() - b.since.getTime());
@@ -1075,7 +1173,8 @@ export type BookingResult = {
  * `allowMissingEquipment`), a time outside the crew's hours (unless `allowOutsideHours`), and one over their
  * other visits or time off. Texts each crew member booked,
  * other than whoever booked it. The buffers not given are the drives in and out (`findAvailability`), to
- * the property given or the work's.
+ * the property given or the work's. With `recurring`, the work repeats from this visit: its weekday, clock, and
+ * length.
  */
 export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps): Promise<BookingResult> {
   requirePrivileged(actor);
@@ -1129,7 +1228,16 @@ export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps
       updatedAt: now,
     });
     await tx.insert(visitCrew).values(crew.map((c) => ({ orgId, visitId: id, memberId: c.memberId })));
-    await tx.update(serviceJobs).set({ updatedAt: now }).where(and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.id, job.id)));
+    // Work made recurring here, or recurring with no visit yet, repeats from this one.
+    const recurrence = input.recurring
+      ? fromVisit({ every: everyOf(input.recurring) }, { startAt, endAt }, timeZone)
+      : job.recurrence && job.recurrence.weekday === undefined
+        ? fromVisit(job.recurrence, { startAt, endAt }, timeZone)
+        : null;
+    await tx
+      .update(serviceJobs)
+      .set({ updatedAt: now, ...(recurrence ? { recurrence } : {}) })
+      .where(and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.id, job.id)));
     await saveRevision(tx, actor, id, "booked", null);
     return { id, jobCreated, timeZone, driveEstimated };
   });
@@ -1636,6 +1744,7 @@ export function visitForTool(visit: VisitView, timeZone: string, language: Langu
     status: visit.status,
     notes: visit.notes,
     ...(visit.checklist ? { checklist: visit.checklist } : {}),
+    ...(visit.recurrence ? { recurring: recurrenceText(visit.recurrence, language, start.date) } : {}),
     ...(visit.drive?.fromPrevious
       ? { driveFromPreviousMinutes: visit.drive.fromPrevious.minutes, driveFrom: visit.drive.fromPrevious.yard ? "the yard" : visit.drive.fromPrevious.label }
       : {}),

@@ -382,7 +382,7 @@ function MoveToast({
 function extraWork({ key, label }: { key: string; label: string }): ToScheduleJson {
   const [kind, id] = key.split(":");
   const base = { title: label, customerName: null, address: null, since: "" };
-  return kind === "job" ? { kind: "job", jobId: id, quoteId: null, ...base } : { kind: "quote", quoteId: id, ...base };
+  return kind === "job" ? { kind: "job", jobId: id, quoteId: null, recurrence: null, ...base } : { kind: "quote", quoteId: id, ...base };
 }
 
 function ToScheduleList({ items, language, onBook }: { items: ToScheduleJson[]; language: Language; onBook?: (item: ToScheduleJson) => void }) {

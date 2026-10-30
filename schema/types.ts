@@ -170,6 +170,18 @@ export type PricedPhotoEditorState = {
 };
 
 /**
+ * How a job's visits repeat (`core/recurrence.ts`): every week, every two weeks, or every month (on the same weekday
+ * of the month, the 2nd Tuesday), on `weekday` (0 Sunday to 6) at `time` (local 24-hour `HH:MM`) for
+ * `durationMinutes`. What isn't given comes from its first visit.
+ */
+export interface Recurrence {
+  every: "week" | "two_weeks" | "month";
+  weekday?: number;
+  time?: string;
+  durationMinutes?: number;
+}
+
+/**
  * One stop a proposal moves (`core/proposals.ts`): the visit at the revision it was proposed on, where it was
  * and where it would go (instants as ISO strings, the new local day and clock), and the drafts: a text for the
  * customer, which the owner forwards, and the line the receiving crew will be told. `id` is its number in the

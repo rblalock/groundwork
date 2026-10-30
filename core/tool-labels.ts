@@ -112,6 +112,7 @@ export const toolLabels: Record<string, ToolLabel> = {
     detail: "Inside working hours, around visits and time off. Nothing is held until it's booked.",
   },
   create_service_job: { active: "Opening the work", done: "Opened the work" },
+  set_recurrence: { active: "Changing how the work repeats", done: "Changed how the work repeats" },
   book_visit: {
     active: "Booking the visit",
     done: "Booked the visit",
@@ -310,6 +311,7 @@ export const toolLabelsEs: Record<string, ToolLabel> = {
     detail: "Dentro del horario de trabajo, sin chocar con visitas ni días libres. Nada se aparta hasta agendarlo.",
   },
   create_service_job: { active: "Abriendo el servicio", done: "Abrí el servicio" },
+  set_recurrence: { active: "Cambiando cada cuánto se repite", done: "Cambié cada cuánto se repite" },
   book_visit: {
     active: "Agendando la visita",
     done: "Agendé la visita",

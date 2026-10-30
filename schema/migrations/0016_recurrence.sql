@@ -1,0 +1,1 @@
+ALTER TABLE "service_jobs" ADD COLUMN "recurrence" jsonb;

@@ -1,6 +1,7 @@
 // Zod schemas shared by more than one tool. Money is integer cents; percentages are basis points.
 import { z } from "zod";
 import { MAX_EQUIPMENT, MAX_EQUIPMENT_LENGTH } from "./equipment";
+import { RECURRING } from "./recurrence";
 
 export const cents = z.number().int().min(0);
 
@@ -42,6 +43,11 @@ export const languageSchema = z.enum(["en", "es"]);
 
 /** A whole list of equipment in the member's words; it replaces what was saved. */
 export const equipmentSchema = z.array(z.string().trim().min(1).max(MAX_EQUIPMENT_LENGTH)).max(MAX_EQUIPMENT);
+
+/** Work that repeats, as the member says it ("every week", "every other week", "once a month"). */
+export const recurringSchema = z
+  .enum(RECURRING)
+  .describe("Only when the member says the work repeats: weekly (every week), biweekly (every other week), or monthly (once a month).");
 
 export const quoteStatusSchema = z.enum(["draft", "needs_owner", "approved", "sent", "won", "lost", "void"]);
 

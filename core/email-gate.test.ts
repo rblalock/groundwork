@@ -40,6 +40,7 @@ const GATED: Record<string, string> = {
   set_logo: "the logo on customer-facing PDFs",
   set_member_email: "team: decides whose emails reach the assistant",
   set_quote_outcome: "customer-facing status",
+  set_recurrence: "changes how work on record repeats",
   set_work_hours: "team schedule",
   start_job: "a job's turns would run without the email's mark",
   start_visit: "marks a booked visit started",

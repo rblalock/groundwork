@@ -3,11 +3,12 @@ import { z } from "zod";
 import { privilegedOnly } from "../../../../core/policies";
 import { bookVisit, confirmText, visitForTool } from "../../../../core/scheduling";
 import { isEmailTurn, plain, requireCaller, toolError } from "../../../../core/tool-context";
+import { recurringSchema } from "../../../../core/tool-schemas";
 
 export default defineTool({
   approval: privilegedOnly("book visits"),
   description:
-    "Book a visit: when the work happens and who goes. For a quote (quoteId: approved, sent, or won; its work is opened the first time), more visits on existing work (jobId), or new work with no quote (title, and customerId and propertyId when known). Owners and admins only. day is as the member said it (YYYY-MM-DD, today, tomorrow, or a weekday name like tuesday) and time is 24-hour HH:MM, both in the business's time zone: the code works out the date, so never compute it yourself. memberIds come from read_business. durationMinutes defaults to 60. Leave the buffers out unless the member gives them: the code holds the drive in from the crew's stop before (or the yard) and out to the next (or back); driveEstimated false means a place couldn't be placed, so no drive was held. A crew who don't carry what the work's price book items need is refused (MISSING_EQUIPMENT). tentative pencils it in. The crew booked get a text; customers never do. Reply with confirmText.",
+    "Book a visit: when the work happens and who goes. For a quote (quoteId: approved, sent, or won; its work is opened the first time), more visits on existing work (jobId), or new work with no quote (title, and customerId and propertyId when known). Owners and admins only. day is as the member said it (YYYY-MM-DD, today, tomorrow, or a weekday name like tuesday) and time is 24-hour HH:MM, both in the business's time zone: the code works out the date, so never compute it yourself. memberIds come from read_business. durationMinutes defaults to 60. Leave the buffers out unless the member gives them: the code holds the drive in from the crew's stop before (or the yard) and out to the next (or back); driveEstimated false means a place couldn't be placed, so no drive was held. A crew who don't carry what the work's price book items need is refused (MISSING_EQUIPMENT). tentative pencils it in. recurring makes the work repeat from this visit (same weekday, time, and length): each visit marked done books the next with the same crew, and visit.recurring says how it repeats. The crew booked get a text; customers never do. Reply with confirmText.",
   inputSchema: z.object({
     quoteId: z.string().optional(),
     jobId: z.string().optional(),
@@ -22,6 +23,7 @@ export default defineTool({
     bufferAfterMinutes: z.number().int().min(0).max(480).optional(),
     notes: z.string().max(4000).optional().describe("Notes for the crew on this visit."),
     tentative: z.boolean().optional(),
+    recurring: recurringSchema.optional(),
     allowOutsideHours: z.boolean().optional().describe("Only after the member confirms they want it outside the crew's hours."),
     allowMissingEquipment: z
       .boolean()

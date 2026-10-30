@@ -113,6 +113,13 @@
       "when": 1793373707711,
       "tag": "0015_weather-proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793374843845,
+      "tag": "0016_recurrence",
+      "breakpoints": true
     }
   ]
 }

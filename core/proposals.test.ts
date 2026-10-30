@@ -67,6 +67,7 @@ function visit(id: string, place: Place, start: string, end: string, extra: Part
     notes: null,
     revision: 3,
     checklist: null,
+    recurrence: null,
     ...extra,
   };
 }

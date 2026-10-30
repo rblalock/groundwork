@@ -27,6 +27,7 @@ import type {
   PricedCandidate,
   PricedRegion,
   ProposalItem,
+  Recurrence,
   RuleEffect,
   RuleLine,
   TraceStep,
@@ -1102,7 +1103,8 @@ export const loginCodes = pgTable(
 /**
  * The work itself: what a won quote becomes, or work booked on its own. Its visits are when the crew go.
  * `quote_revision_id` is the revision the work was agreed on. A quote has at most one job that isn't
- * cancelled, so booking a quote twice adds visits to the same job.
+ * cancelled, so booking a quote twice adds visits to the same job. `recurrence` is set for work that repeats
+ * (weekly mowing): each visit done books the next (`core/recurrence.ts`); null for one-off work.
  */
 export const serviceJobs = pgTable(
   "service_jobs",
@@ -1116,6 +1118,7 @@ export const serviceJobs = pgTable(
     quoteRevisionId: text("quote_revision_id").references(() => quoteRevisions.id),
     status: serviceJobStatus("status").notNull().default("open"),
     notes: text("notes"),
+    recurrence: jsonb("recurrence").$type<Recurrence>(),
     createdByMemberId: text("created_by_member_id")
       .notNull()
       .references(() => members.id),
