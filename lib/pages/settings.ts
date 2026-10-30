@@ -36,6 +36,9 @@ export function settingsValues(profile: Profile): SettingsValues {
     roadFactorBp: profile.roadFactorBp,
     minDriveMinutes: profile.minDriveMinutes,
     capacityBp: profile.capacityBp,
+    lateAfterMinutes: profile.lateAfterMinutes,
+    dayEndGraceMinutes: profile.dayEndGraceMinutes,
+    leadMinutes: profile.leadMinutes,
     yard: { status: profile.yardGeocodeStatus, label: profile.yardPlaceLabel },
   };
 }
@@ -67,6 +70,9 @@ const FIELDS = [
   "roadFactorBp",
   "minDriveMinutes",
   "capacityBp",
+  "lateAfterMinutes",
+  "dayEndGraceMinutes",
+  "leadMinutes",
 ] as const satisfies readonly (keyof ProfilePatch)[];
 
 /**

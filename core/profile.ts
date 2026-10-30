@@ -30,6 +30,9 @@ export type ProfilePatch = Partial<
     | "townMph"
     | "minDriveMinutes"
     | "capacityBp"
+    | "lateAfterMinutes"
+    | "dayEndGraceMinutes"
+    | "leadMinutes"
   >
 >;
 

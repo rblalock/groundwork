@@ -163,5 +163,26 @@ export const profilePatchSchema = z
       .max(10_000)
       .optional()
       .describe("How full a crew's day may get, jobs plus driving, as basis points of their working hours: 9500 (95%) is the default; \"keep an hour free\" on an 8-hour day is 8750."),
+    lateAfterMinutes: z
+      .number()
+      .int()
+      .min(5)
+      .max(240)
+      .optional()
+      .describe("How many minutes past its finish a stop under way counts as running long, and the day re-plans. Default 30."),
+    dayEndGraceMinutes: z
+      .number()
+      .int()
+      .min(0)
+      .max(240)
+      .optional()
+      .describe("How far past the end of the workday a crew's return may run before the day is at risk, in minutes. Default 15."),
+    leadMinutes: z
+      .number()
+      .int()
+      .min(0)
+      .max(240)
+      .optional()
+      .describe("A stop starting within this many minutes stays put when the day's stops move: the crew is already on the way. Default 45."),
   })
   .refine((patch) => Object.values(patch).some((v) => v !== undefined), "Pass at least one fact.");

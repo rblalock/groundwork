@@ -58,6 +58,13 @@ withTestDb("settings: owners change only what differs; crew and super admins can
   assert.deepEqual(capacity.body?.changed, ["capacityBp"]);
   assert.deepEqual([(await getProfile(TEST_ORG)).capacityBp, (await getProfile(s.other)).capacityBp], [9000, 9500]);
 
+  // Running long: 30 minutes past a stop's finish, 15 past the day's end, a 45-minute lead, until changed.
+  assert.deepEqual([after.lateAfterMinutes, after.dayEndGraceMinutes, after.leadMinutes], [30, 15, 45]);
+  refused(await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { lateAfterMinutes: 0 } }), 400);
+  const late = await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { lateAfterMinutes: 20, dayEndGraceMinutes: 15, leadMinutes: 60 } });
+  assert.deepEqual(late.body?.changed, ["lateAfterMinutes", "leadMinutes"]);
+  assert.deepEqual([(await getProfile(TEST_ORG)).leadMinutes, (await getProfile(s.other)).leadMinutes], [60, 45]);
+
   const admin = await superAdminViewing(TEST_ORG);
   assert.equal((await settingsFor(await appCaller(admin))).name, "Example Services");
   refused(await call(settingsRoute, admin, { method: "PATCH", body: { taxRateBp: 0 } }), 403, "NOT_A_MEMBER");

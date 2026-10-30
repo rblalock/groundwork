@@ -30,6 +30,9 @@ export type SettingsValues = {
   roadFactorBp: number;
   minDriveMinutes: number;
   capacityBp: number;
+  lateAfterMinutes: number;
+  dayEndGraceMinutes: number;
+  leadMinutes: number;
   /** Whether the address (the yard) is placed, and where. */
   yard: { status: "pending" | "ok" | "not_found" | "failed"; label: string | null };
 };
@@ -127,6 +130,9 @@ export function SettingsForm({
         townMph: Number(form.get("townMph")),
         minDriveMinutes: Number(form.get("minDriveMinutes")),
         capacityBp: Number(form.get("capacity")) * 100,
+        lateAfterMinutes: Number(form.get("lateAfterMinutes")),
+        dayEndGraceMinutes: Number(form.get("dayEndGraceMinutes")),
+        leadMinutes: Number(form.get("leadMinutes")),
       };
       const roadFactorBp = parseFactor(String(form.get("roadFactor") ?? ""));
       if (roadFactorBp === undefined) errors.roadFactor = s.errors.factor;
@@ -252,6 +258,39 @@ export function SettingsForm({
                 label={s.capacity}
                 max={100}
                 min={50}
+                required
+                type="number"
+              />
+              <Field
+                defaultValue={values.lateAfterMinutes}
+                hint={s.lateAfterHelp}
+                id="lateAfterMinutes"
+                inputMode="numeric"
+                label={s.lateAfter}
+                max={240}
+                min={5}
+                required
+                type="number"
+              />
+              <Field
+                defaultValue={values.dayEndGraceMinutes}
+                hint={s.dayEndGraceHelp}
+                id="dayEndGraceMinutes"
+                inputMode="numeric"
+                label={s.dayEndGrace}
+                max={240}
+                min={0}
+                required
+                type="number"
+              />
+              <Field
+                defaultValue={values.leadMinutes}
+                hint={s.leadHelp}
+                id="leadMinutes"
+                inputMode="numeric"
+                label={s.lead}
+                max={240}
+                min={0}
                 required
                 type="number"
               />

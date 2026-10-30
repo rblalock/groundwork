@@ -331,6 +331,14 @@ export const businessProfile = pgTable("business_profile", {
   minDriveMinutes: integer("min_drive_minutes").notNull().default(5),
   /** How full a crew's day may get, jobs plus driving, in basis points of their working hours: 9500 is 95%. */
   capacityBp: integer("capacity_bp").notNull().default(9500),
+  /**
+   * When a crew's day re-plans (`core/day-plan.ts` `replanFrom`): a stop under way counts as running long
+   * `lateAfterMinutes` past its finish; the day is at risk when the return runs past the workday's end by more
+   * than `dayEndGraceMinutes`; a stop starting within `leadMinutes` stays put when stops move.
+   */
+  lateAfterMinutes: integer("late_after_minutes").notNull().default(30),
+  dayEndGraceMinutes: integer("day_end_grace_minutes").notNull().default(15),
+  leadMinutes: integer("lead_minutes").notNull().default(45),
   version: integer("version").notNull().default(1),
   pricebookVersion: integer("pricebook_version").notNull().default(0),
   rulesVersion: integer("rules_version").notNull().default(0),
@@ -1129,6 +1137,10 @@ export const visits = pgTable(
     createdByMemberId: text("created_by_member_id")
       .notNull()
       .references(() => members.id),
+    /** When the crew said they're on site (`start_visit`); null until then. */
+    startedAt: timestamptz("started_at"),
+    /** A delay the crew declared on the visit ("running 30 late"), in minutes; 0 for none. */
+    delayMinutes: integer("delay_minutes").notNull().default(0),
     completedAt: timestamptz("completed_at"),
     cancelledAt: timestamptz("cancelled_at"),
     createdAt: createdAt(),
@@ -1139,6 +1151,7 @@ export const visits = pgTable(
     index("visits_org_job_idx").on(t.orgId, t.jobId),
     check("visits_interval", sql`${t.endAt} > ${t.startAt}`),
     check("visits_buffers", sql`${t.bufferBeforeMinutes} between 0 and 480 and ${t.bufferAfterMinutes} between 0 and 480`),
+    check("visits_delay", sql`${t.delayMinutes} between 0 and 480`),
   ],
 );
 
