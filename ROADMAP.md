@@ -175,7 +175,9 @@ owner approves anything that moves a customer. Done in the order below; each ste
   list works; the list with honest minutes is the product, the map is the picture of it.
   Shipped: the schedule's Route view lists each crew member's day (the default for crew with visits
   that day): the stops in order with the drive into each, the leg back, and the day's minutes and load,
-  over capacity in the warning color, with a shorter order when there is one. The map is still to come.
+  over capacity in the warning color, with a shorter order when there is one. Shipped: the map, above
+  those lists: the yard, each placed stop numbered in its crew member's color, straight lines from the
+  yard and back (not roads), the shorter order dashed, late stops ringed; a marker opens the visit.
 - **Crew phone.** Each crew member's day on their phone from a text: "next" for the next stop with
   the address link and notes, "done" to close it and re-plan, "running 30 late" to re-plan with the
   delay, and the owner sees the day shift on the board.

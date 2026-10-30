@@ -85,6 +85,12 @@ loop for each weekday the business works, and proposes moving each job whose day
 weekday next week, decided like any other proposal; a new recurring customer is offered the weekday
 their neighbors are on ("Tue, Nov 10, 10 AM with Carlos (+5 min driving; your Tue loop)").
 
+Above the Route view's lists, a map of the day (Leaflet over OpenStreetMap tiles, no key): the yard,
+each placed stop numbered in its crew member's color, a straight line per crew member from the yard and
+back, the shorter order dashed when there is one, and a late or at-risk stop ringed in the warning
+color. A marker opens the visit like its row; crew see only their own day, and "Hide map" keeps it out
+of the way for crew who only want the list.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 
