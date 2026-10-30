@@ -28,10 +28,16 @@ export function RailFact({ label, children, className }: { label: string; childr
   );
 }
 
+/**
+ * The scroll margin that lands a jumped-to element 8 px clear of the jump bar. The bar sticks below the
+ * page's top padding (20 px, 32 px from `sm` up) and is 44 px tall, so it reaches 64 px (76 px) into the view.
+ */
+export const clearOfJumpBar = "scroll-mt-18 sm:scroll-mt-21";
+
 /** A section the jump bar can land on. */
 export function RecordSection({ id, children }: { id: string; children: ReactNode }) {
   return (
-    <section className="scroll-mt-14" id={id}>
+    <section className={clearOfJumpBar} id={id}>
       {children}
     </section>
   );

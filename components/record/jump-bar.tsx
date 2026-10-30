@@ -7,7 +7,7 @@ export type JumpSection = { id: string; label: string; count?: number };
 
 /**
  * The sections of a long record page, as a bar that stays at the top while the page scrolls: a tap jumps
- * to one, and the one in view is marked. Sections are elements with these ids (`scroll-mt-14` keeps
+ * to one, and the one in view is marked. Sections are elements with these ids (`clearOfJumpBar` keeps
  * their title clear of the bar). `end` sits at its far end (a page's view toggle).
  */
 export function JumpBar({ sections, label, end }: { sections: JumpSection[]; label: string; end?: ReactNode }) {

@@ -28,6 +28,7 @@ import {
 import { Button } from "@/ui/beautiful/atoms/Button";
 import { cn } from "@/ui/lib/utils";
 import { ErrorLine, inputClass, NativeSelect } from "../pages/client-kit";
+import { clearOfJumpBar } from "../record/layout";
 
 // Editing a quote's priced photo by hand (lib/priced-photo-editor.ts). Everything SAM found in the photo
 // is outlined over it; tapping an outline lists the quote's lines to put it on, a box dragged on the
@@ -468,7 +469,7 @@ export function PricedPhotoEditor({
       <div
         // While a box is drawn, a drag never selects text and a touch never scrolls the page. Scrolled to, it
         // lands clear of the quote page's sticky section bar, which sticks below the page's top padding.
-        className={cn("relative mx-auto scroll-mt-18 overflow-hidden rounded-[8px] bg-inset shadow-hairline sm:scroll-mt-21", drawing && "touch-none select-none")}
+        className={cn("relative mx-auto overflow-hidden rounded-[8px] bg-inset shadow-hairline", clearOfJumpBar, drawing && "touch-none select-none")}
         ref={stageRef}
         style={{
           aspectRatio: `${state.width} / ${state.height}`,
@@ -506,7 +507,7 @@ export function PricedPhotoEditor({
                 aria-expanded={expanded}
                 aria-haspopup="dialog"
                 aria-label={`${labelOf(candidate)}: ${linesText(candidate.id)}`}
-                className="cursor-pointer scroll-mt-18 outline-none transition-[stroke-opacity,fill-opacity,stroke-width] duration-150 sm:scroll-mt-21"
+                className={cn("cursor-pointer outline-none transition-[stroke-opacity,fill-opacity,stroke-width] duration-150", clearOfJumpBar)}
                 d={candidate.svgPath}
                 data-candidate={candidate.id}
                 fill={color ?? "#ffffff"}

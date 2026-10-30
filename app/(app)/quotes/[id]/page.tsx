@@ -34,7 +34,7 @@ import { PricedPhotoSection } from "@/components/quotes/priced-photo-section";
 import { SocialPostPanel } from "@/components/quotes/social-post-panel";
 import { copyFor } from "@/lib/copy";
 import { JumpBar, type JumpSection } from "@/components/record/jump-bar";
-import { EmptyFold, RailFact, RecordColumns, RecordSection } from "@/components/record/layout";
+import { clearOfJumpBar, EmptyFold, RailFact, RecordColumns, RecordSection } from "@/components/record/layout";
 import { ProgressLine } from "@/components/record/progress-line";
 import { quoteProgress, shortWhen } from "@/lib/record-progress";
 
@@ -372,7 +372,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
                     />
                     {beforeAfter ? (
                       // The invoice's "Share it from the quote" lands here.
-                      <div className="mt-6 scroll-mt-14" id="before-after">
+                      <div className={`mt-6 ${clearOfJumpBar}`} id="before-after">
                         <BeforeAfterCard href={beforeAfter.href} language={language} outlinedHref={beforeAfter.outlinedHref} />
                       </div>
                     ) : null}
