@@ -1,5 +1,6 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { copyFileSync, existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { defineEval } from "eve/evals";
 import { pricedPhotos } from "../../../../schema/schema";
@@ -25,7 +26,10 @@ export default defineEval<typeof config>({
       { post: noPost },
     );
     const region = { lineIndex: 0, itemId: null, name: "Mulch installed", quantity: 3, unitLabel: "cubic yard", totalCents: null, phrase: "mulch bed", objects: [], located: false };
-    for (const sourceKind of ["quote_attachment", "work_photo"] as const) {
+    // The after photo is a copy of the fixture: a quote's priced photos are unique by source URL.
+    const after = join(mkdtempSync(join(tmpdir(), "groundwork-eval-")), "yard-after.jpg");
+    copyFileSync(PHOTO, after);
+    for (const [sourceKind, file] of [["quote_attachment", PHOTO], ["work_photo", after]] as const) {
       await db()
         .insert(pricedPhotos)
         .values({
@@ -35,8 +39,8 @@ export default defineEval<typeof config>({
           revisionNumber: 1,
           sourceKind,
           sourceId: newId("src"),
-          sourceUrl: pathToFileURL(PHOTO).href,
-          url: pathToFileURL(PHOTO).href,
+          sourceUrl: pathToFileURL(file).href,
+          url: pathToFileURL(file).href,
           width: 1024,
           height: 1024,
           regions: [region],
