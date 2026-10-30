@@ -152,5 +152,12 @@ export const profilePatchSchema = z
       .optional()
       .describe("How much longer the roads are than a straight line, in basis points: 13000 is 1.3, the default. Slow or winding roads are higher (1.5 is 15000)."),
     minDriveMinutes: z.number().int().min(0).max(60).optional().describe("The shortest drive between two places, in minutes. Default 5."),
+    capacityBp: z
+      .number()
+      .int()
+      .min(5000)
+      .max(10_000)
+      .optional()
+      .describe("How full a crew's day may get, jobs plus driving, as basis points of their working hours: 9500 (95%) is the default; \"keep an hour free\" on an 8-hour day is 8750."),
   })
   .refine((patch) => Object.values(patch).some((v) => v !== undefined), "Pass at least one fact.");

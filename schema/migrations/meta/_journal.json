@@ -71,6 +71,13 @@
       "when": 1793365876967,
       "tag": "0009_places",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793367590185,
+      "tag": "0010_capacity",
+      "breakpoints": true
     }
   ]
 }

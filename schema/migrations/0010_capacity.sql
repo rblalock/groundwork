@@ -1,0 +1,1 @@
+ALTER TABLE "business_profile" ADD COLUMN "capacity_bp" integer DEFAULT 9500 NOT NULL;

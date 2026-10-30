@@ -51,6 +51,13 @@ withTestDb("settings: owners change only what differs; crew and super admins can
   assert.deepEqual(drives.body?.changed, ["townMph", "roadFactorBp"]);
   assert.deepEqual([(await getProfile(TEST_ORG)).townMph, (await getProfile(s.other)).townMph], [25, 28]);
 
+  // A crew's day capacity: 95% until changed, from half the day to all of it.
+  assert.equal(after.capacityBp, 9500);
+  refused(await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { capacityBp: 12_000 } }), 400);
+  const capacity = await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { capacityBp: 9000 } });
+  assert.deepEqual(capacity.body?.changed, ["capacityBp"]);
+  assert.deepEqual([(await getProfile(TEST_ORG)).capacityBp, (await getProfile(s.other)).capacityBp], [9000, 9500]);
+
   const admin = await superAdminViewing(TEST_ORG);
   assert.equal((await settingsFor(await appCaller(admin))).name, "Example Services");
   refused(await call(settingsRoute, admin, { method: "PATCH", body: { taxRateBp: 0 } }), 403, "NOT_A_MEMBER");

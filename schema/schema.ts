@@ -329,6 +329,8 @@ export const businessProfile = pgTable("business_profile", {
   roadFactorBp: integer("road_factor_bp").notNull().default(13_000),
   townMph: integer("town_mph").notNull().default(28),
   minDriveMinutes: integer("min_drive_minutes").notNull().default(5),
+  /** How full a crew's day may get, jobs plus driving, in basis points of their working hours: 9500 is 95%. */
+  capacityBp: integer("capacity_bp").notNull().default(9500),
   version: integer("version").notNull().default(1),
   pricebookVersion: integer("pricebook_version").notNull().default(0),
   rulesVersion: integer("rules_version").notNull().default(0),

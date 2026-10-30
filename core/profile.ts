@@ -29,6 +29,7 @@ export type ProfilePatch = Partial<
     | "roadFactorBp"
     | "townMph"
     | "minDriveMinutes"
+    | "capacityBp"
   >
 >;
 

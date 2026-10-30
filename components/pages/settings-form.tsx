@@ -29,6 +29,7 @@ export type SettingsValues = {
   townMph: number;
   roadFactorBp: number;
   minDriveMinutes: number;
+  capacityBp: number;
   /** Whether the address (the yard) is placed, and where. */
   yard: { status: "pending" | "ok" | "not_found" | "failed"; label: string | null };
 };
@@ -125,6 +126,7 @@ export function SettingsForm({
         followUpDays: Number(form.get("followUpDays")),
         townMph: Number(form.get("townMph")),
         minDriveMinutes: Number(form.get("minDriveMinutes")),
+        capacityBp: Number(form.get("capacity")) * 100,
       };
       const roadFactorBp = parseFactor(String(form.get("roadFactor") ?? ""));
       if (roadFactorBp === undefined) errors.roadFactor = s.errors.factor;
@@ -239,6 +241,17 @@ export function SettingsForm({
                 label={s.minDrive}
                 max={60}
                 min={0}
+                required
+                type="number"
+              />
+              <Field
+                defaultValue={Math.round(values.capacityBp / 100)}
+                hint={s.capacityHelp}
+                id="capacity"
+                inputMode="numeric"
+                label={s.capacity}
+                max={100}
+                min={50}
                 required
                 type="number"
               />
