@@ -32,6 +32,10 @@ export function settingsValues(profile: Profile): SettingsValues {
     depositPercent: profile.depositPercent,
     customerLinePrices: profile.customerLinePrices,
     language: profile.language === "es" ? "es" : "en",
+    townMph: profile.townMph,
+    roadFactorBp: profile.roadFactorBp,
+    minDriveMinutes: profile.minDriveMinutes,
+    yard: { status: profile.yardGeocodeStatus, label: profile.yardPlaceLabel },
   };
 }
 
@@ -58,6 +62,9 @@ const FIELDS = [
   "depositPercent",
   "customerLinePrices",
   "language",
+  "townMph",
+  "roadFactorBp",
+  "minDriveMinutes",
 ] as const satisfies readonly (keyof ProfilePatch)[];
 
 /**

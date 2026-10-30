@@ -26,6 +26,11 @@ export type SettingsValues = {
   depositPercent: number;
   customerLinePrices: boolean;
   language: Language;
+  townMph: number;
+  roadFactorBp: number;
+  minDriveMinutes: number;
+  /** Whether the address (the yard) is placed, and where. */
+  yard: { status: "pending" | "ok" | "not_found" | "failed"; label: string | null };
 };
 
 const TIME_ZONES = [
@@ -46,6 +51,16 @@ const text = (value: FormDataEntryValue | null) => {
   const trimmed = String(value ?? "").trim();
   return trimmed === "" ? null : trimmed;
 };
+
+const factor = (bp: number) => String(bp / 10_000);
+
+/** "1.3" → 13000 basis points, from 1 to 3; anything else → undefined (invalid). */
+function parseFactor(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (!/^\d(\.\d{1,2})?$/.test(trimmed)) return undefined;
+  const bp = Math.round(Number(trimmed) * 10_000);
+  return bp >= 10_000 && bp <= 30_000 ? bp : undefined;
+}
 
 /** "7.25" → 725 basis points; blank → null; anything else → undefined (invalid). */
 function parsePercent(value: string): number | null | undefined {
@@ -108,7 +123,12 @@ export function SettingsForm({
         quietEndHour: Number(form.get("quietEndHour")),
         quoteValidityDays: Number(form.get("quoteValidityDays")),
         followUpDays: Number(form.get("followUpDays")),
+        townMph: Number(form.get("townMph")),
+        minDriveMinutes: Number(form.get("minDriveMinutes")),
       };
+      const roadFactorBp = parseFactor(String(form.get("roadFactor") ?? ""));
+      if (roadFactorBp === undefined) errors.roadFactor = s.errors.factor;
+      body = { ...body, roadFactorBp };
     }
     if (shows("invoicing")) {
       body = { ...body, paymentTermsDays: Number(form.get("paymentTermsDays")) };
@@ -142,7 +162,14 @@ export function SettingsForm({
               <Field autoComplete="off" defaultValue={values.licenseNumber ?? ""} id="licenseNumber" label={s.license} />
               <Field autoComplete="off" defaultValue={values.phone ?? ""} id="phone" inputMode="tel" label={s.phone} type="tel" />
               <Field autoComplete="off" defaultValue={values.email ?? ""} id="email" label={s.email} type="email" />
-              <Field autoComplete="off" className="sm:col-span-2" defaultValue={values.address ?? ""} id="address" label={s.address} />
+              <Field
+                autoComplete="off"
+                className="sm:col-span-2"
+                defaultValue={values.address ?? ""}
+                hint={values.address ? s.yard[values.yard.status](values.yard.label ?? values.address) : s.yardHelp}
+                id="address"
+                label={s.address}
+              />
             </div>
           </Card>
         ) : null}
@@ -194,6 +221,27 @@ export function SettingsForm({
                 type="number"
               />
               <Field defaultValue={values.followUpDays} id="followUpDays" inputMode="numeric" label={s.followUp} max={60} min={1} required type="number" />
+              <Field defaultValue={values.townMph} hint={s.townMphHelp} id="townMph" inputMode="numeric" label={s.townMph} max={65} min={5} required type="number" />
+              <Field
+                autoComplete="off"
+                defaultValue={factor(values.roadFactorBp)}
+                error={fieldErrors.roadFactor}
+                hint={s.roadFactorHelp}
+                id="roadFactor"
+                inputMode="decimal"
+                label={s.roadFactor}
+                placeholder="1.3"
+              />
+              <Field
+                defaultValue={values.minDriveMinutes}
+                id="minDriveMinutes"
+                inputMode="numeric"
+                label={s.minDrive}
+                max={60}
+                min={0}
+                required
+                type="number"
+              />
             </div>
           </Card>
         ) : null}

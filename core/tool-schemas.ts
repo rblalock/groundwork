@@ -137,5 +137,20 @@ export const profilePatchSchema = z
       .optional()
       .describe("Whether customers see each line's price on the quote link, its PDF, and the priced photo. false shows them each line's quantity and only the total."),
     language: languageSchema.optional(),
+    townMph: z
+      .number()
+      .int()
+      .min(5)
+      .max(65)
+      .optional()
+      .describe("How fast the crew drive around town, for drive times between jobs (\"we drive about 25 mph around here\" is 25). Default 28."),
+    roadFactorBp: z
+      .number()
+      .int()
+      .min(10_000)
+      .max(30_000)
+      .optional()
+      .describe("How much longer the roads are than a straight line, in basis points: 13000 is 1.3, the default. Slow or winding roads are higher (1.5 is 15000)."),
+    minDriveMinutes: z.number().int().min(0).max(60).optional().describe("The shortest drive between two places, in minutes. Default 5."),
   })
   .refine((patch) => Object.values(patch).some((v) => v !== undefined), "Pass at least one fact.");

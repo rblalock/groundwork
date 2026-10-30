@@ -26,6 +26,9 @@ export type ProfilePatch = Partial<
     | "depositPercent"
     | "customerLinePrices"
     | "language"
+    | "roadFactorBp"
+    | "townMph"
+    | "minDriveMinutes"
   >
 >;
 

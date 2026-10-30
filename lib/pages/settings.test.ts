@@ -43,6 +43,14 @@ withTestDb("settings: owners change only what differs; crew and super admins can
   assert.equal(after.timeZone, "America/Chicago");
   assert.equal((await getProfile(s.other)).taxRateBp, 500);
 
+  // Drive times: the town speed, road factor, and shortest drive are settings too, with their defaults until changed.
+  assert.deepEqual([after.townMph, after.roadFactorBp, after.minDriveMinutes], [28, 13_000, 5]);
+  refused(await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { townMph: 2 } }), 400);
+  refused(await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { roadFactorBp: 9000 } }), 400);
+  const drives = await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { townMph: 25, roadFactorBp: 15_000, minDriveMinutes: 5 } });
+  assert.deepEqual(drives.body?.changed, ["townMph", "roadFactorBp"]);
+  assert.deepEqual([(await getProfile(TEST_ORG)).townMph, (await getProfile(s.other)).townMph], [25, 28]);
+
   const admin = await superAdminViewing(TEST_ORG);
   assert.equal((await settingsFor(await appCaller(admin))).name, "Example Services");
   refused(await call(settingsRoute, admin, { method: "PATCH", body: { taxRateBp: 0 } }), 403, "NOT_A_MEMBER");
