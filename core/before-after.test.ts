@@ -19,7 +19,6 @@ import { TEST_ORG, withTestDb } from "./test-db";
 
 test("two landscape photos sit side by side at one height, the composite within its widest", () => {
   const big = beforeAfterLayout({ width: 1600, height: 1200 }, { width: 1600, height: 1200 });
-  assert.equal(big.stacked, false);
   assert.equal(big.height, 765);
   assert.deepEqual([big.before.width, big.after.width, big.after.x], [1020, 1020, 1028]);
   assert.ok(big.width <= BEFORE_AFTER_MAX);
@@ -29,15 +28,13 @@ test("two landscape photos sit side by side at one height, the composite within 
   assert.deepEqual([small.before.width, small.after.width, small.width], [400, 600, 1008]);
 });
 
-test("two portrait photos stack at one width; a portrait beside a landscape stays side by side", () => {
+test("two portrait photos sit side by side too, at the shorter one's height", () => {
   const tall = beforeAfterLayout({ width: 300, height: 400 }, { width: 600, height: 800 });
-  assert.equal(tall.stacked, true);
-  assert.equal(tall.width, 300);
-  assert.deepEqual([tall.before.height, tall.after.y, tall.after.height, tall.height], [400, 408, 400, 808]);
+  assert.equal(tall.height, 400);
+  assert.deepEqual([tall.before.width, tall.after.x, tall.after.width, tall.width], [300, 308, 300, 608]);
   const huge = beforeAfterLayout({ width: 1200, height: 1600 }, { width: 1200, height: 1600 });
-  assert.ok(huge.height <= BEFORE_AFTER_MAX);
+  assert.ok(huge.width <= BEFORE_AFTER_MAX);
   const mixed = beforeAfterLayout({ width: 300, height: 400 }, { width: 400, height: 300 });
-  assert.equal(mixed.stacked, false);
   assert.equal(mixed.height, 300);
 });
 

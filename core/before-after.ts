@@ -59,23 +59,16 @@ type Size = { width: number; height: number };
 type Rect = Size & { x: number; y: number };
 
 /**
- * Where each photo goes: side by side at the same height, or stacked at the same width when both are
- * portrait. Never larger than the smaller photo, and the long side within `BEFORE_AFTER_MAX`.
+ * Where each photo goes: side by side at the same height, never larger than the shorter photo, with the
+ * width within `BEFORE_AFTER_MAX`. Two portraits sit side by side too: stacked, they made a tall strip
+ * that printed small on the invoice.
  */
-export function beforeAfterLayout(before: Size, after: Size): Size & { stacked: boolean; before: Rect; after: Rect } {
-  const stacked = before.height > before.width && after.height > after.width;
-  if (stacked) {
-    const tall = before.height / before.width + after.height / after.width;
-    const width = Math.floor(Math.min(before.width, after.width, (BEFORE_AFTER_MAX - GAP) / tall));
-    const top = Math.floor((width * before.height) / before.width);
-    const bottom = Math.floor((width * after.height) / after.width);
-    return { stacked, width, height: top + GAP + bottom, before: { x: 0, y: 0, width, height: top }, after: { x: 0, y: top + GAP, width, height: bottom } };
-  }
+export function beforeAfterLayout(before: Size, after: Size): Size & { before: Rect; after: Rect } {
   const wide = before.width / before.height + after.width / after.height;
   const height = Math.floor(Math.min(before.height, after.height, (BEFORE_AFTER_MAX - GAP) / wide));
   const left = Math.floor((height * before.width) / before.height);
   const right = Math.floor((height * after.width) / after.height);
-  return { stacked, width: left + GAP + right, height, before: { x: 0, y: 0, width: left, height }, after: { x: left + GAP, y: 0, width: right, height } };
+  return { width: left + GAP + right, height, before: { x: 0, y: 0, width: left, height }, after: { x: left + GAP, y: 0, width: right, height } };
 }
 
 /**
