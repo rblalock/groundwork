@@ -111,7 +111,7 @@ function requirePrivileged(actor: Pick<Actor, "role">): void {
 }
 
 /** One booking at a time per business, so two can't both take the same crew's hour. */
-async function lockSchedule(tx: Tx, orgId: string): Promise<void> {
+export async function lockSchedule(tx: Tx, orgId: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`schedule:${orgId}`}))`);
 }
 
@@ -1184,76 +1184,93 @@ export type RescheduleInput = {
  */
 export async function rescheduleVisit(actor: Actor, input: RescheduleInput, deps?: Deps): Promise<BookingResult & { previous: VisitView }> {
   requirePrivileged(actor);
-  const { orgId } = actor;
   const now = deps?.now ?? new Date();
-  const previous = await getVisit(actor, input.visitId);
-  if (!previous) throw new Error("VISIT_NOT_FOUND");
-  const result = await db().transaction(async (tx) => {
-    await lockSchedule(tx, orgId);
-    const before = await getVisit(actor, input.visitId, tx);
-    if (!before) throw new Error("VISIT_NOT_FOUND");
-    if (!OPEN_VISIT.includes(before.status)) throw new Error(`VISIT_NOT_OPEN: it is ${before.status}`);
-    if (before.jobStatus !== "open") throw new Error("JOB_CLOSED");
-    const timeZone = (await getProfileWith(orgId, tx)).timeZone;
-    const local = wallClock(before.startAt, timeZone);
-    const minutes = Math.round((before.endAt.getTime() - before.startAt.getTime()) / MINUTE);
-    const keepsTime = input.day === undefined && input.time === undefined;
-    const { startAt, endAt } = keepsTime && input.durationMinutes === undefined
-      ? { startAt: before.startAt, endAt: before.endAt }
-      : keepsTime
-        ? { startAt: before.startAt, endAt: new Date(before.startAt.getTime() + clampDuration(input.durationMinutes) * MINUTE) }
-        : visitTimes(
-            { day: input.day ?? local.date, time: input.time ?? local.time, offsetMinutes: input.offsetMinutes, durationMinutes: input.durationMinutes ?? minutes },
-            timeZone,
-            now,
-          );
-    if (startAt <= now && !keepsTime) throw new Error("VISIT_IN_PAST");
-    const crew = await crewFor(orgId, input.memberIds ?? before.crew.map((c) => c.memberId), tx);
-    const newCrew = crew.some((c) => !before.crew.some((b) => b.memberId === c.memberId));
-    if (newCrew && !input.allowMissingEquipment) await ensureCrewCarries(orgId, before.quoteId, crew, tx);
-    const bufferBeforeMinutes = input.bufferBeforeMinutes === undefined ? before.bufferBeforeMinutes : clampBuffer(input.bufferBeforeMinutes);
-    const bufferAfterMinutes = input.bufferAfterMinutes === undefined ? before.bufferAfterMinutes : clampBuffer(input.bufferAfterMinutes);
-    await ensureCrewFree(orgId, crew, { startAt, endAt, bufferBeforeMinutes, bufferAfterMinutes }, timeZone, tx, {
-      allowOutsideHours: input.allowOutsideHours,
-      excludeVisitId: before.visitId,
-      language: actor.language,
-    });
-    await tx
-      .update(visits)
-      .set({
-        startAt,
-        endAt,
-        bufferBeforeMinutes,
-        bufferAfterMinutes,
-        ...(input.visitNotes !== undefined ? { notes: input.visitNotes.trim() || null } : {}),
-        revision: sql`${visits.revision} + 1`,
-        updatedAt: now,
-      })
-      .where(and(eq(visits.orgId, orgId), eq(visits.id, before.visitId)));
-    await tx.delete(visitCrew).where(and(eq(visitCrew.orgId, orgId), eq(visitCrew.visitId, before.visitId)));
-    await tx.insert(visitCrew).values(crew.map((c) => ({ orgId, visitId: before.visitId, memberId: c.memberId })));
-    await saveRevision(tx, actor, before.visitId, "rescheduled", input.reason);
-    return { timeZone };
+  const moved = await db().transaction(async (tx) => {
+    await lockSchedule(tx, actor.orgId);
+    return moveVisitIn(tx, actor, input, now);
   });
-  const visit = await visitWithDrives(actor, input.visitId);
+  return tellMoved(actor, moved.previous, moved.timeZone, deps);
+}
+
+/**
+ * `rescheduleVisit`'s change, inside a transaction that holds the schedule's lock (`lockSchedule`): the checks
+ * and the write, no texts. With `revision`, a visit changed since then is refused (`REVISION_CHANGED`). Returns
+ * the visit as it was, for `tellMoved` once the transaction commits.
+ */
+export async function moveVisitIn(tx: Tx, actor: Actor, input: RescheduleInput & { revision?: number }, now: Date): Promise<{ previous: VisitView; timeZone: string }> {
+  requirePrivileged(actor);
+  const { orgId } = actor;
+  const before = await getVisit(actor, input.visitId, tx);
+  if (!before) throw new Error("VISIT_NOT_FOUND");
+  if (!OPEN_VISIT.includes(before.status)) throw new Error(`VISIT_NOT_OPEN: it is ${before.status}`);
+  if (before.jobStatus !== "open") throw new Error("JOB_CLOSED");
+  if (input.revision !== undefined && before.revision !== input.revision) throw new Error("REVISION_CHANGED");
+  const timeZone = (await getProfileWith(orgId, tx)).timeZone;
+  const local = wallClock(before.startAt, timeZone);
+  const minutes = Math.round((before.endAt.getTime() - before.startAt.getTime()) / MINUTE);
+  const keepsTime = input.day === undefined && input.time === undefined;
+  const { startAt, endAt } = keepsTime && input.durationMinutes === undefined
+    ? { startAt: before.startAt, endAt: before.endAt }
+    : keepsTime
+      ? { startAt: before.startAt, endAt: new Date(before.startAt.getTime() + clampDuration(input.durationMinutes) * MINUTE) }
+      : visitTimes(
+          { day: input.day ?? local.date, time: input.time ?? local.time, offsetMinutes: input.offsetMinutes, durationMinutes: input.durationMinutes ?? minutes },
+          timeZone,
+          now,
+        );
+  if (startAt <= now && !keepsTime) throw new Error("VISIT_IN_PAST");
+  const crew = await crewFor(orgId, input.memberIds ?? before.crew.map((c) => c.memberId), tx);
+  const newCrew = crew.some((c) => !before.crew.some((b) => b.memberId === c.memberId));
+  if (newCrew && !input.allowMissingEquipment) await ensureCrewCarries(orgId, before.quoteId, crew, tx);
+  const bufferBeforeMinutes = input.bufferBeforeMinutes === undefined ? before.bufferBeforeMinutes : clampBuffer(input.bufferBeforeMinutes);
+  const bufferAfterMinutes = input.bufferAfterMinutes === undefined ? before.bufferAfterMinutes : clampBuffer(input.bufferAfterMinutes);
+  await ensureCrewFree(orgId, crew, { startAt, endAt, bufferBeforeMinutes, bufferAfterMinutes }, timeZone, tx, {
+    allowOutsideHours: input.allowOutsideHours,
+    excludeVisitId: before.visitId,
+    language: actor.language,
+  });
+  await tx
+    .update(visits)
+    .set({
+      startAt,
+      endAt,
+      bufferBeforeMinutes,
+      bufferAfterMinutes,
+      ...(input.visitNotes !== undefined ? { notes: input.visitNotes.trim() || null } : {}),
+      revision: sql`${visits.revision} + 1`,
+      updatedAt: now,
+    })
+    .where(and(eq(visits.orgId, orgId), eq(visits.id, before.visitId)));
+  await tx.delete(visitCrew).where(and(eq(visitCrew.orgId, orgId), eq(visitCrew.visitId, before.visitId)));
+  await tx.insert(visitCrew).values(crew.map((c) => ({ orgId, visitId: before.visitId, memberId: c.memberId })));
+  await saveRevision(tx, actor, before.visitId, "rescheduled", input.reason);
+  return { previous: before, timeZone };
+}
+
+/**
+ * The texts after a move (`moveVisitIn`) commits: crew new on the visit are booked on it with its checklist,
+ * crew who stay hear the new time when it moved, and crew taken off hear so. Returns the visit as it is now.
+ */
+export async function tellMoved(actor: Actor, previous: VisitView, timeZone: string, deps?: Deps): Promise<BookingResult & { previous: VisitView }> {
+  const visit = await visitWithDrives(actor, previous.visitId);
   const now_ = visit.crew.map((c) => c.memberId);
   const joined = now_.filter((id) => !previous.crew.some((c) => c.memberId === id));
   // Crew new on the visit get its checklist and priced photo, as a booking would send them.
-  const brief = joined.length ? await crewBrief(orgId, input.visitId) : null;
+  const brief = joined.length ? await crewBrief(actor.orgId, previous.visitId) : null;
   const moved = previous.startAt.getTime() !== visit.startAt.getTime() || previous.endAt.getTime() !== visit.endAt.getTime();
   const text = (lang: Language) =>
-    previous.crew.some((c) => now_.includes(c.memberId)) && moved ? crewText.moved(actor.name, visit, result.timeZone, lang) : crewText.booked(actor.name, visit, result.timeZone, lang);
+    previous.crew.some((c) => now_.includes(c.memberId)) && moved ? crewText.moved(actor.name, visit, timeZone, lang) : crewText.booked(actor.name, visit, timeZone, lang);
   const notified = [
     ...(await tellCrew(actor, joined, (lang) => withChecklist(text(lang), brief, lang), deps, brief)),
     ...(moved ? await tellCrew(actor, now_.filter((id) => !joined.includes(id)), text, deps) : []),
     ...(await tellCrew(
       actor,
       previous.crew.map((c) => c.memberId).filter((id) => !now_.includes(id)),
-      (lang) => crewText.removed(actor.name, previous, result.timeZone, lang),
+      (lang) => crewText.removed(actor.name, previous, timeZone, lang),
       deps,
     )),
   ];
-  return { visit, previous, jobCreated: false, timeZone: result.timeZone, notified };
+  return { visit, previous, jobCreated: false, timeZone, notified };
 }
 
 /**

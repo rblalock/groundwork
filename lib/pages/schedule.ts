@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { plansIn, type DayPlan, type PlanStop, type Replan } from "../../core/day-plan";
 import { getProfile } from "../../core/profile";
+import { applyProposal, dropProposal, itemLine, openProposals, summaryText } from "../../core/proposals";
 import {
   addTimeOff,
   bookVisit,
@@ -105,6 +106,17 @@ export type SchedulePage = {
   invoices: Record<string, { invoiceId: string; label: string; status: string }>;
   /** The route view's plans for the day: each crew member's with visits for owners and admins, a crew member's own. */
   plans: DayPlanJson[];
+  /** Open proposals to move stops (`core/proposals.ts`), from today on; owners and admins only. */
+  proposals: ProposalJson[];
+};
+
+/** A proposal as the Schedule page's card shows it: each stop's line, and the drafts that go with it. */
+export type ProposalJson = {
+  proposalId: string;
+  memberName: string;
+  date: string;
+  reason: string;
+  items: Array<{ id: string; title: string; customerName: string | null; line: string; crewText: string; customerText: string }>;
 };
 
 const isView = (value: string | undefined): value is ScheduleView => SCHEDULE_VIEWS.includes(value as ScheduleView);
@@ -146,7 +158,26 @@ export async function scheduleFor(caller: AppCaller, input: { view?: string; dat
     me: caller.memberId,
     invoices: await jobInvoicesFor(caller, schedule.visits.map((v) => v.jobId)),
     plans: view === "route" ? plans.map(planJson) : [],
+    proposals: privileged ? await proposalsFor(caller, input.now) : [],
   };
+}
+
+async function proposalsFor(caller: AppCaller, now?: Date): Promise<ProposalJson[]> {
+  const open = await openProposals(caller, { now });
+  return open.proposals.map((p) => ({
+    proposalId: p.id,
+    memberName: p.memberName,
+    date: p.date,
+    reason: p.reason,
+    items: p.items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      customerName: item.customerName,
+      line: itemLine(item, p.date, open.timeZone, caller.language),
+      crewText: item.crewText,
+      customerText: item.customerText,
+    })),
+  }));
 }
 
 /** The work and visits on a quote's or customer's page. */
@@ -221,6 +252,10 @@ export const hoursSchema = z.object({ memberId: id.nullable(), hours: workHoursS
 
 export const closeSchema = z.object({ status: z.enum(["completed", "cancelled"]), cancelUpcomingVisits: z.boolean().optional() }).strict();
 
+export const proposalSchema = z
+  .object({ action: z.enum(["apply", "drop"]), itemIds: z.array(z.string().min(1).max(10)).min(1).max(20).optional() })
+  .strict();
+
 /** A library refusal in the member's words. English adds the specifics (who, what time). */
 function scheduleRefusal(caller: AppCaller, error: unknown): never {
   if (error instanceof HttpError) throw error;
@@ -229,7 +264,7 @@ function scheduleRefusal(caller: AppCaller, error: unknown): never {
   const detail = rest.join(":").trim();
   const errors = pageCopyFor(caller.language).schedule.errors as Record<string, string>;
   if (code === "NOT_PRIVILEGED") throw new HttpError(403, code, "Only the owner or an admin can do that.");
-  if (["VISIT_NOT_FOUND", "SERVICE_JOB_NOT_FOUND", "TIME_OFF_NOT_FOUND", "QUOTE_NOT_FOUND", "CUSTOMER_NOT_FOUND", "MEMBER_NOT_FOUND"].includes(code)) {
+  if (["VISIT_NOT_FOUND", "SERVICE_JOB_NOT_FOUND", "TIME_OFF_NOT_FOUND", "QUOTE_NOT_FOUND", "CUSTOMER_NOT_FOUND", "MEMBER_NOT_FOUND", "PROPOSAL_NOT_FOUND"].includes(code)) {
     throw notFound();
   }
   const words = errors[code];
@@ -275,6 +310,37 @@ export async function closeJobFromApp(caller: AppCaller, jobId: string, input: z
   try {
     const closed = await closeServiceJob(actor, { jobId, ...input });
     return { status: closed.job.status };
+  } catch (error) {
+    scheduleRefusal(caller, error);
+  }
+}
+
+export type ProposalOutcomeJson = {
+  /** What moved and what didn't; the customer drafts are in `customerTexts`. */
+  summaryText: string;
+  moved: Array<{ itemId: string; line: string }>;
+  skipped: Array<{ itemId: string; title: string; reason: string }>;
+  customerTexts: Array<{ itemId: string; customerName: string | null; text: string }>;
+};
+
+/**
+ * An owner or admin applies a proposal (all its stops, or those kept) or drops it, as `apply_proposal` and
+ * `drop_proposal` do: the same re-checks, the same crew texts, and the customer drafts back to forward.
+ */
+export async function proposalFromApp(caller: AppCaller, proposalId: string, input: z.infer<typeof proposalSchema>): Promise<ProposalOutcomeJson> {
+  const actor = privilegedActor(caller);
+  try {
+    if (input.action === "drop") {
+      const dropped = await dropProposal(actor, { proposalId });
+      return { summaryText: dropped.summaryText, moved: [], skipped: [], customerTexts: [] };
+    }
+    const applied = await applyProposal(actor, { proposalId, itemIds: input.itemIds });
+    return {
+      summaryText: summaryText({ moved: applied.moved, skipped: applied.skipped, customerTexts: [] }, caller.language),
+      moved: applied.moved.map(({ itemId, line }) => ({ itemId, line })),
+      skipped: applied.skipped,
+      customerTexts: applied.customerTexts,
+    };
   } catch (error) {
     scheduleRefusal(caller, error);
   }

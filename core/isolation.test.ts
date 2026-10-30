@@ -19,6 +19,7 @@ import * as schema from "../schema/schema";
 import { ensureAgentSession } from "./agent-sessions";
 import { archiveCustomer, customerHistory, getCustomer, mergeCustomers, removeContact, saveContact, saveCustomer, searchCustomers } from "./customers";
 import { getNote, listNotes, saveNote } from "./notes";
+import { applyProposal, dropProposal, openProposals } from "./proposals";
 import { searchRecords } from "./records";
 import { handleAssistantMessage, handleInbound, handleReaction, memberAuth, type DispatchDeps } from "./channel-dispatch";
 import { db } from "./db";
@@ -324,7 +325,7 @@ async function seedBusiness(n: 1 | 2, timeZone: string, extraDraft = false) {
   const timeOff = await addTimeOff(crew, { memberId: crew.memberId, day: "2026-10-28", reason: "Off" }, quiet);
   // An open proposal to move that visit to the next day, with the same crew.
   const visitAt = booked.visit.startAt.toISOString();
-  await db()
+  const [proposal] = await db()
     .insert(schema.proposals)
     .values({
       id: `prop_seed_${n}`,
@@ -346,7 +347,8 @@ async function seedBusiness(n: 1 | 2, timeZone: string, extraDraft = false) {
           crewText: "100 Example St moves.",
         },
       ],
-    });
+    })
+    .returning();
   // A photo of that work, added by the crew.
   const workPhoto = await addUploadedWorkPhoto(crew, { jobId: booked.visit.jobId, visitId: booked.visit.visitId }, { url: `file:///seed/after-${n}.png`, name: "after.png", mimeType: "image/png" });
   // The approved quote's invoice, sent and partly paid by hand, and the business's Stripe account with
@@ -427,6 +429,7 @@ async function seedBusiness(n: 1 | 2, timeZone: string, extraDraft = false) {
     visitId: booked.visit.visitId,
     serviceJobId: booked.visit.jobId,
     timeOffId: timeOff.id,
+    proposalId: proposal.id,
     workPhotoId: workPhoto.id,
     invoiceId: invoice.id,
     paymentId: payment.id,
@@ -565,6 +568,7 @@ withTestDb("reads from business B return only business B's rows", async () => {
   assert.deepEqual(idsOf(week.crew.map((c) => ({ id: c.memberId }))), [b.owner.memberId, b.crew.memberId].sort());
   assert.deepEqual((await readSchedule(b.crew, { from: "2026-10-26", days: 7 }, { now: SEEDED_AT })).visits.map((v) => v.visitId), [b.visitId]);
   assert.equal(await getVisit(b.owner, a.visitId), null);
+  assert.deepEqual((await openProposals(b.owner, { now: SEEDED_AT })).proposals.map((p) => p.id), [b.proposalId]);
   assert.equal(await getServiceJob(b.owner, a.serviceJobId), null);
   assert.deepEqual(await serviceJobsAbout(b.owner, { quoteId: a.approved.quoteId }), []);
   assert.deepEqual(await serviceJobsAbout(b.owner, { customerId: a.customer.id }), []);
@@ -735,6 +739,8 @@ withTestDb("writes from business B can't change business A's rows", async () => 
   // The schedule: A's visits, work, time off, crew, and quotes are unknown in B.
   const quiet = { now: SEEDED_AT, post };
   await assert.rejects(rescheduleVisit(b.owner, { visitId: a.visitId, time: "11:00" }, quiet), /VISIT_NOT_FOUND/);
+  await assert.rejects(applyProposal(b.owner, { proposalId: a.proposalId }, quiet), /PROPOSAL_NOT_FOUND/);
+  await assert.rejects(dropProposal(b.owner, { proposalId: a.proposalId }, quiet), /PROPOSAL_NOT_FOUND/);
   await assert.rejects(changeVisitStatus(b.owner, { visitId: a.visitId, status: "cancelled" }, quiet), /VISIT_NOT_FOUND/);
   await assert.rejects(closeServiceJob(b.owner, { jobId: a.serviceJobId, status: "cancelled", cancelUpcomingVisits: true }, quiet), /SERVICE_JOB_NOT_FOUND/);
   await assert.rejects(bookVisit(b.owner, { jobId: a.serviceJobId, memberIds: [b.crew.memberId], day: "2026-10-29", time: "09:00" }, quiet), /SERVICE_JOB_NOT_FOUND/);

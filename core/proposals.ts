@@ -5,16 +5,18 @@
 // transaction; the stops that still hold move through the code `reschedule_visit` uses, and the crew are texted
 // as they are for any move. Nothing here reaches a customer: each stop's customer text is a draft the owner
 // forwards. Every time, choice, and check is made here; the assistant only relays the texts.
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { customers, members, proposals } from "../schema/schema";
 import type { ProposalItem } from "../schema/types";
-import { db, newId } from "./db";
+import { db, newId, type Tx } from "./db";
 import type { DayPlan, PlanStop } from "./day-plan";
 import { isLanguage, type Language } from "./language";
+import { isPrivileged, privilegedMembers } from "./members";
+import { postToMember } from "./outbound";
 import { driveMinutes, driveSettingsOf, yardOf, type DriveSettings, type Place } from "./places";
-import { getProfile } from "./profile";
+import { getProfile, getProfileWith } from "./profile";
 import type { Poster } from "./quotes";
-import { findAvailability, getVisit, type Slot, type Viewer, type VisitView } from "./scheduling";
+import { findAvailability, getVisit, lockSchedule, moveVisitIn, tellMoved, type Actor, type Slot, type Viewer, type VisitView } from "./scheduling";
 import { dayText, intervalsOverlap, timeText, wallClock, type Interval } from "./scheduling-time";
 import { addDays } from "./time";
 
@@ -343,6 +345,32 @@ export async function proposeMoves(orgId: string, plan: DayPlan, deps?: Deps): P
   return stored ?? null;
 }
 
+/**
+ * Texts the proposal to every active owner and admin in their language (the reason stays in the business's, as
+ * stored). Proactive, so quiet hours hold it; it
+ * isn't queued for the morning, since a day's proposal expires with the day (it's on the Schedule page).
+ * Returns who got it.
+ */
+export async function sendProposal(orgId: string, proposal: Proposal, deps?: Deps): Promise<string[]> {
+  const now = deps?.now ?? new Date();
+  const [profile, [crew]] = await Promise.all([
+    getProfile(orgId),
+    db().select({ name: members.name }).from(members).where(and(eq(members.orgId, orgId), eq(members.id, proposal.memberId))),
+  ]);
+  const sent: string[] = [];
+  for (const owner of await privilegedMembers(orgId)) {
+    const language = languageOf(owner.language);
+    const text = ownerText(proposal, crew?.name ?? "", profile.timeZone, language);
+    try {
+      const result = await (deps?.post ?? postToMember)(orgId, owner.id, { text }, "proactive", { now, profile });
+      if (result.posted) sent.push(owner.name);
+    } catch (error) {
+      console.error("proposals: the owner's text failed", { orgId, proposalId: proposal.id, error });
+    }
+  }
+  return sent;
+}
+
 /** Marks open proposals whose day is over expired, for one business; returns how many. */
 export async function expireProposals(orgId: string, now: Date = new Date()): Promise<number> {
   const today = wallClock(now, (await getProfile(orgId)).timeZone).date;
@@ -353,3 +381,218 @@ export async function expireProposals(orgId: string, now: Date = new Date()): Pr
     .returning({ id: proposals.id });
   return rows.length;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Reading and deciding
+
+export type OpenProposal = Proposal & { memberName: string };
+
+/** The open proposals of today and on, newest first. Owners and admins only; crew get none. */
+export async function openProposals(viewer: Viewer, deps?: { now?: Date }): Promise<{ timeZone: string; proposals: OpenProposal[] }> {
+  const { timeZone } = await getProfile(viewer.orgId);
+  if (!isPrivileged(viewer.role)) return { timeZone, proposals: [] };
+  const today = wallClock(deps?.now ?? new Date(), timeZone).date;
+  const rows = await db()
+    .select({ proposal: proposals, memberName: members.name })
+    .from(proposals)
+    .innerJoin(members, and(eq(members.orgId, viewer.orgId), eq(members.id, proposals.memberId)))
+    .where(and(eq(proposals.orgId, viewer.orgId), eq(proposals.status, "open"), gte(proposals.date, today)))
+    .orderBy(desc(proposals.createdAt), asc(proposals.id));
+  return { timeZone, proposals: rows.map(({ proposal, memberName }) => ({ ...proposal, memberName })) };
+}
+
+/** A proposal as tools return it: its stops numbered as the owners' text has them, and that text. */
+export function proposalForTool(proposal: OpenProposal, timeZone: string, language: Language) {
+  return {
+    proposalId: proposal.id,
+    crew: proposal.memberName,
+    date: proposal.date,
+    reason: proposal.reason,
+    items: proposal.items.map((item) => ({ itemId: item.id, title: item.title, customerName: item.customerName, line: itemLine(item, proposal.date, timeZone, language) })),
+    text: ownerText(proposal, proposal.memberName, timeZone, language),
+  };
+}
+
+/**
+ * The open proposal meant, locked for this transaction: the one named, else the only one open from today on.
+ * Throws `PROPOSAL_NOT_FOUND`, `PROPOSAL_CLOSED` (decided or expired), `PROPOSAL_EXPIRED` (its day is over), or
+ * `PROPOSAL_REQUIRED` (more than one is open and none was named).
+ */
+async function openProposalFor(tx: Tx, orgId: string, proposalId: string | undefined, today: string): Promise<Proposal> {
+  const rows = await tx
+    .select()
+    .from(proposals)
+    .where(and(eq(proposals.orgId, orgId), proposalId ? eq(proposals.id, proposalId) : and(eq(proposals.status, "open"), gte(proposals.date, today))))
+    .orderBy(desc(proposals.createdAt))
+    .limit(2)
+    .for("update");
+  const [proposal] = rows;
+  if (!proposal) throw new Error("PROPOSAL_NOT_FOUND");
+  if (rows.length > 1) throw new Error("PROPOSAL_REQUIRED");
+  if (proposal.status !== "open") throw new Error(`PROPOSAL_CLOSED: it was ${proposal.status}`);
+  if (proposal.date < today) throw new Error("PROPOSAL_EXPIRED");
+  return proposal;
+}
+
+const SKIPPED: Record<Language, Record<string, string>> = {
+  en: {
+    REVISION_CHANGED: "it changed since the proposal",
+    VISIT_NOT_OPEN: "it's done or cancelled",
+    VISIT_NOT_FOUND: "it's done or cancelled",
+    JOB_CLOSED: "its work is closed",
+    CREW_BUSY: "that time isn't free anymore",
+    CREW_OFF: "the crew are off then",
+    OUTSIDE_HOURS: "that's outside working hours now",
+    MISSING_EQUIPMENT: "the crew don't carry what it needs",
+    MEMBER_NOT_FOUND: "that crew member isn't on the team anymore",
+    VISIT_IN_PAST: "that time has passed",
+    other: "it couldn't be moved",
+  },
+  es: {
+    REVISION_CHANGED: "cambió desde la propuesta",
+    VISIT_NOT_OPEN: "ya está hecha o cancelada",
+    VISIT_NOT_FOUND: "ya está hecha o cancelada",
+    JOB_CLOSED: "su trabajo está cerrado",
+    CREW_BUSY: "ese horario ya no está libre",
+    CREW_OFF: "el equipo no trabaja ese día",
+    OUTSIDE_HOURS: "ya queda fuera del horario de trabajo",
+    MISSING_EQUIPMENT: "el equipo no lleva lo que necesita",
+    MEMBER_NOT_FOUND: "esa persona ya no está en el equipo",
+    VISIT_IN_PAST: "esa hora ya pasó",
+    other: "no se pudo mover",
+  },
+};
+
+const skipReason = (error: unknown, language: Language) => {
+  const code = (error instanceof Error ? error.message : "").split(":")[0];
+  return SKIPPED[language][code] ?? SKIPPED[language].other;
+};
+
+export type Applied = {
+  proposal: Proposal;
+  moved: Array<{ itemId: string; title: string; line: string }>;
+  skipped: Array<{ itemId: string; title: string; reason: string }>;
+  /** Drafts for the owner to forward to the customers of the stops that moved; nothing was sent to them. */
+  customerTexts: Array<{ itemId: string; customerName: string | null; text: string }>;
+  /** Whom the moves texted: the crew, as any move does. */
+  notified: string[];
+  summaryText: string;
+};
+
+/**
+ * Applies a proposal: all its stops, or the `itemIds` the owner kept. Owners and admins only. One transaction
+ * holds the schedule's lock and re-checks each stop as it moves: the visit is at the revision it was proposed
+ * on (anything since, a start or a delay included, means it changed), its new time is still free for the crew
+ * getting it, inside their hours, and they carry what the work needs (`moveVisitIn`, as `reschedule_visit`). A
+ * stop that doesn't hold is skipped with why, and the rest still move. The proposal is applied either way. The
+ * crew are texted once it commits.
+ */
+export async function applyProposal(actor: Actor, input: { proposalId?: string; itemIds?: string[] }, deps?: Deps): Promise<Applied> {
+  if (!isPrivileged(actor.role)) throw new Error("NOT_PRIVILEGED");
+  const { orgId, language } = actor;
+  const now = deps?.now ?? new Date();
+  const result = await db().transaction(async (tx) => {
+    await lockSchedule(tx, orgId);
+    const timeZone = (await getProfileWith(orgId, tx)).timeZone;
+    const proposal = await openProposalFor(tx, orgId, input.proposalId, wallClock(now, timeZone).date);
+    const wanted = input.itemIds ? [...new Set(input.itemIds.map((id) => id.trim()))] : proposal.items.map((item) => item.id);
+    const items = wanted.map((id) => {
+      const item = proposal.items.find((i) => i.id === id);
+      if (!item) throw new Error(`PROPOSAL_ITEM_NOT_FOUND: ${id}`);
+      return item;
+    });
+    const moved: Array<{ item: ProposalItem; previous: VisitView }> = [];
+    const skipped: Array<{ item: ProposalItem; reason: string }> = [];
+    for (const item of items) {
+      try {
+        // Each stop in its own savepoint, so one that doesn't hold leaves the others as they moved.
+        const { previous } = await tx.transaction((sp) =>
+          moveVisitIn(
+            sp,
+            actor,
+            {
+              visitId: item.visitId,
+              revision: item.revision,
+              day: item.to.date,
+              time: item.to.time,
+              offsetMinutes: item.to.offsetMinutes,
+              memberIds: item.to.memberIds,
+              bufferBeforeMinutes: item.to.bufferBeforeMinutes,
+              bufferAfterMinutes: item.to.bufferAfterMinutes,
+              reason: proposal.reason,
+            },
+            now,
+          ),
+        );
+        moved.push({ item, previous });
+      } catch (error) {
+        skipped.push({ item, reason: skipReason(error, language) });
+      }
+    }
+    const [decided] = await tx
+      .update(proposals)
+      .set({ status: "applied", decidedAt: now, decidedByMemberId: actor.memberId, appliedItemIds: moved.map((m) => m.item.id) })
+      .where(and(eq(proposals.orgId, orgId), eq(proposals.id, proposal.id)))
+      .returning();
+    return { proposal: decided, moved, skipped, timeZone };
+  });
+  const notified: string[] = [];
+  for (const { previous } of result.moved) {
+    try {
+      notified.push(...(await tellMoved(actor, previous, result.timeZone, deps)).notified);
+    } catch (error) {
+      console.error("proposals: a moved stop's crew text failed", { orgId, visitId: previous.visitId, error });
+    }
+  }
+  const moved = result.moved.map(({ item }) => ({ itemId: item.id, title: item.title, line: itemLine(item, result.proposal.date, result.timeZone, language) }));
+  const skipped = result.skipped.map(({ item, reason }) => ({ itemId: item.id, title: item.title, reason }));
+  const customerTexts = result.moved.map(({ item }) => ({ itemId: item.id, customerName: item.customerName, text: item.customerText }));
+  return { proposal: result.proposal, moved, skipped, customerTexts, notified: [...new Set(notified)], summaryText: summaryText({ moved, skipped, customerTexts }, language) };
+}
+
+/**
+ * What applying did, for the owner: "Moved 2 stops: 40 Pine Ave → Pat today 2:30 PM; 4 Elm Rd → Carlos Mon 9 AM.
+ * The crew are texted." then what didn't move and why, then each customer's draft to forward.
+ */
+export function summaryText(result: Pick<Applied, "moved" | "skipped" | "customerTexts">, language: Language): string {
+  const es = language === "es";
+  const n = result.moved.length;
+  const lines: string[] = [];
+  if (n) {
+    const stops = es ? (n === 1 ? "1 parada" : `${n} paradas`) : n === 1 ? "1 stop" : `${n} stops`;
+    lines.push(`${es ? "Moví" : "Moved"} ${stops}: ${result.moved.map((m) => m.line).join("; ")}. ${es ? "El equipo ya tiene el mensaje." : "The crew are texted."}`);
+  } else {
+    lines.push(es ? "No se movió nada." : "Nothing moved.");
+  }
+  if (result.skipped.length) {
+    lines.push(`${es ? "Sin mover" : "Not moved"}: ${result.skipped.map((s) => `${s.title} (${s.reason})`).join("; ")}.`);
+  }
+  if (result.customerTexts.length) {
+    lines.push(es ? "Mensajes para los clientes, para que los reenvíes:" : "Texts for the customers, for you to forward:");
+    for (const draft of result.customerTexts) lines.push(`${draft.customerName ?? (es ? "Cliente" : "Customer")}: ${draft.text}`);
+  }
+  return lines.join("\n\n");
+}
+
+/** Drops a proposal: nothing moves. Owners and admins only. */
+export async function dropProposal(actor: Actor, input: { proposalId?: string }, deps?: { now?: Date }): Promise<{ proposal: Proposal; summaryText: string }> {
+  if (!isPrivileged(actor.role)) throw new Error("NOT_PRIVILEGED");
+  const now = deps?.now ?? new Date();
+  const proposal = await db().transaction(async (tx) => {
+    const timeZone = (await getProfileWith(actor.orgId, tx)).timeZone;
+    const open = await openProposalFor(tx, actor.orgId, input.proposalId, wallClock(now, timeZone).date);
+    const [dropped] = await tx
+      .update(proposals)
+      .set({ status: "dropped", decidedAt: now, decidedByMemberId: actor.memberId })
+      .where(and(eq(proposals.orgId, actor.orgId), eq(proposals.id, open.id), eq(proposals.status, "open")))
+      .returning();
+    return dropped;
+  });
+  const n = proposal.items.length;
+  const summary =
+    actor.language === "es"
+      ? `Listo, no muevo nada: ${n === 1 ? "la parada se queda" : `las ${n} paradas se quedan`} como están.`
+      : `OK, nothing moves: ${n === 1 ? "the stop stays" : `the ${n} stops stay`} as booked.`;
+  return { proposal, summaryText: summary };
+}
+
