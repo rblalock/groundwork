@@ -271,6 +271,8 @@ async function carlosRunsLong() {
   await addTimeOff(owner, { memberId: owner.memberId, day: DATE, start: "15:30", end: "17:00", reason: "dentist" }, { now: T("07:00") });
   await startStop(carlos, { visitId: oakVisit.visitId }, { now: T("08:15") });
   await declareDelay(carlos, { minutes: 360, visitId: oakVisit.visitId }, { now: T("09:00") });
+  // Declaring the delay raised the proposal at once; these tests raise it themselves from the ten-minute check.
+  await db().delete(proposals).where(eq(proposals.orgId, TEST_ORG));
   const plans: DayPlan[] = [];
   await checkRunningLong(TEST_ORG, T("09:10"), async (_orgId, plan) => void plans.push(plan));
   assert.equal(plans.length, 1, "Carlos's day is at risk");

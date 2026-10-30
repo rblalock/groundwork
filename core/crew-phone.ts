@@ -7,6 +7,7 @@ import { dayPlans, type DayPlan, type PlanStop } from "./day-plan";
 import type { Language } from "./language";
 import { isPrivileged } from "./members";
 import { listNotes } from "./notes";
+import { ownerText } from "./proposals";
 import { dayAtRisk } from "./running-long";
 import { getVisit, setVisitDelay, startVisit, type Actor, type Viewer, type VisitView } from "./scheduling";
 import { timeText, wallClock } from "./scheduling-time";
@@ -282,8 +283,15 @@ export async function declareDelay(actor: Actor, input: { minutes: number; visit
   text += shifts.length ? w.shifts(shifts.map((s) => w.shift(s.title, at(s.arriveAbout), s.lateMinutes)).join(", ")) : w.holds;
   if (backAbout) text += w.back(at(backAbout));
   if (atRisk && plan?.replan?.dayEndAt) text += w.atRisk(at(plan.replan.dayEndAt));
-  // A declared delay that puts the day at risk asks the owners now, rather than at the next ten-minute check.
-  if (atRisk && plan) await dayAtRisk(actor.orgId, plan).catch((error: unknown) => console.error("crew phone: the day at risk was not proposed", error));
+  // A declared delay that puts the day at risk asks the owners now, rather than at the next ten-minute check. An
+  // owner declaring their own delay gets the proposal in this reply, since a text to themself may not reach them.
+  if (atRisk && plan) {
+    const raised = await dayAtRisk(actor.orgId, plan).catch((error: unknown) => {
+      console.error("crew phone: the day at risk was not proposed", error);
+      return null;
+    });
+    if (raised && isPrivileged(actor.role)) text += `\n\n${ownerText(raised.proposal, plan.name, timeZone, actor.language)}`;
+  }
   return { visit, plan, timeZone, shifts, backAbout, atRisk, text };
 }
 

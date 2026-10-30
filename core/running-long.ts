@@ -8,19 +8,19 @@ import { visits } from "../schema/schema";
 import { db } from "./db";
 import { dayPlans, type DayPlan } from "./day-plan";
 import { listOrganizations } from "./organizations";
-import { expireProposals, proposeMoves, sendProposal } from "./proposals";
+import { expireProposals, proposeMoves, sendProposal, type Proposal } from "./proposals";
 
 const HOUR = 3_600_000;
 
 /** What a day at risk is handed to. */
-export type AtRiskHandler = (orgId: string, plan: DayPlan) => Promise<void>;
+export type AtRiskHandler = (orgId: string, plan: DayPlan) => Promise<unknown>;
 
 /**
  * A day at risk, re-planned from now: running long, and back past the workday's end plus the grace. Raises its
  * move proposal (once per member and day) and texts it to the owners; a day with no stop that can move is only
  * logged.
  */
-export async function dayAtRisk(orgId: string, plan: DayPlan): Promise<void> {
+export async function dayAtRisk(orgId: string, plan: DayPlan): Promise<{ proposal: Proposal; sent: string[] } | null> {
   const proposal = await proposeMoves(orgId, plan);
   if (!proposal) {
     console.info("running long: a day is at risk, with nothing to propose", {
@@ -30,10 +30,11 @@ export async function dayAtRisk(orgId: string, plan: DayPlan): Promise<void> {
       shiftMinutes: plan.replan?.shiftMinutes ?? 0,
       backAtYardAt: plan.backAtYardAt?.toISOString() ?? null,
     });
-    return;
+    return null;
   }
   const sent = await sendProposal(orgId, proposal, { now: plan.replan?.at });
   console.info("running long: proposed moving stops", { orgId, proposalId: proposal.id, items: proposal.items.length, sent: sent.length });
+  return { proposal, sent };
 }
 
 /** Whether the business has an open visit near now that's started or has a delay: the only days worth re-planning. */

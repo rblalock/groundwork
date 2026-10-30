@@ -46,7 +46,6 @@ function ProposalRow({ proposal, language, canManage }: { proposal: ProposalJson
   const decide = async (action: "apply" | "drop") => {
     setError(undefined);
     setPending(action);
-    // The card stays to show what happened; the schedule refreshes when it's dismissed.
     const result = await send<ProposalOutcomeJson>(
       `/api/schedule/proposals/${proposal.proposalId}`,
       "POST",
@@ -54,8 +53,11 @@ function ProposalRow({ proposal, language, canManage }: { proposal: ProposalJson
       false,
     );
     setPending(null);
-    if (result.ok) setOutcome(result.data);
-    else setError(result.error);
+    if (result.ok) {
+      setOutcome(result.data);
+      // The grid shows the moved stops at once; the card stays to show what happened.
+      router.refresh();
+    } else setError(result.error);
   };
 
   if (outcome) {

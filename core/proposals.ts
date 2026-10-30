@@ -138,7 +138,10 @@ function namesText(names: string[], language: Language): string {
  */
 export function proposalReason(plan: DayPlan, timeZone: string, language: Language): string {
   const name = firstName(plan.name);
-  const minutes = Math.max(0, plan.replan?.shiftMinutes ?? 0);
+  // How late the crew are at the stop they're on: its projected leave past its booked end. The day's shift when
+  // no stop is under way (a delay declared on the way).
+  const current = plan.stops.find((s) => s.visitId === plan.replan?.visitId);
+  const minutes = Math.max(0, current ? Math.round((current.plannedLeaveAt.getTime() - current.endAt.getTime()) / 60_000) : (plan.replan?.shiftMinutes ?? 0));
   const end = plan.backAtYardAt ?? plan.stops.at(-1)?.plannedLeaveAt ?? null;
   const at = plan.replan?.title;
   const when = end ? timeText(end, timeZone, language) : null;
@@ -547,20 +550,22 @@ export async function applyProposal(actor: Actor, input: { proposalId?: string; 
   const moved = result.moved.map(({ item }) => ({ itemId: item.id, title: item.title, line: itemLine(item, result.proposal.date, result.timeZone, language) }));
   const skipped = result.skipped.map(({ item, reason }) => ({ itemId: item.id, title: item.title, reason }));
   const customerTexts = result.moved.map(({ item }) => ({ itemId: item.id, customerName: item.customerName, text: item.customerText }));
-  return { proposal: result.proposal, moved, skipped, customerTexts, notified: [...new Set(notified)], summaryText: summaryText({ moved, skipped, customerTexts }, language) };
+  return { proposal: result.proposal, moved, skipped, customerTexts, notified: [...new Set(notified)], summaryText: summaryText({ moved, skipped, customerTexts, notified: [...new Set(notified)] }, language) };
 }
 
 /**
  * What applying did, for the owner: "Moved 2 stops: 40 Pine Ave → Pat today 2:30 PM; 4 Elm Rd → Carlos Mon 9 AM.
  * The crew are texted." then what didn't move and why, then each customer's draft to forward.
  */
-export function summaryText(result: Pick<Applied, "moved" | "skipped" | "customerTexts">, language: Language): string {
+export function summaryText(result: Pick<Applied, "moved" | "skipped" | "customerTexts"> & { notified?: string[] }, language: Language): string {
   const es = language === "es";
   const n = result.moved.length;
   const lines: string[] = [];
   if (n) {
     const stops = es ? (n === 1 ? "1 parada" : `${n} paradas`) : n === 1 ? "1 stop" : `${n} stops`;
-    lines.push(`${es ? "Moví" : "Moved"} ${stops}: ${result.moved.map((m) => m.line).join("; ")}. ${es ? "El equipo ya tiene el mensaje." : "The crew are texted."}`);
+    // "The crew are texted" only when someone was: a member who hasn't texted the line yet gets nothing.
+    const texted = result.notified === undefined || result.notified.length > 0 ? ` ${es ? "El equipo ya tiene el mensaje." : "The crew are texted."}` : "";
+    lines.push(`${es ? "Moví" : "Moved"} ${stops}: ${result.moved.map((m) => m.line).join("; ")}.${texted}`);
   } else {
     lines.push(es ? "No se movió nada." : "Nothing moved.");
   }
