@@ -140,7 +140,10 @@ function finalReply(steps: TraceStep[]): string | null {
 const cut = (text: string, limit: number) => (text.length > limit ? `${text.slice(0, limit)}…[truncated]` : text);
 const asText = (value: unknown) => (typeof value === "string" ? value : (JSON.stringify(value) ?? "null"));
 
-/** A turn's assistant side as chat messages: per model step, its calls and their results, then the reply. */
+/**
+ * A turn's assistant side as chat messages: per model step, its calls and their results, then the reply.
+ * Results are whole here; `cutResults` shortens them, after redaction has seen all of them.
+ */
 export function assistantMessages(steps: TraceStep[], skills: ReadonlySet<string>, history = false): ChatMessage[] {
   const out: ChatMessage[] = [];
   const groups: TraceStep[][] = [];
@@ -180,7 +183,7 @@ export function assistantMessages(steps: TraceStep[], skills: ReadonlySet<string
     calls.forEach((call, i) => {
       const result = call.callId ? results.find((s) => s.callId === call.callId) : undefined;
       const body = asText(result?.output ?? null);
-      out.push({ role: "tool", tool_call_id: ids[i], content: isSkillLoad(call, skills) ? body : cut(body, RESULT_LIMIT) });
+      out.push({ role: "tool", tool_call_id: ids[i], content: body });
     });
   }
   return out;
@@ -235,6 +238,17 @@ export function buildExample(trace: TraceInput, earlier: TraceInput[], labels: T
   };
 }
 
+/** An example with each tool result cut to `RESULT_LIMIT`, except a skill's instructions. */
+export function cutResults(example: Example): Example {
+  const skillCalls = new Set(
+    example.messages.flatMap((m) => (m.role === "assistant" ? (m.tool_calls ?? []).filter((c) => c.function.name === SKILL_TOOL).map((c) => c.id) : [])),
+  );
+  return {
+    ...example,
+    messages: example.messages.map((m) => (m.role === "tool" && !skillCalls.has(m.tool_call_id) ? { ...m, content: cut(m.content, RESULT_LIMIT) } : m)),
+  };
+}
+
 export type DatasetOptions = {
   records: TurnRecords;
   /** Keep only examples with one of these labels; every label when null. */
@@ -270,7 +284,7 @@ export function buildDataset(traces: TraceInput[], ctx: DatasetContext, options:
       for (const label of labeled.labels) bump(label);
       const earlier = history > 0 ? turns.slice(Math.max(0, i - history), i) : [];
       const example = buildExample(trace, earlier, labeled.labels, ctx);
-      examples.push(options.redact === false ? example : redactExample(example));
+      examples.push(cutResults(options.redact === false ? example : redactExample(example)));
     });
   }
   return { examples, counts };
@@ -304,6 +318,11 @@ class Redactor {
       this.known.set(key, found);
     }
     return found;
+  }
+
+  /** The same, in JSON a trace cut short, which doesn't parse: each `"key":"value"` pair, without its parents. */
+  collectText(text: string): void {
+    for (const [, key, value] of text.matchAll(/"([A-Za-z0-9_]+)":"((?:[^"\\]|\\.)*)"/g)) this.collect({ [key]: value });
   }
 
   /** Finds the names, addresses, phones, and emails in structured values, by the keys they sit under. */
@@ -367,9 +386,14 @@ const parsed = (text: string): unknown => {
 /** An example with its customers' names, addresses, phones, and emails replaced, consistently within it. */
 export function redactExample(example: Example): Example {
   const r = new Redactor();
+  const collect = (text: string) => {
+    const value = parsed(text);
+    if (value === undefined) r.collectText(text);
+    else r.collect(typeof value === "string" ? parsed(value) : value);
+  };
   for (const message of example.messages) {
-    if (message.role === "tool") r.collect(parsed(message.content));
-    if (message.role === "assistant") for (const call of message.tool_calls ?? []) r.collect(parsed(call.function.arguments));
+    if (message.role === "tool") collect(message.content);
+    if (message.role === "assistant") for (const call of message.tool_calls ?? []) collect(call.function.arguments);
   }
   const messages = example.messages.map((message): ChatMessage => {
     if (message.role === "system") return message;
@@ -404,19 +428,21 @@ export function openaiLine(example: Example): string {
 }
 
 const header = (role: string) => `<|start_header_id|>${role}<|end_header_id|>\n\n`;
+/** Text with anything shaped like a Llama special token broken up, so no message can open or close a turn. */
+const plainText = (text: string) => text.replace(/<\|([a-z_]+)\|>/gi, "<\u200b|$1|>");
 
 /** One message in the Llama 3.x chat template. A tool call is its JSON (`{"name", "parameters"}`), one per line. */
 function llamaTurn(message: ChatMessage): string {
   switch (message.role) {
     case "system":
     case "user":
-      return `${header(message.role)}${message.content}<|eot_id|>`;
+      return `${header(message.role)}${plainText(message.content)}<|eot_id|>`;
     case "tool":
-      return `${header("ipython")}${message.content}<|eot_id|>`;
+      return `${header("ipython")}${plainText(message.content)}<|eot_id|>`;
     case "assistant": {
       const calls = (message.tool_calls ?? []).map((call) => JSON.stringify({ name: call.function.name, parameters: parsed(call.function.arguments) ?? {} }));
       const body = [message.content, ...calls].filter(Boolean).join("\n");
-      return `${header("assistant")}${body}<|eot_id|>`;
+      return `${header("assistant")}${plainText(body)}<|eot_id|>`;
     }
   }
 }
@@ -440,7 +466,7 @@ function llamaTools(tools: ToolSchema[]): string {
  */
 export function llamaLine(example: Example): string {
   const [system, ...rest] = example.messages;
-  const head = system.role === "system" ? `${header("system")}${llamaTools(example.tools)}\n\n${system.content}<|eot_id|>` : "";
+  const head = system.role === "system" ? `${header("system")}${plainText(`${llamaTools(example.tools)}\n\n${system.content}`)}<|eot_id|>` : "";
   const history = rest.slice(0, example.turnStart - 1);
   const [user, ...after] = rest.slice(example.turnStart - 1);
   const prompt = `<|begin_of_text|>${head}${history.map(llamaTurn).join("")}${llamaTurn(user)}${header("assistant")}`;
