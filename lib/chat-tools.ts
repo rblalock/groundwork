@@ -3,6 +3,8 @@
 // the records its tools returned to their pages. A quote touched again later in the conversation shows its
 // card only there, on the latest reply about it.
 
+import type { PostFormat } from "../core/social-post";
+
 /** A tool call as it sits in an eve message's parts. */
 export type ToolCallPart = {
   type: "dynamic-tool";
@@ -39,6 +41,12 @@ export const HIDDEN_TOOLS = new Set([
 
 /** Tools about one quote: the reply that ran one gets that quote's card. */
 export const QUOTE_TOOLS = new Set(["create_quote", "revise_quote", "approve_quote", "set_quote_outcome", "get_quote", "price_photo", "make_post"]);
+
+/** The format a make_post call drew its post in: what it returned, else what it was asked, else a square. */
+export function postFormatOf(part: ToolCallPart): PostFormat {
+  const format = record(part.output)?.format ?? record(part.input)?.format;
+  return format === "story" ? "story" : "square";
+}
 
 /** One step: a tool, how many times it ran, whether it failed, and what it touched ("INV-0003", "3 invoices"). */
 export type ToolChip = { tool: string; count: number; failed: boolean; detail: string | null };
@@ -223,11 +231,13 @@ export function isRecordLink(href: string): boolean {
 
 /**
  * `turnId` is the eve turn the reply ran in (its last message's that names one), and `parts` are every
- * part of the reply's messages, in order: "Under the hood" shows them all.
+ * part of the reply's messages, in order: "Under the hood" shows them all. `posts` are the quotes the
+ * reply made a post for, with its format: their cards show the post.
  */
 export type ReplyExtras<P extends { type: string } = { type: string }> = {
   chips: ToolChip[];
   quoteIds: string[];
+  posts: Record<string, PostFormat>;
   links: RecordLink[];
   turnId: string | null;
   parts: P[];
@@ -254,11 +264,15 @@ export function replyExtras<P extends { type: string }>(messages: ReadonlyArray<
     run.turnId = message.metadata?.turnId ?? run.turnId;
     run.parts.push(...message.parts);
   }
-  const latest = new Map<string, string>();
+  // Each quote's latest reply, and the post it made there, if it made one.
+  const latest = new Map<string, { messageId: string; post: PostFormat | null }>();
   for (const { lastId, parts } of runs) {
     for (const part of toolCalls(parts)) {
       const quoteId = quoteIdOf(part);
-      if (quoteId) latest.set(quoteId, lastId);
+      if (!quoteId) continue;
+      const before = latest.get(quoteId);
+      const post = part.toolName === "make_post" ? postFormatOf(part) : before?.messageId === lastId ? before.post : null;
+      latest.set(quoteId, { messageId: lastId, post });
     }
   }
   // A reply often names a record an earlier reply looked up ("Jane's quote is approved"), so each reply
@@ -269,12 +283,16 @@ export function replyExtras<P extends { type: string }>(messages: ReadonlyArray<
     const own = recordLinksOf(parts);
     const names = new Set(own.map((link) => link.text));
     const earlier = [...seen.values()].filter((link) => !names.has(link.text)).map((link) => ({ ...link, earlier: true }));
-    extras.set(lastId, { chips: toolChipsOf(parts), quoteIds: [], links: [...own, ...earlier], turnId, parts });
+    extras.set(lastId, { chips: toolChipsOf(parts), quoteIds: [], posts: {}, links: [...own, ...earlier], turnId, parts });
     for (const link of own) {
       seen.delete(link.text);
       seen.set(link.text, link);
     }
   }
-  for (const [quoteId, messageId] of latest) extras.get(messageId)?.quoteIds.push(quoteId);
+  for (const [quoteId, { messageId, post }] of latest) {
+    const reply = extras.get(messageId);
+    reply?.quoteIds.push(quoteId);
+    if (reply && post) reply.posts[quoteId] = post;
+  }
   return extras;
 }

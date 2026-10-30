@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState, type ComponentProps, type ComponentType } from "react";
 import { defaultComponents } from "streamdown";
 import type { Language } from "@/core/language";
+import type { PostFormat } from "@/core/social-post";
 import type { ToolLabel } from "@/core/tool-labels";
 import { humanizeToolName } from "@/components/assistant/agent-progress";
 import { QuoteStatusPill } from "@/components/pages/kit";
@@ -95,10 +96,11 @@ export function ChatLink(props: ComponentProps<"a"> & { node?: unknown }) {
 
 /**
  * A quote the reply made or changed, as it is now (`GET /api/quotes/[id]/card`): its priced photo across
- * the top when it has one, its title, customer, total, and status, a way to open it, and Approve for an
- * owner or admin on a ready draft. Nothing for a quote the viewer can't see.
+ * the top when it has one (or, for a reply that made a post, the `post`), its title, customer, total, and
+ * status, a way to open it, and Approve for an owner or admin on a ready draft. Nothing for a quote the
+ * viewer can't see.
  */
-export function QuoteCard({ quoteId, language, readOnly }: { quoteId: string; language: Language; readOnly: boolean }) {
+export function QuoteCard({ quoteId, post, language, readOnly }: { quoteId: string; post?: PostFormat; language: Language; readOnly: boolean }) {
   const copy = copyFor(language).assistant;
   const [quote, setQuote] = useState<QuoteCardData | null>(null);
   const [busy, setBusy] = useState(false);
@@ -107,12 +109,12 @@ export function QuoteCard({ quoteId, language, readOnly }: { quoteId: string; la
 
   const load = useCallback(async () => {
     try {
-      const response = await fetch(`/api/quotes/${encodeURIComponent(quoteId)}/card`, { cache: "no-store" });
+      const response = await fetch(`/api/quotes/${encodeURIComponent(quoteId)}/card${post ? `?post=${post}` : ""}`, { cache: "no-store" });
       if (response.ok) setQuote(((await response.json()) as { quote: QuoteCardData }).quote);
     } catch {
       // No card is better than a broken one: the reply's text still says what happened.
     }
-  }, [quoteId]);
+  }, [quoteId, post]);
 
   useEffect(() => {
     void load();
@@ -140,15 +142,20 @@ export function QuoteCard({ quoteId, language, readOnly }: { quoteId: string; la
     }
   };
 
+  const top = quote.post
+    ? { url: quote.post.url, alt: copy.quotePostAlt, caption: copy.quotePostCaption }
+    : quote.pricedPhoto
+      ? { url: quote.pricedPhoto.url, alt: copy.quotePricedAlt, caption: copy.quotePricedCaption }
+      : null;
   return (
     <article aria-label={quote.title} className="flex max-w-md flex-col gap-2.5 rounded-[12px] bg-surface px-3.5 py-3 shadow-hairline">
-      {quote.pricedPhoto ? (
+      {top ? (
         <figure className="-mx-3.5 -mt-3 flex flex-col gap-1.5">
-          <a className="block overflow-hidden rounded-t-[12px] bg-inset" href={quote.pricedPhoto.url} rel="noopener" target="_blank">
+          <a className="block overflow-hidden rounded-t-[12px] bg-inset" href={top.url} rel="noopener" target="_blank">
             {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
-            <img alt={copy.quotePricedAlt} className="block h-auto w-full" src={quote.pricedPhoto.url} />
+            <img alt={top.alt} className="block h-auto w-full" src={top.url} />
           </a>
-          <figcaption className="px-3.5 text-[12px] text-ink-3">{copy.quotePricedCaption}</figcaption>
+          <figcaption className="px-3.5 text-[12px] text-ink-3">{top.caption}</figcaption>
         </figure>
       ) : null}
       <div className="flex items-start gap-3">

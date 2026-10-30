@@ -256,7 +256,7 @@ function ThreadMessage({
       <ToolSteps language={language} steps={chips} toolLabels={toolLabels} />
       {settled && extras ? <UnderTheHood language={language} parts={extras.parts} sessionId={sessionId} turnId={extras.turnId} /> : null}
       {cards.map((quoteId) => (
-        <QuoteCard key={quoteId} language={language} quoteId={quoteId} readOnly={readOnly} />
+        <QuoteCard key={quoteId} language={language} post={extras?.posts[quoteId]} quoteId={quoteId} readOnly={readOnly} />
       ))}
     </div>
   );

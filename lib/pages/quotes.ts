@@ -184,6 +184,8 @@ export type QuoteCard = {
   canApprove: boolean;
   /** The quote's latest priced photo, as the app serves it. */
   pricedPhoto: { id: string; url: string } | null;
+  /** The quote's social post, when the card was asked for one and the quote has a before-and-after. */
+  post: { format: PostFormat; url: string } | null;
 };
 
 /** Where the app serves a priced photo; the version changes when it's made again or edited, so a cached one isn't shown. */
@@ -216,17 +218,23 @@ export const socialPostHref = (pair: Pick<BeforeAfter, "quoteId" | "version">, o
 /** The social post route's query: a square unless `format=story`, and the line asking for the next job unless `cta=0`. */
 export const socialPostQuery = z.object({ v: z.string().optional(), format: z.enum(POST_FORMATS).default("square"), cta: flag.default(true) });
 
+/** The card route's query: `post=square` or `story` for a reply that made a post. Anything else is a 400. */
+export const quoteCardQuery = z.object({ post: z.enum(POST_FORMATS).optional() });
+
 /**
  * A quote's card for the chat, for whoever may see the quote (`assertVisible`); a 404 for anyone else.
  * Only an owner or admin acting as themselves approves, and only a ready draft or one waiting on them.
+ * With `post`, the card shows the quote's post in that format, with the line asking for the next job.
  */
-export async function quoteCardFor(caller: AppCaller, quoteId: string): Promise<QuoteCard> {
+export async function quoteCardFor(caller: AppCaller, quoteId: string, options: { post?: PostFormat } = {}): Promise<QuoteCard> {
   await assertVisible(caller, quoteId);
   const quote = await loadSummary(caller.orgId, quoteId).catch((error: unknown) => {
     refuse(error, { QUOTE_NOT_FOUND: [404, "That isn't here."] });
   });
   const ready = quote.state === "ready";
-  const [priced] = await pricedPhotosFor(caller.orgId, quoteId);
+  const photos = await pricedPhotosFor(caller.orgId, quoteId);
+  const [priced] = photos;
+  const pair = options.post ? pairOf(photos) : null;
   return {
     quoteId: quote.quoteId,
     title: quote.title,
@@ -237,6 +245,7 @@ export async function quoteCardFor(caller: AppCaller, quoteId: string): Promise<
     ready,
     canApprove: caller.memberId !== null && isPrivileged(caller.role) && ready && (quote.status === "draft" || quote.status === "needs_owner"),
     pricedPhoto: priced ? { id: priced.id, url: pricedPhotoHref(priced) } : null,
+    post: options.post && pair ? { format: options.post, url: socialPostHref({ quoteId, version: pair.version }, { format: options.post, cta: true }) } : null,
   };
 }
 

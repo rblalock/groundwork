@@ -21,7 +21,8 @@ const NOTES: Record<Language, Record<Reason, string>> = {
     no_work_quote: "That work has no quote, so there's no before-and-after to post. Say so in one line.",
     quote_not_found: "No quote to make a post from. Use list_quotes for its id.",
     unreadable_photo: "One of the two photos couldn't be read anymore. Say so in one line and ask for the photo again.",
-    not_posted: "The image couldn't go to the member's texts. Say the post is ready on the quote's page under Share, and give the caption.",
+    not_posted:
+      "The image couldn't go to the member's texts. Say the post shows on the card under this reply and on the quote's page under Share, and give the caption.",
   },
   es: {
     no_before_after:
@@ -29,7 +30,8 @@ const NOTES: Record<Language, Record<Reason, string>> = {
     no_work_quote: "Ese servicio no tiene cotización, así que no hay antes y después para publicar. Dilo en una línea.",
     quote_not_found: "No hay cotización para hacer la publicación. Usa list_quotes para su id.",
     unreadable_photo: "Una de las dos fotos ya no se pudo leer. Dilo en una línea y pide la foto de nuevo.",
-    not_posted: "La imagen no se pudo mandar a los mensajes del miembro. Di que la publicación está lista en la página de la cotización, en Compartir, y da el texto.",
+    not_posted:
+      "La imagen no se pudo mandar a los mensajes del miembro. Di que la publicación aparece en la tarjeta bajo esta respuesta y en la página de la cotización, en Compartir, y da el texto.",
   },
 };
 

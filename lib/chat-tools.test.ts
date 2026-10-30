@@ -54,10 +54,26 @@ test("a reply's chips and cards go under its last message; a quote's card only u
   ];
   const extras = replyExtras(messages);
   assert.deepEqual([...extras.keys()], ["m1", "m4", "m6"]);
-  assert.deepEqual(extras.get("m1"), { chips: [{ tool: "create_quote", count: 1, failed: false, detail: null }], quoteIds: [], links: [], turnId: null, parts: messages[0].parts });
+  assert.deepEqual(extras.get("m1"), { chips: [{ tool: "create_quote", count: 1, failed: false, detail: null }], quoteIds: [], posts: {}, links: [], turnId: null, parts: messages[0].parts });
   assert.deepEqual(extras.get("m4")?.chips.map((c) => c.tool), ["revise_quote", "create_quote"]);
   assert.deepEqual(extras.get("m4")?.quoteIds, ["quo_1", "quo_2"]);
-  assert.deepEqual(extras.get("m6"), { chips: [{ tool: "get_quote", count: 1, failed: true, detail: null }], quoteIds: [], links: [], turnId: null, parts: messages[5].parts });
+  assert.deepEqual(extras.get("m6"), { chips: [{ tool: "get_quote", count: 1, failed: true, detail: null }], quoteIds: [], posts: {}, links: [], turnId: null, parts: messages[5].parts });
+});
+
+test("a reply that made a post shows it on its quote's card, in its format, until a later reply touches the quote", () => {
+  const messages = [
+    { id: "m1", role: "assistant", parts: [call("make_post", { input: { format: "story" }, output: { quoteId: "quo_1", format: "story", posted: false } })] },
+    { id: "m2", role: "user", parts: [{ type: "text" }] },
+    // A post, then the quote read again in the same reply: still the post.
+    { id: "m3", role: "assistant", parts: [call("make_post", { input: { quoteId: "quo_2" }, output: { quoteId: "quo_2" } }), call("get_quote", { input: { quoteId: "quo_2" } })] },
+    { id: "m4", role: "user", parts: [{ type: "text" }] },
+    { id: "m5", role: "assistant", parts: [call("get_quote", { input: { quoteId: "quo_1" } }), call("make_post", { input: { quoteId: "quo_3" }, output: { error: "boom" } })] },
+  ];
+  const extras = replyExtras(messages);
+  assert.deepEqual(extras.get("m1")?.posts, {}, "quo_1's card moved to the later reply");
+  assert.deepEqual(extras.get("m3")?.posts, { quo_2: "square" });
+  assert.deepEqual([extras.get("m5")?.quoteIds, extras.get("m5")?.posts], [["quo_1"], {}], "a later read shows the quote, and a failed post shows nothing");
+  assert.deepEqual(replyExtras(messages.slice(0, 1)).get("m1")?.posts, { quo_1: "story" });
 });
 
 test("a reply's turn and all its parts, from every message of the run, go under its last message", () => {
