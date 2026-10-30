@@ -453,8 +453,9 @@ export function PricedPhotoEditor({
   return (
     <div className="space-y-3">
       <div
-        // While a box is drawn, a drag never selects text and a touch never scrolls the page.
-        className={cn("relative mx-auto overflow-hidden rounded-[8px] bg-inset shadow-hairline", drawing && "touch-none select-none")}
+        // While a box is drawn, a drag never selects text and a touch never scrolls the page. Scrolled to, it
+        // lands clear of the quote page's sticky section bar, which sticks below the page's top padding.
+        className={cn("relative mx-auto scroll-mt-18 overflow-hidden rounded-[8px] bg-inset shadow-hairline sm:scroll-mt-21", drawing && "touch-none select-none")}
         ref={stageRef}
         style={{
           aspectRatio: `${state.width} / ${state.height}`,
@@ -492,7 +493,7 @@ export function PricedPhotoEditor({
                 aria-expanded={expanded}
                 aria-haspopup="dialog"
                 aria-label={`${labelOf(candidate)}: ${linesText(candidate.id)}`}
-                className="cursor-pointer outline-none transition-[stroke-opacity,fill-opacity,stroke-width] duration-150"
+                className="cursor-pointer scroll-mt-18 outline-none transition-[stroke-opacity,fill-opacity,stroke-width] duration-150 sm:scroll-mt-21"
                 d={candidate.svgPath}
                 data-candidate={candidate.id}
                 fill={color ?? "#ffffff"}
