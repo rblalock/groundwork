@@ -55,6 +55,13 @@ slot that would take the day over its capacity. A price book item can list what 
 pages; a job is only offered to crew who carry all of it, and booking someone who doesn't needs the
 owner's say.
 
+Crew run their day by text: "next" sends the next stop with a maps link, the drive, the visit's and
+the site's notes, and the checklist; "here" starts it, "done" closes it and says what's next, and
+"running 30 late" re-plans the rest of the day and says what shifts. Today's route re-plans from now
+as the crew go. A stop 30 minutes past its finish, or a declared delay, is running long, and when the
+return runs past the workday's end plus a 15-minute grace (both settings) the Route view marks the
+day at risk. Nothing moves and no customer is texted.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 

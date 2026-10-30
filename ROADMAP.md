@@ -128,6 +128,12 @@ owner approves anything that moves a customer. Done in the order below; each ste
   grace, the assistant proposes moving the crew's last unstarted stops: to another crew today when
   one nearby has room, else to the customer's next open day. A stop starting within the lead time
   stays; the crew is already on its way.
+  Shipped so far: crew start a stop by text (`start_visit`) and declare a delay (`declare_delay`), and
+  today's route re-plans from now: a stop under way finishes no sooner than now, a done stop leaves when
+  it was marked done, and the stops after shift with their drives. A stop under way 30 minutes past its
+  finish (the owner's setting), or a delay, is running long; with the return past the workday's end plus
+  a 15-minute grace, the day is at risk on the Route view. A ten-minute check finds those days; the
+  proposals it will raise, and the 45-minute lead time they keep, are still to come.
 - **Proposals.** A move is a proposal, not a change: the stops moved, from where to where, the reason
   in one line, and a drafted text per customer and per receiving crew member. It goes to the owner as
   a numbered confirm, by text or on the web, with items they can drop; applying it is one transaction
@@ -149,6 +155,10 @@ owner approves anything that moves a customer. Done in the order below; each ste
 - **Crew phone.** Each crew member's day on their phone from a text: "next" for the next stop with
   the address link and notes, "done" to close it and re-plan, "running 30 late" to re-plan with the
   delay, and the owner sees the day shift on the board.
+  Shipped: `next_stop` sends the next stop with its time, a maps link, the drive from where they are,
+  the visit's and site's notes, and the checklist; "here" starts it, "done" replies with what's next,
+  and "running 30 late" says what shifts and whether the day is at risk. The Route view shows when a
+  crew got on site, the projected arrival of the stops they'd reach late, and the re-planned return.
 
 Out of scope: live truck positions, a road graph, radar, parcels, and anything that needs a
 telematics or routing service. The record stays the visit; the route is always computed from it.
