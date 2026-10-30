@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { plansIn, type DayPlan, type PlanStop, type Replan } from "../../core/day-plan";
 import { getProfile } from "../../core/profile";
-import { applyProposal, dropProposal, itemLine, openProposals, summaryText } from "../../core/proposals";
+import { applyProposal, dropProposal, itemLine, linesFrom, openProposals, summaryText, type Proposal } from "../../core/proposals";
 import {
   addTimeOff,
   bookVisit,
@@ -113,7 +113,9 @@ export type SchedulePage = {
 /** A proposal as the Schedule page's card shows it: each stop's line, and the drafts that go with it. */
 export type ProposalJson = {
   proposalId: string;
-  memberName: string;
+  kind: Proposal["kind"];
+  /** The crew member whose day it moves stops off; null for a weather one, which is the business's. */
+  memberName: string | null;
   date: string;
   reason: string;
   items: Array<{ id: string; title: string; customerName: string | null; line: string; crewText: string; customerText: string }>;
@@ -166,6 +168,7 @@ async function proposalsFor(caller: AppCaller, now?: Date): Promise<ProposalJson
   const open = await openProposals(caller, { now });
   return open.proposals.map((p) => ({
     proposalId: p.id,
+    kind: p.kind,
     memberName: p.memberName,
     date: p.date,
     reason: p.reason,
@@ -173,7 +176,7 @@ async function proposalsFor(caller: AppCaller, now?: Date): Promise<ProposalJson
       id: item.id,
       title: item.title,
       customerName: item.customerName,
-      line: itemLine(item, p.date, open.timeZone, caller.language),
+      line: itemLine(item, linesFrom(p), open.timeZone, caller.language),
       crewText: item.crewText,
       customerText: item.customerText,
     })),

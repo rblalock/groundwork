@@ -560,8 +560,9 @@ const en = {
     },
     proposals: {
       title: "Proposals",
-      help: "Moves the assistant worked out for a day running long. Nothing moves until you apply it.",
+      help: "Moves the assistant worked out for a day running long or bad weather. Nothing moves until you apply it.",
       move: (n: number, name: string) => `Move ${n} ${n === 1 ? "stop" : "stops"} for ${name}`,
+      moveWeather: (n: number, day: string) => `Weather: move ${n} ${n === 1 ? "stop" : "stops"} off ${day}`,
       apply: "Apply",
       applying: "Applying…",
       drop: "Drop",
@@ -1832,8 +1833,9 @@ const es: PageCopy = {
     },
     proposals: {
       title: "Propuestas",
-      help: "Cambios que el asistente preparó para un día que se alarga. Nada se mueve hasta que lo apliques.",
+      help: "Cambios que el asistente preparó para un día que se alarga o por el clima. Nada se mueve hasta que lo apliques.",
       move: (n: number, name: string) => `Mover ${n} ${n === 1 ? "parada" : "paradas"} de ${name}`,
+      moveWeather: (n: number, day: string) => `Clima: mover ${n} ${n === 1 ? "parada" : "paradas"} del ${day}`,
       apply: "Aplicar",
       applying: "Aplicando…",
       drop: "Descartar",

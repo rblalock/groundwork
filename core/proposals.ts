@@ -1,7 +1,8 @@
-// Proposals: a change the code works out and an owner or admin decides. For now one kind, `move_stops`: a crew
-// member's day re-planned from now runs past its end plus the grace (`core/running-long.ts`), so the code picks
-// their last stops not yet started and where each could go, and the owners get it as a numbered confirm by text
-// and on the Schedule page. Nothing moves until they apply it, and applying re-checks every stop in one
+// Proposals: a change the code works out and an owner or admin decides. Two kinds. `move_stops`: a crew member's
+// day re-planned from now runs past its end plus the grace (`core/running-long.ts`), so the code picks their last
+// stops not yet started and where each could go. `move_weather`: rain or heat is likely over tomorrow's
+// weather-sensitive stops (`core/weather-check.ts`), so each moves to its crew's next dry day with room. Either
+// way the owners get it as a numbered confirm by text and on the Schedule page. Nothing moves until they apply it, and applying re-checks every stop in one
 // transaction; the stops that still hold move through the code `reschedule_visit` uses, and the crew are texted
 // as they are for any move. Nothing here reaches a customer: each stop's customer text is a draft the owner
 // forwards. Every time, choice, and check is made here; the assistant only relays the texts.
@@ -14,6 +15,7 @@ import { isLanguage, type Language } from "./language";
 import { isPrivileged, privilegedMembers } from "./members";
 import { postToMember } from "./outbound";
 import { driveMinutes, driveSettingsOf, yardOf, type DriveSettings, type Place } from "./places";
+import { queueNotice } from "./followups";
 import { getProfile, getProfileWith } from "./profile";
 import type { Poster } from "./quotes";
 import { findAvailability, getVisit, lockSchedule, moveVisitIn, tellMoved, type Actor, type Slot, type Viewer, type VisitView } from "./scheduling";
@@ -92,6 +94,26 @@ export type Claimed = Map<string, Interval[]>;
 
 const clashes = (slot: Slot, claimed: Claimed) => slot.crew.some((c) => (claimed.get(c.memberId) ?? []).some((taken) => intervalsOverlap(heldBy(slot), taken)));
 
+/** Gives a slot's time, its drives included, to its crew, so a later stop of the same proposal can't take it. */
+export function claimSlot(claimed: Claimed, slot: Slot): void {
+  for (const c of slot.crew) claimed.set(c.memberId, [...(claimed.get(c.memberId) ?? []), heldBy(slot)]);
+}
+
+/** Where an item moves to: the slot's day, clock, and crew, and its drives as the buffers (the visit's own when unknown). */
+export function slotTarget(slot: Slot, visit: Pick<VisitView, "bufferBeforeMinutes" | "bufferAfterMinutes">): ProposalItem["to"] {
+  return {
+    startAt: slot.startAt.toISOString(),
+    endAt: slot.endAt.toISOString(),
+    date: slot.date,
+    time: slot.start,
+    offsetMinutes: slot.offsetMinutes,
+    memberIds: slot.crew.map((c) => c.memberId),
+    names: slot.crew.map((c) => c.name),
+    bufferBeforeMinutes: slot.driveFromPreviousMinutes ?? visit.bufferBeforeMinutes,
+    bufferAfterMinutes: slot.driveToNextMinutes ?? visit.bufferAfterMinutes,
+  };
+}
+
 /**
  * The slot a stop moves to, from `findAvailability`'s slots in its ranked order (those that fit the day's capacity
  * first, then the least driving added). Pure. `today`: the first that fits on the crew's day with someone else,
@@ -155,18 +177,36 @@ export function itemLine(item: ProposalItem, from: string, timeZone: string, lan
 }
 
 /**
- * The owners' numbered confirm: the reason, then "Move 2 stops for Carlos? 1. 40 Pine Ave → Pat today 2:30 PM
- * 2. 4 Elm Rd → Carlos Mon 9 AM. Reply the numbers to keep, 'all', or 'no'." with each stop on its own line.
+ * The day a proposal's moves are named from: its own day for one made that day, the evening before for a weather
+ * one (made the evening before its day, so the next day after it is a weekday, never "tomorrow").
  */
-export function ownerText(proposal: Pick<Proposal, "date" | "reason" | "items">, memberName: string, timeZone: string, language: Language): string {
+export function linesFrom(proposal: Pick<Proposal, "date"> & { kind?: Proposal["kind"] }): string {
+  return proposal.kind === "move_weather" ? addDays(proposal.date, -1) : proposal.date;
+}
+
+/**
+ * The owners' numbered confirm: the reason, then "Move 2 stops for Carlos? 1. 40 Pine Ave → Pat today 2:30 PM
+ * 2. 4 Elm Rd → Carlos Mon 9 AM. Reply the numbers to keep, 'all', or 'no'." with each stop on its own line. A
+ * weather proposal asks "Move 3 stops to a dry day?".
+ */
+export function ownerText(
+  proposal: Pick<Proposal, "date" | "reason" | "items"> & { kind?: Proposal["kind"] },
+  memberName: string | null,
+  timeZone: string,
+  language: Language,
+): string {
   const n = proposal.items.length;
-  const name = firstName(memberName);
+  const stops = language === "es" ? `${n} ${n === 1 ? "parada" : "paradas"}` : `${n} ${n === 1 ? "stop" : "stops"}`;
   const ask =
-    language === "es"
-      ? `¿Muevo ${n} ${n === 1 ? "parada" : "paradas"} de ${name}?`
-      : `Move ${n} ${n === 1 ? "stop" : "stops"} for ${name}?`;
+    proposal.kind === "move_weather"
+      ? language === "es"
+        ? `¿Muevo ${stops} a un día seco?`
+        : `Move ${stops} to a dry day?`
+      : language === "es"
+        ? `¿Muevo ${stops} de ${firstName(memberName ?? "")}?`
+        : `Move ${stops} for ${firstName(memberName ?? "")}?`;
   const reply = language === "es" ? "Responde los números que quieres, 'todas' o 'no'." : "Reply the numbers to keep, 'all', or 'no'.";
-  const lines = proposal.items.map((item) => `${item.id}. ${itemLine(item, proposal.date, timeZone, language)}`);
+  const lines = proposal.items.map((item) => `${item.id}. ${itemLine(item, linesFrom(proposal), timeZone, language)}`);
   return [`${proposal.reason}.`, ask, ...lines, reply].join("\n");
 }
 
@@ -178,11 +218,11 @@ function windowText(startAt: Date, endAt: Date, from: string, timeZone: string, 
 }
 
 /**
- * The draft for the customer, in their language: what changed and the new window, with no prices. Only the crew
- * changing says who comes instead.
+ * The draft for the customer, in their language: what changed and why (running behind, or rain or heat likely),
+ * and the new window, with no prices. Only the crew changing says who comes instead.
  */
 export function customerText(
-  move: { title: string; from: { startAt: Date }; to: { startAt: Date; endAt: Date; names: string[] }; date: string },
+  move: { title: string; from: { startAt: Date }; to: { startAt: Date; endAt: Date; names: string[] }; date: string; cause?: "late" | "rain" | "heat" },
   customer: { name: string | null; language: Language },
   business: string,
   timeZone: string,
@@ -198,6 +238,15 @@ export function customerText(
   }
   const fromDate = wallClock(move.from.startAt, timeZone).date;
   const was = `${fromDate === move.date ? (lang === "es" ? "hoy" : "today") : dayText(fromDate, lang)} ${lang === "es" ? "a las" : "at"} ${timeText(move.from.startAt, timeZone, lang)}`;
+  if (move.cause === "rain" || move.cause === "heat") {
+    // The visit's own day by date: the customer reads it the evening before, or that morning.
+    const day = `${dayText(fromDate, lang)} ${lang === "es" ? "a las" : "at"} ${timeText(move.from.startAt, timeZone, lang)}`;
+    const why =
+      lang === "es" ? (move.cause === "rain" ? "Como se espera lluvia" : "Como se espera mucho calor") : move.cause === "rain" ? "With rain likely" : "With high heat expected";
+    return lang === "es"
+      ? `${hi}, le escribe ${business}. ${why}, movimos su visita en ${move.title} de ${day} a ${sentence(window)} Avísenos si ese horario no le funciona.`
+      : `${hi}, it's ${business}. ${why}, we've moved your visit at ${move.title} from ${day} to ${sentence(window)} Reply if that time doesn't work.`;
+  }
   return lang === "es"
     ? `${hi}, le escribe ${business}. Hoy vamos con retraso, así que movimos su visita en ${move.title} de ${was} a ${sentence(window)} Avísenos si ese horario no le funciona.`
     : `${hi}, it's ${business}. We're running behind today, so we've moved your visit at ${move.title} from ${was} to ${sentence(window)} Reply if that time doesn't work.`;
@@ -245,7 +294,7 @@ export async function buildMoveProposal(plan: DayPlan, ctx: BuildContext): Promi
     const input = { memberId: plan.memberId, date: plan.date, earliest: stop.startAt > lead ? stop.startAt : lead, claimed };
     const slot = pickSlot(await ctx.slotsFor(stop, "today"), "today", input) ?? pickSlot(await ctx.slotsFor(stop, "later"), "later", input);
     if (!slot) continue;
-    for (const c of slot.crew) claimed.set(c.memberId, [...(claimed.get(c.memberId) ?? []), heldBy(slot)]);
+    claimSlot(claimed, slot);
     const move = {
       title: stop.title,
       date: plan.date,
@@ -261,17 +310,7 @@ export async function buildMoveProposal(plan: DayPlan, ctx: BuildContext): Promi
       title: stop.title,
       customerName: visit.customerName,
       from: { startAt: stop.startAt.toISOString(), endAt: stop.endAt.toISOString(), memberIds: visit.crew.map((c) => c.memberId) },
-      to: {
-        startAt: slot.startAt.toISOString(),
-        endAt: slot.endAt.toISOString(),
-        date: slot.date,
-        time: slot.start,
-        offsetMinutes: slot.offsetMinutes,
-        memberIds: slot.crew.map((c) => c.memberId),
-        names: slot.crew.map((c) => c.name),
-        bufferBeforeMinutes: slot.driveFromPreviousMinutes ?? visit.bufferBeforeMinutes,
-        bufferAfterMinutes: slot.driveToNextMinutes ?? visit.bufferAfterMinutes,
-      },
+      to: slotTarget(slot, visit),
       customerText: customerText(move, { name: visit.customerName, language: visit.customerLanguage }, ctx.business, ctx.timeZone),
       crewText: crewLine({ ...move, takesOver }, ctx.timeZone, ctx.memberLanguages.get(receiver.memberId) ?? "en"),
     });
@@ -351,23 +390,27 @@ export async function proposeMoves(orgId: string, plan: DayPlan, deps?: Deps): P
 
 /**
  * Texts the proposal to every active owner and admin in their language (the reason stays in the business's, as
- * stored). Proactive, so quiet hours hold it; it
- * isn't queued for the morning, since a day's proposal expires with the day (it's on the Schedule page).
- * Returns who got it.
+ * stored). Proactive, so quiet hours hold it. A running-long one isn't queued for the morning, since its day
+ * ends with it (it's on the Schedule page); a weather one, about the next day, is queued for when quiet hours end.
+ * Returns who got it now.
  */
 export async function sendProposal(orgId: string, proposal: Proposal, deps?: Deps): Promise<string[]> {
   const now = deps?.now ?? new Date();
+  const memberId = proposal.memberId;
   const [profile, [crew]] = await Promise.all([
     getProfile(orgId),
-    db().select({ name: members.name }).from(members).where(and(eq(members.orgId, orgId), eq(members.id, proposal.memberId))),
+    memberId ? db().select({ name: members.name }).from(members).where(and(eq(members.orgId, orgId), eq(members.id, memberId))) : Promise.resolve([]),
   ]);
   const sent: string[] = [];
   for (const owner of await privilegedMembers(orgId)) {
     const language = languageOf(owner.language);
-    const text = ownerText(proposal, crew?.name ?? "", profile.timeZone, language);
+    const text = ownerText(proposal, crew?.name ?? null, profile.timeZone, language);
     try {
       const result = await (deps?.post ?? postToMember)(orgId, owner.id, { text }, "proactive", { now, profile });
       if (result.posted) sent.push(owner.name);
+      else if (result.reason === "quiet_hours" && proposal.kind === "move_weather") {
+        await queueNotice({ orgId, memberId: owner.id, quoteId: null, payload: { text, asksApproval: false }, now });
+      }
     } catch (error) {
       console.error("proposals: the owner's text failed", { orgId, proposalId: proposal.id, error });
     }
@@ -389,7 +432,8 @@ export async function expireProposals(orgId: string, now: Date = new Date()): Pr
 // ---------------------------------------------------------------------------------------------
 // Reading and deciding
 
-export type OpenProposal = Proposal & { memberName: string };
+/** An open proposal, with its crew member's name; null for a weather one, which is the business's. */
+export type OpenProposal = Proposal & { memberName: string | null };
 
 /** The open proposals of today and on, newest first. Owners and admins only; crew get none. */
 export async function openProposals(viewer: Viewer, deps?: { now?: Date }): Promise<{ timeZone: string; proposals: OpenProposal[] }> {
@@ -399,7 +443,7 @@ export async function openProposals(viewer: Viewer, deps?: { now?: Date }): Prom
   const rows = await db()
     .select({ proposal: proposals, memberName: members.name })
     .from(proposals)
-    .innerJoin(members, and(eq(members.orgId, viewer.orgId), eq(members.id, proposals.memberId)))
+    .leftJoin(members, and(eq(members.orgId, viewer.orgId), eq(members.id, proposals.memberId)))
     .where(and(eq(proposals.orgId, viewer.orgId), eq(proposals.status, "open"), gte(proposals.date, today)))
     .orderBy(desc(proposals.createdAt), asc(proposals.id));
   return { timeZone, proposals: rows.map(({ proposal, memberName }) => ({ ...proposal, memberName })) };
@@ -409,10 +453,11 @@ export async function openProposals(viewer: Viewer, deps?: { now?: Date }): Prom
 export function proposalForTool(proposal: OpenProposal, timeZone: string, language: Language) {
   return {
     proposalId: proposal.id,
-    crew: proposal.memberName,
+    kind: proposal.kind,
+    ...(proposal.memberName ? { crew: proposal.memberName } : {}),
     date: proposal.date,
     reason: proposal.reason,
-    items: proposal.items.map((item) => ({ itemId: item.id, title: item.title, customerName: item.customerName, line: itemLine(item, proposal.date, timeZone, language) })),
+    items: proposal.items.map((item) => ({ itemId: item.id, title: item.title, customerName: item.customerName, line: itemLine(item, linesFrom(proposal), timeZone, language) })),
     text: ownerText(proposal, proposal.memberName, timeZone, language),
   };
 }
@@ -548,7 +593,7 @@ export async function applyProposal(actor: Actor, input: { proposalId?: string; 
       console.error("proposals: a moved stop's crew text failed", { orgId, visitId: previous.visitId, error });
     }
   }
-  const moved = result.moved.map(({ item }) => ({ itemId: item.id, title: item.title, line: itemLine(item, result.proposal.date, result.timeZone, language) }));
+  const moved = result.moved.map(({ item }) => ({ itemId: item.id, title: item.title, line: itemLine(item, linesFrom(result.proposal), result.timeZone, language) }));
   const skipped = result.skipped.map(({ item, reason }) => ({ itemId: item.id, title: item.title, reason }));
   const customerTexts = result.moved.map(({ item }) => ({ itemId: item.id, customerName: item.customerName, text: item.customerText }));
   return { proposal: result.proposal, moved, skipped, customerTexts, notified: [...new Set(notified)], summaryText: summaryText({ moved, skipped, customerTexts, notified: [...new Set(notified)] }, language) };

@@ -5,13 +5,14 @@ import { useState } from "react";
 import { Button } from "@/ui/beautiful/atoms/Button";
 import { StatusPill } from "@/ui/beautiful/atoms/StatusPill";
 import type { Language } from "@/core/language";
+import { dayText } from "@/core/scheduling-time";
 import { pageCopyFor } from "@/lib/page-copy";
 import type { ProposalJson, ProposalOutcomeJson } from "@/lib/pages/schedule";
 import { ErrorLine } from "../pages/client-kit";
 import { useScheduleRequest } from "./forms";
 
 /**
- * Open proposals to move stops off a day running long, above the schedule: each stop with a box to keep it, and
+ * Open proposals to move stops off a day running long, or off a day rain or heat is likely, above the schedule: each stop with a box to keep it, and
  * Apply or Drop. Applying re-checks every stop on the server; what moved, what didn't, and the customer drafts to
  * forward show here until dismissed. Owners and admins only; a look-only view sees them without the buttons.
  */
@@ -42,6 +43,10 @@ function ProposalRow({ proposal, language, canManage }: { proposal: ProposalJson
   const [pending, setPending] = useState<"apply" | "drop" | null>(null);
   const [error, setError] = useState<string>();
   const [outcome, setOutcome] = useState<ProposalOutcomeJson | null>(null);
+  const heading =
+    proposal.kind === "move_weather"
+      ? s.moveWeather(proposal.items.length, dayText(proposal.date, language))
+      : s.move(proposal.items.length, proposal.memberName ?? "");
 
   const decide = async (action: "apply" | "drop") => {
     setError(undefined);
@@ -86,12 +91,12 @@ function ProposalRow({ proposal, language, canManage }: { proposal: ProposalJson
     <li className="space-y-2.5 px-4 py-3">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <StatusPill className="shrink-0" dot tone="orange">
-          {s.move(proposal.items.length, proposal.memberName.split(/\s+/)[0])}
+          {proposal.kind === "move_weather" ? heading : s.move(proposal.items.length, (proposal.memberName ?? "").split(/\s+/)[0])}
         </StatusPill>
         <p className="min-w-0 text-[13px] text-ink-2">{proposal.reason}.</p>
       </div>
       <fieldset className="space-y-1.5" disabled={!canManage || busy}>
-        <legend className="sr-only">{s.move(proposal.items.length, proposal.memberName)}</legend>
+        <legend className="sr-only">{heading}</legend>
         {proposal.items.map((item) => (
           <label className="flex items-start gap-2.5" key={item.id}>
             <input
