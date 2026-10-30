@@ -11,6 +11,7 @@ import { test } from "node:test";
 /** Refused outright on an email's turn. */
 const GATED: Record<string, string> = {
   add_member: "team",
+  apply_proposal: "moves booked visits",
   approve_quote: "approves money",
   archive_customer: "changes a customer on record",
   change_visit_status: "completes or cancels a booked visit",
@@ -18,6 +19,7 @@ const GATED: Record<string, string> = {
   close_service_job: "closes work on record",
   continue_job: "a job's turns would run without the email's mark",
   declare_delay: "re-plans a crew's day on record",
+  drop_proposal: "decides a proposal on record",
   email_quote: "sends to the customer",
   merge_customers: "changes customers on record",
   record_payment: "money",
