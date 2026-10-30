@@ -7,11 +7,11 @@
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { checklistItems, members, serviceJobs } from "../schema/schema";
 import type { LineResult, PricedRegion } from "../schema/types";
-import { readStoredFile } from "./blob";
+import { storeInboundAttachment } from "./blob";
 import { db, newId, type Db, type Tx } from "./db";
 import { recordEvent } from "./events";
 import type { Language } from "./language";
-import { pricedPhotosFor, type PricedPhoto } from "./priced-photo";
+import { crewCopy, pricedPhotosFor, type PricedPhoto } from "./priced-photo";
 import { getProfile } from "./profile";
 import { getQuote, type Poster } from "./quotes";
 import { changeVisitStatus, getServiceJob, type Actor, type VisitView } from "./scheduling";
@@ -145,11 +145,13 @@ export async function ensureChecklist(orgId: string, jobId: string): Promise<Che
   return checklistFor(orgId, jobId);
 }
 
+export type CrewPhoto = { file: { filename: string; mimeType: string; data: Buffer }; fileUrl: string };
+
 /** What booked crew get after the booking line: the list, and the priced photo it points to when there is one. */
 export type CrewChecklist = {
   lines: (language: Language) => string;
-  file: { filename: string; mimeType: string; data: Buffer } | null;
-  fileUrl: string | null;
+  /** The priced photo's crew copy in that language (quantities, no prices), drawn and stored once per language. */
+  photo: (language: Language) => Promise<CrewPhoto | null>;
 };
 
 /** The work's list for a crew text, made first if need be; null for work without a quote or an empty one. */
@@ -160,12 +162,22 @@ export async function crewChecklist(orgId: string, jobId: string): Promise<CrewC
     .select({ quoteId: serviceJobs.quoteId })
     .from(serviceJobs)
     .where(and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.id, jobId)));
-  const photo = job?.quoteId ? await checklistPhoto(orgId, job.quoteId) : null;
-  const bytes = photo ? await readStoredFile(photo.url).catch(() => null) : null;
+  const priced = job?.quoteId ? await checklistPhoto(orgId, job.quoteId) : null;
+  const drawn = new Map<Language, Promise<CrewPhoto | null>>();
+  const draw = async (language: Language): Promise<CrewPhoto | null> => {
+    const png = priced ? await crewCopy(priced, language) : null;
+    if (!png) return null;
+    const filename = "priced-photo.png";
+    const fileUrl = await storeInboundAttachment(filename, "image/png", png);
+    return { file: { filename, mimeType: "image/png", data: Buffer.from(png) }, fileUrl };
+  };
   return {
     lines: (language) => checklistText(items, language),
-    file: photo && bytes ? { filename: "priced-photo.png", mimeType: "image/png", data: Buffer.from(bytes) } : null,
-    fileUrl: photo && bytes ? photo.url : null,
+    photo: (language) => {
+      // A photo that can't be drawn or stored leaves the text to go on its own.
+      if (!drawn.has(language)) drawn.set(language, draw(language).catch(() => null));
+      return drawn.get(language)!;
+    },
   };
 }
 

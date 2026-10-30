@@ -56,6 +56,10 @@ test("draws the regions and a legend under the photo; two lines on one bed share
   assert.ok(height > 1024, "the legend sits under the photo");
   assert.ok(png.byteLength > 50_000);
   if (process.env.PRICED_PHOTO_OUT) writeFileSync(process.env.PRICED_PHOTO_OUT, png);
+
+  // The crew's copy: quantities only, and the total left off, so its legend is shorter.
+  const crew = await renderOverlay({ bytes: new Uint8Array(YARD), width: 1024, height: 1024 }, regions, new Map(), 53000, "en", { linePrices: false, total: false });
+  assert.ok(crew.height > 1024 && crew.height < height, "a legend without the total");
 });
 
 test("a label carries the line's price, or only its scope when line prices are hidden", () => {

@@ -1143,7 +1143,7 @@ const defaultPost: Poster = async (orgId, memberId, payload, kind) => {
 
 /**
  * Texts crew members about a change to their schedule, each in their language, never the one who made
- * it. `attach` adds a file (the work's priced photo). Held back by quiet hours, the text is queued for
+ * it. `brief` adds the work's priced photo, in their language. Held back by quiet hours, the text is queued for
  * when they end, without the file. A failed text never fails the change. Returns the names of who got it
  * now or will then.
  */
@@ -1152,7 +1152,7 @@ async function tellCrew(
   memberIds: string[],
   text: (language: Language) => string,
   deps?: Deps,
-  attach?: Pick<CrewChecklist, "file" | "fileUrl"> | null,
+  brief?: CrewChecklist | null,
 ): Promise<string[]> {
   const out: string[] = [];
   const ids = [...new Set(memberIds)].filter((id) => id !== actor.memberId);
@@ -1164,8 +1164,8 @@ async function tellCrew(
   for (const member of rows) {
     const body = text(languageOf(member));
     try {
-      const file = attach?.file ? { file: attach.file, fileUrl: attach.fileUrl ?? undefined } : {};
-      const result = await (deps?.post ?? defaultPost)(actor.orgId, member.id, { text: body, ...file }, "proactive");
+      const photo = brief ? await brief.photo(languageOf(member)) : null;
+      const result = await (deps?.post ?? defaultPost)(actor.orgId, member.id, { text: body, ...(photo ?? {}) }, "proactive");
       if (result.posted) {
         out.push(member.name);
       } else if (result.reason === "quiet_hours") {

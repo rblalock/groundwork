@@ -168,6 +168,17 @@ async function renderBoth(
   return { url, customerUrl, width: png.width, height: png.height };
 }
 
+/**
+ * The priced photo as the crew get it: each line labeled with its quantity, and no prices or total.
+ * Drawn from the kept outlines, without SAM, in the reader's language. Null when the photo can't be read.
+ */
+export async function crewCopy(row: PricedPhoto, language: Language): Promise<Uint8Array | null> {
+  const photo = await preparePhoto(row.sourceUrl);
+  if (!photo) return null;
+  const drawn = await renderOverlay(photo, row.regions, maskPaths(row.regions, row.candidates), 0, language, { linePrices: false, total: false });
+  return drawn.png;
+}
+
 /** Deletes the renders `old` had that `kept` doesn't. A failure only logs. */
 async function deleteRenders(old: Renders, kept: Renders): Promise<void> {
   for (const url of [old.url, old.customerUrl]) {
@@ -503,7 +514,8 @@ export function maskShapes(regions: PricedRegion[], svgPaths: Map<string, string
  * outlined in the line's color (dashed for a second line on the same object); each line is labeled
  * once, centered on its largest object, and lines that kept the same object share one label of stacked rows. `svgPaths` holds each region's mask outlines
  * (keyed by line index, in the order of its objects); a missing one is drawn as its box. Labels that
- * would overlap move down. With `linePrices` false, labels carry quantities only; the total stays. Pure given its inputs.
+ * would overlap move down. With `linePrices` false, labels carry quantities only; the total stays unless `total` is
+ * false too. Pure given its inputs.
  */
 export async function renderOverlay(
   image: { bytes: Uint8Array; width: number; height: number },
@@ -511,7 +523,7 @@ export async function renderOverlay(
   svgPaths: Map<string, string[]>,
   totalCents: number,
   language: Language,
-  options: { linePrices?: boolean } = {},
+  options: { linePrices?: boolean; total?: boolean } = {},
 ): Promise<{ png: Uint8Array; width: number; height: number }> {
   const label = (region: PricedRegion) => lineLabel(region, language, options.linePrices ?? true);
   const { width, height } = image;
@@ -569,7 +581,7 @@ export async function renderOverlay(
     });
   }
 
-  // Legend: every line, located or not, then the quote's total. A note that doesn't fit beside its
+  // Legend: every line, located or not, then the quote's total (unless left off). A note that doesn't fit beside its
   // line goes under it.
   const swatch = Math.round(px * 0.8);
   const textLeft = pad * 2 + swatch + pad;
@@ -583,8 +595,8 @@ export async function renderOverlay(
   );
   const legendTops = rowTops(legendRows.map((row) => row.span));
   const legendSpan = legendRows.reduce((sum, row) => sum + row.span, 0);
-  const total = await textImage(`${copy.total} ${formatCents(totalCents, language)}`, Math.round(px * 1.1), maxText);
-  const legendHeight = pad * 2 + legendSpan + Math.round(px * 0.5) + total.height + pad * 2;
+  const total = options.total === false ? null : await textImage(`${copy.total} ${formatCents(totalCents, language)}`, Math.round(px * 1.1), maxText);
+  const legendHeight = pad * 2 + legendSpan + (total ? Math.round(px * 0.5) + total.height : 0) + pad * 2;
   shapes.push(`<rect x="0" y="${height}" width="${width}" height="${legendHeight}" fill="${PILL}"/>`);
   legendRows.forEach(({ region, label, note, beside }, i) => {
     const top = height + pad * 2 + legendTops[i];
@@ -597,9 +609,11 @@ export async function renderOverlay(
     if (note && beside) texts.push({ input: note.input, left: textLeft + label.width + pad, top });
     else if (note) texts.push({ input: note.input, left: textLeft, top: top + label.height });
   });
-  const totalTop = height + pad * 2 + legendSpan + Math.round(px * 0.5);
-  shapes.push(`<line x1="${pad * 2}" y1="${totalTop - Math.round(px * 0.35)}" x2="${width - pad * 2}" y2="${totalTop - Math.round(px * 0.35)}" stroke="#3f3f46" stroke-width="1"/>`);
-  texts.push({ input: total.input, left: pad * 2, top: totalTop });
+  if (total) {
+    const totalTop = height + pad * 2 + legendSpan + Math.round(px * 0.5);
+    shapes.push(`<line x1="${pad * 2}" y1="${totalTop - Math.round(px * 0.35)}" x2="${width - pad * 2}" y2="${totalTop - Math.round(px * 0.35)}" stroke="#3f3f46" stroke-width="1"/>`);
+    texts.push({ input: total.input, left: pad * 2, top: totalTop });
+  }
 
   const fullHeight = height + legendHeight;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${fullHeight}">${shapes.join("")}</svg>`;

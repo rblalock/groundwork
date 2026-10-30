@@ -1,9 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { test } from "node:test";
-import { pathToFileURL } from "node:url";
 import { pricedPhotos } from "../schema/schema";
 import type { PricedRegion } from "../schema/types";
 import { checklistCounts, checklistFor, checklistText, ensureChecklist, itemsFromLines, itemText, tickChecklist, visitToComplete } from "./checklist";
@@ -17,6 +13,7 @@ import { bookVisit, getVisit, readSchedule, visitForTool } from "./scheduling";
 import { TEST_ORG, withTestDb } from "./test-db";
 
 const NY = "America/New_York";
+const YARD = new URL("../agents/assistant/evals/fixtures/yard-front.jpg", import.meta.url).href;
 
 test("items follow the quote's lines in order, located only where the photo's region for that line is", () => {
   const lines = [
@@ -78,7 +75,7 @@ const MONDAY_11AM = new Date("2026-10-19T15:00:00Z");
 
 let posts: Array<{ memberId: string; text: string; file: string | null }> = [];
 const post: Poster = async (_orgId, memberId, payload) => {
-  posts.push({ memberId, text: payload.text ?? "", file: payload.file?.filename ?? null });
+  posts.push({ memberId, text: payload.text ?? "", file: payload.file ? `${payload.file.filename} ${payload.file.mimeType}` : null });
   return { posted: true };
 };
 
@@ -119,16 +116,13 @@ async function seed() {
   );
   await approveQuote(quote.quoteId, pat, { post });
   await setQuoteOutcome(quote.quoteId, "won", pat, { post });
-  const dir = await mkdtemp(join(tmpdir(), "checklist-"));
-  const file = join(dir, "priced.png");
-  await writeFile(file, Buffer.from("not really a png"));
-  const region = (lineIndex: number, located: boolean): PricedRegion => ({
+  const region = (lineIndex: number, name: string, quantity: number, unitLabel: string, located: boolean): PricedRegion => ({
     lineIndex,
     itemId: null,
-    name: "",
-    quantity: 1,
-    unitLabel: "",
-    totalCents: null,
+    name,
+    quantity,
+    unitLabel,
+    totalCents: 1000,
     phrase: null,
     objects: [],
     located,
@@ -142,11 +136,11 @@ async function seed() {
       revisionNumber: 1,
       sourceKind: "quote_attachment",
       sourceId: "qa_test",
-      sourceUrl: "file:///nowhere.jpg",
-      url: pathToFileURL(file).href,
+      sourceUrl: YARD,
+      url: "file:///priced-with-prices.png",
       width: 800,
       height: 600,
-      regions: [region(0, true), region(1, false)],
+      regions: [region(0, "Mulch installed", 3, "cubic yard", true), region(1, "Bed edging", 40, "linear foot", false)],
     });
   posts = [];
   return { pat, carlos, quote };
@@ -159,7 +153,7 @@ withTestDb("booked crew get the checklist and the priced photo, and the last tic
     {
       memberId: s.carlos.memberId,
       text: "Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards (outlined in the photo)\n2. Bed edging, 40 linear feet",
-      file: "priced-photo.png",
+      file: "priced-photo.png image/png",
     },
   ]);
   assert.doesNotMatch(posts[0].text, /\$/, "no prices to the crew");
