@@ -24,7 +24,7 @@ import {
 import type { Assignment } from "../../core/priced-photo-select";
 import { customerLinkFor } from "../../core/quote-link";
 import { quoteTimeline, type TimelineEntry } from "../../core/quote-timeline";
-import { POST_FORMATS, postLines, SOCIAL_POST_DRAWING, socialCaption, socialPostFor, type PostFormat } from "../../core/social-post";
+import { callToAction, POST_FORMATS, postLines, SOCIAL_POST_DRAWING, socialCaption, socialPostFor, type PostFormat } from "../../core/social-post";
 import {
   approveQuote,
   countQuotes,
@@ -117,7 +117,8 @@ export async function assertVisible(caller: AppCaller, quoteId: string): Promise
  * with none asked). `pricedPhoto` is its latest priced photo, and the lines it couldn't find in it.
  * `beforeAfter` is its before-and-after, when it has a priced photo from before the job and one after,
  * and `socialPost` the post made from it: its image in each format, with and without the line asking
- * for the next job, and the caption for each.
+ * for the next job, and the caption for each. `ctaAvailable` is false when the business has no phone or
+ * email for that line, so both are the same.
  */
 export type QuotePage = {
   quote: QuoteDetail;
@@ -125,7 +126,11 @@ export type QuotePage = {
   depositPaidCents: number | null;
   pricedPhoto: { id: string; url: string; notLocated: string[] } | null;
   beforeAfter: { href: string; outlinedHref: string } | null;
-  socialPost: { images: Record<PostFormat, { withCta: string; withoutCta: string }>; captions: { withCta: string; withoutCta: string } } | null;
+  socialPost: {
+    images: Record<PostFormat, { withCta: string; withoutCta: string }>;
+    captions: { withCta: string; withoutCta: string };
+    ctaAvailable: boolean;
+  } | null;
 };
 
 export async function quoteFor(caller: AppCaller, quoteId: string): Promise<QuotePage> {
@@ -161,6 +166,7 @@ export async function quoteFor(caller: AppCaller, quoteId: string): Promise<Quot
               withCta: socialCaption(postLines(pair), profile, { cta: true, language: caller.language }),
               withoutCta: socialCaption(postLines(pair), profile, { cta: false, language: caller.language }),
             },
+            ctaAvailable: callToAction(profile, caller.language) !== null,
           }
         : null,
   };

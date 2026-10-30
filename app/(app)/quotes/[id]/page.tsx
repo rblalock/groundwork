@@ -357,7 +357,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
                     ) : null}
                     {socialPost ? (
                       <div className="mt-3">
-                        <SocialPostPanel captions={socialPost.captions} images={socialPost.images} language={language} />
+                        <SocialPostPanel captions={socialPost.captions} ctaAvailable={socialPost.ctaAvailable} images={socialPost.images} language={language} />
                       </div>
                     ) : null}
                   </RecordSection>

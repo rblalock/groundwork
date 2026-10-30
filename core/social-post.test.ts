@@ -178,6 +178,14 @@ withTestDb("make_post: draws the quote's post, sends it to the member's thread w
 
   const story = await call({ quoteId: quote.quoteId, format: "story", cta: false });
   assert.deepEqual([story.format, story.caption], ["story", "Before and after: mulch installed."]);
+  assert.equal(made.ctaNote, undefined);
+
+  // Asked for the line asking for the next job with no phone or email for it: drawn without it, and said so.
+  await updateProfile(TEST_ORG, { phone: null, email: null }, member.id);
+  const bareCta = await call({ quoteId: quote.quoteId });
+  assert.deepEqual([bareCta.posted, bareCta.caption], [true, "Before and after: mulch installed."]);
+  assert.match(String(bareCta.ctaNote), /no phone or email/);
+  assert.equal((await call({ quoteId: quote.quoteId, cta: false })).ctaNote, undefined, "not asked for, nothing to say");
 
   const none = await call({ quoteId: bare.quoteId });
   assert.deepEqual([none.imageUrl, none.reason], [null, "no_before_after"]);

@@ -296,6 +296,8 @@ withTestDb("quotes: the social post is served to anyone on the team once the quo
   const { socialPost } = await quoteFor(await appCaller(crewHeaders), s.ownerQuote.quoteId);
   assert.ok(socialPost);
   assert.match(socialPost.captions.withoutCta, /^Before and after: widget service\.$/);
+  assert.equal(socialPost.ctaAvailable, false, "the seeded business has no phone or email for the line");
+  assert.equal(socialPost.captions.withCta, socialPost.captions.withoutCta);
   const version = `${after.createdAt.getTime()}.${SOCIAL_POST_DRAWING}`;
   assert.equal(socialPost.images.story.withoutCta, `/api/quotes/${s.ownerQuote.quoteId}/post?v=${version}&format=story&cta=0`);
 

@@ -183,17 +183,19 @@ export async function postBusinessFor(orgId: string): Promise<PostBusiness> {
 }
 
 /**
- * The quote's post, drawn, with its caption; null when the quote has no before-and-after. Throws
- * `UNREADABLE_PHOTO` when either photo can't be read.
+ * The quote's post, drawn, with its caption; null when the quote has no before-and-after. `cta` says
+ * whether the line asking for the next job is on it: asked for, and the business has a phone or email
+ * for it. Throws `UNREADABLE_PHOTO` when either photo can't be read.
  */
 export async function socialPostFor(
   orgId: string,
   quoteId: string,
   options: { format: PostFormat; cta: boolean; language: Language },
-): Promise<{ pair: BeforeAfter; png: Uint8Array; width: number; height: number; caption: string } | null> {
+): Promise<{ pair: BeforeAfter; png: Uint8Array; width: number; height: number; caption: string; cta: boolean } | null> {
   const pair = await beforeAfterFor(orgId, quoteId);
   if (!pair) return null;
   const business = await postBusinessFor(orgId);
   const drawn = await renderSocialPost(pair, { ...options, business });
-  return { pair, ...drawn, caption: socialCaption(postLines(pair), business, options) };
+  const cta = options.cta && callToAction(business, options.language) !== null;
+  return { pair, ...drawn, caption: socialCaption(postLines(pair), business, options), cta };
 }

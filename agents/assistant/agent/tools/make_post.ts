@@ -33,9 +33,15 @@ const NOTES: Record<Language, Record<Reason, string>> = {
   },
 };
 
+// Asked for the line asking for the next job, but the business has no phone or email to put in it.
+const NO_CTA: Record<Language, string> = {
+  en: "The post has no line asking for the next job: the business has no phone or email. Say so in one line; the owner adds one in Settings.",
+  es: "La publicación no lleva la línea que pide el próximo trabajo: el negocio no tiene teléfono ni correo. Dilo en una línea; el dueño agrega uno en Ajustes.",
+};
+
 export default defineTool({
   description:
-    "Make a share-ready social post from a quote's before-and-after: its photo from before the job and its finished-job photo, cropped to match, with Before and After labels and the business's name, and a caption written in code. No prices, outlines, or address. Without quoteId it uses the quote the member just made or changed; pass jobId (sj_…) for that work's quote. format is square (a feed post, the default) or story; cta (default true) adds a line asking for the next job with the business's phone or email. The image and caption are sent to the member's thread; posted says whether they went, and when they didn't, a note says what to tell the member. A null imageUrl comes with a note: say it in one line.",
+    "Make a share-ready social post from a quote's before-and-after: its photo from before the job and its finished-job photo, cropped to match, with Before and After labels and the business's name, and a caption written in code. No prices, outlines, or address. Without quoteId it uses the quote the member just made or changed; pass jobId (sj_…) for that work's quote. format is square (a feed post, the default) or story; cta (default true) adds a line asking for the next job with the business's phone or email. The image and caption are sent to the member's thread; posted says whether they went, and when they didn't, a note says what to tell the member. A ctaNote means the line asking for the next job was left off; mention it in one line. A null imageUrl comes with a note: say it in one line.",
   inputSchema: z.object({
     quoteId: z.string().optional().describe("The quote; defaults to the one the member just made or changed."),
     jobId: z.string().optional().describe("The work (sj_…) whose quote to use."),
@@ -72,7 +78,15 @@ export default defineTool({
         { text: post.caption, file: { filename, mimeType: "image/png", data: Buffer.from(post.png) }, fileUrl: imageUrl },
         "system",
       );
-      return { quoteId: id, imageUrl, caption: post.caption, format, posted: sent.posted, ...(sent.posted ? {} : { note: notes.not_posted }) };
+      return {
+        quoteId: id,
+        imageUrl,
+        caption: post.caption,
+        format,
+        posted: sent.posted,
+        ...(sent.posted ? {} : { note: notes.not_posted }),
+        ...(cta && !post.cta ? { ctaNote: NO_CTA[caller.language] } : {}),
+      };
     } catch (error) {
       return toolError(error);
     }

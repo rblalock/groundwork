@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Copy, Download, Share2 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ErrorLine } from "@/components/pages/client-kit";
 import { Card } from "@/components/pages/kit";
@@ -13,24 +14,27 @@ import { Textarea } from "@/ui/components/textarea";
 
 // The quote page's social post: a Share button under the before-and-after that opens the post in either
 // format, its caption to edit, and ways to take it away: download, copy the caption, or the phone's own
-// share sheet when the browser can share a file.
+// share sheet when the browser can share a file. A business with no phone or email has no line asking for
+// the next job, so the panel says where to add one instead of offering it.
 
 type Variants = { withCta: string; withoutCta: string };
 
 export function SocialPostPanel({
   images,
   captions,
+  ctaAvailable,
   language,
 }: {
   images: Record<PostFormat, Variants>;
   captions: Variants;
+  ctaAvailable: boolean;
   language: Language;
 }) {
   const p = pageCopyFor(language).quotes.socialPost;
   const [open, setOpen] = useState(false);
   const [format, setFormat] = useState<PostFormat>("square");
-  const [cta, setCta] = useState(true);
-  const [caption, setCaption] = useState(captions.withCta);
+  const [cta, setCta] = useState(ctaAvailable);
+  const [caption, setCaption] = useState(ctaAvailable ? captions.withCta : captions.withoutCta);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string>();
   // The PNG for the share sheet, fetched ahead so sharing happens in the tap itself (Safari refuses
@@ -94,10 +98,20 @@ export function SocialPostPanel({
       <div className="space-y-3">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <SegmentedControl onChange={(label) => setFormat(formats[label])} options={[p.square, p.story] as const} value={format === "square" ? p.square : p.story} />
-          <label className="flex items-center gap-1.5 text-[13px] text-ink">
-            <input checked={cta} className="size-4 accent-[var(--color-ink)]" onChange={(event) => chooseCta(event.target.checked)} type="checkbox" />
-            {p.cta}
-          </label>
+          {ctaAvailable ? (
+            <label className="flex items-center gap-1.5 text-[13px] text-ink">
+              <input checked={cta} className="size-4 accent-[var(--color-ink)]" onChange={(event) => chooseCta(event.target.checked)} type="checkbox" />
+              {p.cta}
+            </label>
+          ) : (
+            <p className="text-[12px] text-ink-3 text-pretty">
+              {p.ctaNone.lead}
+              <Link className="text-ink-2 underline decoration-line-strong underline-offset-2 transition-colors hover:text-ink hover:decoration-ink" href="/settings">
+                {p.ctaNone.link}
+              </Link>
+              {p.ctaNone.rest}
+            </p>
+          )}
         </div>
         <div className="flex justify-center overflow-hidden rounded-[8px] bg-inset shadow-hairline">
           {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
