@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyAssignment, assignmentsOf, closesAt, sketchPath, type PricedCandidate, type PricedRegion } from "./priced-photo-editor";
+import { applyAssignment, assignmentsOf, closesAt, pricedPhotoEditHref, sketchPath, type PricedCandidate, type PricedRegion } from "./priced-photo-editor";
 
 const candidate = (id: string, overrides: Partial<PricedCandidate> = {}): PricedCandidate => ({
   id,
@@ -73,6 +73,10 @@ test("applyAssignment takes a candidate off a line, and the line is not located 
 test("applyAssignment ignores a candidate it doesn't know", () => {
   const regions = [region(0)];
   assert.equal(applyAssignment(regions, [], "missing", 0, true), regions);
+});
+
+test("the card and the price guide open the editor on the quote page's priced photo section", () => {
+  assert.equal(pricedPhotoEditHref("quo_1", "ppho_2"), "/quotes/quo_1?edit=ppho_2#priced-photo");
 });
 
 test("the outline being drawn follows the pointer, and closes on its first point", () => {

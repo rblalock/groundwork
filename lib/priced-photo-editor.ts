@@ -69,6 +69,10 @@ export const pricedPhotoApi = (quoteId: string, pricedId: string): PricedPhotoAp
   removeDrawn: (candidateId) => removeDrawn(quoteId, pricedId, candidateId),
 });
 
+/** Where the quote page opens the editor on one of its priced photos: from the chat's quote card or the price guide. */
+export const pricedPhotoEditHref = (quoteId: string, pricedId: string) =>
+  `/quotes/${encodeURIComponent(quoteId)}?edit=${encodeURIComponent(pricedId)}#priced-photo`;
+
 /** Which lines each candidate is on, in the order the candidates first appear; objects with no candidate are left out. */
 export function assignmentsOf(regions: PricedRegion[]): Assignment[] {
   const lines = new Map<string, Set<number>>();

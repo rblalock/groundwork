@@ -315,6 +315,7 @@ const en = {
     priceGuideHelp: "Priced photos from this customer's quotes: what each line covered, at what price.",
     priceGuideAlt: (title: string) => `Priced photo for ${title}`,
     priceGuideBeforeAfterAlt: (title: string) => `Before and after for ${title}`,
+    priceGuideEdit: "Edit",
     system: "System",
     change: {
       created: "Added the customer",
@@ -1618,6 +1619,7 @@ const es: PageCopy = {
     priceGuideHelp: "Fotos con precios de las cotizaciones de este cliente: lo que cubrió cada línea y a qué precio.",
     priceGuideAlt: (title: string) => `Foto con precios de ${title}`,
     priceGuideBeforeAfterAlt: (title: string) => `Antes y después de ${title}`,
+    priceGuideEdit: "Editar",
     system: "Sistema",
     change: {
       created: "Agregó al cliente",

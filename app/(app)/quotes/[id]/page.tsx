@@ -81,10 +81,10 @@ function timelineText(entry: TimelineEntry, copy: PageCopy["quotes"], language: 
   return `${what}${copy.by(entry.by)}`;
 }
 
-export default async function QuoteDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ priced?: string }> }) {
+export default async function QuoteDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ priced?: string; edit?: string }> }) {
   const caller = await pageMember();
   const { id } = await params;
-  const { priced: pricedOutcome } = await searchParams;
+  const { priced: pricedOutcome, edit: editPriced } = await searchParams;
   const { quote, timeline, depositPaidCents, pricedPhoto, beforeAfter, socialPost } = await quoteFor(caller, id).catch((error: unknown) => {
     if (error instanceof HttpError && error.status === 404) notFound();
     throw error;
@@ -364,6 +364,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
                     <PricedPhotoSection
                       canEdit={caller.memberId !== null && pricedPhoto !== null}
                       canPrice={caller.memberId !== null && hasPhoto}
+                      editId={typeof editPriced === "string" && editPriced ? editPriced : undefined}
                       language={language}
                       outcome={pricedOutcome}
                       pricedPhoto={pricedPhoto}

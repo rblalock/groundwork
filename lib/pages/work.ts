@@ -104,7 +104,8 @@ export function customerWorkPhotos(caller: AppCaller, customerId: string): Promi
   return listWorkPhotos(caller.orgId, { customerId }, 24);
 }
 
-export type PriceGuideTile = { id: string; quoteId: string; quoteTitle: string; createdAt: Date; href: string; beforeAfter: boolean };
+/** One photo in a customer's price guide. `editId` is the priced photo its Edit link opens: its own, or a before-and-after's after photo. */
+export type PriceGuideTile = { id: string; quoteId: string; quoteTitle: string; createdAt: Date; href: string; beforeAfter: boolean; editId: string };
 
 /**
  * The priced photos on a customer's quotes, newest first: their price guide, served by the app. A quote
@@ -118,10 +119,12 @@ export async function customerPriceGuide(caller: AppCaller, customerId: string):
   return photos.flatMap((photo): PriceGuideTile[] => {
     const pair = pairs.get(photo.quoteId);
     const tile = { id: photo.id, quoteId: photo.quoteId, quoteTitle: photo.quoteTitle, createdAt: photo.createdAt };
-    if (!pair || (photo.id !== pair.before.id && photo.id !== pair.after.id)) return [{ ...tile, href: pricedPhotoHref(photo), beforeAfter: false }];
+    if (!pair || (photo.id !== pair.before.id && photo.id !== pair.after.id)) return [{ ...tile, href: pricedPhotoHref(photo), beforeAfter: false, editId: photo.id }];
     if (shown.has(photo.quoteId)) return [];
     shown.add(photo.quoteId);
-    return [{ ...tile, id: `${photo.quoteId}:before-after`, href: beforeAfterHref({ quoteId: photo.quoteId, version: pair.version }), beforeAfter: true }];
+    return [
+      { ...tile, id: `${photo.quoteId}:before-after`, href: beforeAfterHref({ quoteId: photo.quoteId, version: pair.version }), beforeAfter: true, editId: pair.after.id },
+    ];
   });
 }
 

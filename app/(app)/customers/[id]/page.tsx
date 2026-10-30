@@ -34,6 +34,7 @@ import { InvoiceStatusPill } from "@/components/invoices/kit";
 import { jobsOn } from "@/lib/pages/jobs";
 import { workOn } from "@/lib/pages/schedule";
 import { customerPriceGuide, customerWorkPhotos } from "@/lib/pages/work";
+import { pricedPhotoEditHref } from "@/lib/priced-photo-editor";
 import { AskAssistantButton } from "@/components/threads/thread-rail";
 import { copyFor } from "@/lib/copy";
 
@@ -235,6 +236,11 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
                           <p className="mt-1 flex gap-2 text-[12px]">
                             <span className="min-w-0 flex-1 truncate text-ink">{photo.quoteTitle}</span>
                             <span className="shrink-0 text-ink-3">{formatDate(photo.createdAt, language, tz)}</span>
+                            {canEdit ? (
+                              <Link className="shrink-0 font-medium text-accent-ink hover:underline" href={pricedPhotoEditHref(photo.quoteId, photo.editId)}>
+                                {c.priceGuideEdit}
+                              </Link>
+                            ) : null}
                             {canEdit ? (
                               <Link className="shrink-0 font-medium text-accent-ink hover:underline" href={`/?say=${encodeURIComponent(copy.quotes.quoteAgainSay(photo.quoteTitle, customer.name, formatDate(photo.createdAt, language, tz)))}`}>
                                 {copy.quotes.quoteAgain}

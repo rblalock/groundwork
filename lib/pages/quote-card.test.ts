@@ -29,6 +29,7 @@ withTestDb("a quote's card: anyone on the team sees it, approvable by an owner o
   );
   const forCrew = await card(await signIn(crew.phoneE164!));
   assert.equal(forCrew.canApprove, false, "crew see their own quote but don't approve it");
+  assert.equal(forCrew.canEditPhoto, false, "no priced photo, no outlines to fix");
 
   assert.equal((await card(await signIn(otherCrew.phoneE164!))).canApprove, false, "other crew see it too, and don't approve it");
   const outsider = await person("Lee Outsider", "owner", "+15555550109", await otherBusiness());
@@ -76,6 +77,9 @@ withTestDb("a quote's card: a reply that made a post shows the post, once the qu
   const plain = await card("");
   assert.ok(plain.quote?.pricedPhoto);
   assert.equal(plain.quote.post, null, "a card not asked for the post shows the priced photo");
+  assert.equal(plain.quote.canEditPhoto, true, "a member fixes its outlines from the card");
+  const looking = (await call(cardRoute, await superAdminViewing(TEST_ORG), { params: { id: quote.quoteId } })).body?.quote as QuoteCard;
+  assert.equal(looking.canEditPhoto, false, "a super admin looking in edits nothing");
   const story = (await card("?post=story")).quote;
   assert.equal(story?.post?.format, "story");
   assert.match(story?.post?.url ?? "", new RegExp(`^/api/quotes/${quote.quoteId}/post\\?v=${after.createdAt.getTime()}\\.\\d+&format=story&cta=1$`));

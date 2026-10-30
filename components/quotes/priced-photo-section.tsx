@@ -12,7 +12,8 @@ import { PricedPhotoEditor } from "./priced-photo-editor";
 
 // The quote page's priced photo: the PNG, and for a member the editor in its place while they fix which
 // outline goes with which line. Closing the editor reloads the page so the PNG and its "not found" note
-// come back as the server drew them.
+// come back as the server drew them. A link from the chat's quote card or the price guide (`?edit=`)
+// opens the editor on the photo it named.
 
 /** The PNG's address, changed after an edit so the browser doesn't show the one it cached. */
 const busted = (url: string, edit: string | null) => (edit ? `${url}${url.includes("?") ? "&" : "?"}e=${encodeURIComponent(edit)}` : url);
@@ -22,6 +23,7 @@ export function PricedPhotoSection({
   pricedPhoto,
   canPrice,
   canEdit,
+  editId,
   outcome,
   language,
 }: {
@@ -31,6 +33,8 @@ export function PricedPhotoSection({
   canPrice: boolean;
   /** A member, on a quote with a priced photo. */
   canEdit: boolean;
+  /** One of the quote's priced photos to open the editor on, from the page's `?edit=`. */
+  editId?: string;
   /** How the last pricing went, from the page's `?priced=`. */
   outcome: string | undefined;
   language: Language;
@@ -38,14 +42,15 @@ export function PricedPhotoSection({
   const q = pageCopyFor(language).quotes;
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [editing, setEditing] = useState(false);
+  // The priced photo being edited, if any.
+  const [editing, setEditing] = useState<string | null>(() => (canEdit && pricedPhoto && editId ? editId : null));
   const [edit, setEdit] = useState<string | null>(null);
 
   const actions =
     editing || (!canPrice && !(canEdit && pricedPhoto)) ? null : (
       <div className="flex items-center gap-1.5">
         {canEdit && pricedPhoto ? (
-          <Button onClick={() => setEditing(true)} size="sm" type="button" variant="secondary">
+          <Button onClick={() => setEditing(pricedPhoto.id)} size="sm" type="button" variant="secondary">
             <Pencil aria-hidden="true" className="size-3.5" />
             {q.pricedEdit.edit}
           </Button>
@@ -65,12 +70,14 @@ export function PricedPhotoSection({
         <PricedPhotoEditor
           language={language}
           onClose={(last) => {
-            setEditing(false);
+            setEditing(null);
+            // Reloaded, the page shouldn't open the editor again.
+            if (editId) window.history.replaceState(null, "", `${window.location.pathname}#priced-photo`);
             // Something to tell this PNG from the cached one; a closed editor that changed nothing still asks again.
             setEdit(last?.editedAt ?? String(Date.now()));
             startTransition(() => router.refresh());
           }}
-          pricedId={pricedPhoto.id}
+          pricedId={editing}
           quoteId={quoteId}
         />
       ) : pricedPhoto ? (

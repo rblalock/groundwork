@@ -14,6 +14,7 @@ import { isRecordLink, type ToolChip } from "@/lib/chat-tools";
 import { copyFor } from "@/lib/copy";
 import { money } from "@/lib/format";
 import type { QuoteCard as QuoteCardData } from "@/lib/pages/quotes";
+import { pricedPhotoEditHref } from "@/lib/priced-photo-editor";
 import { Button } from "@/ui/beautiful/atoms/Button";
 import { cn } from "@/ui/lib/utils";
 
@@ -96,8 +97,9 @@ export function ChatLink(props: ComponentProps<"a"> & { node?: unknown }) {
 
 /**
  * A quote the reply made or changed, as it is now (`GET /api/quotes/[id]/card`): its priced photo across
- * the top when it has one (or, for a reply that made a post, the `post`), its title, customer, total, and
- * status, a way to open it, and Approve for an owner or admin on a ready draft. Nothing for a quote the
+ * the top when it has one (or, for a reply that made a post, the `post`), with a way for a member to fix its
+ * outlines, its title, customer, total, and status, a way to open it, and Approve for an owner or admin on
+ * a ready draft. Nothing for a quote the
  * viewer can't see.
  */
 export function QuoteCard({ quoteId, post, language, readOnly }: { quoteId: string; post?: PostFormat; language: Language; readOnly: boolean }) {
@@ -143,9 +145,14 @@ export function QuoteCard({ quoteId, post, language, readOnly }: { quoteId: stri
   };
 
   const top = quote.post
-    ? { url: quote.post.url, alt: copy.quotePostAlt, caption: copy.quotePostCaption }
+    ? { url: quote.post.url, alt: copy.quotePostAlt, caption: copy.quotePostCaption, edit: null }
     : quote.pricedPhoto
-      ? { url: quote.pricedPhoto.url, alt: copy.quotePricedAlt, caption: copy.quotePricedCaption }
+      ? {
+          url: quote.pricedPhoto.url,
+          alt: copy.quotePricedAlt,
+          caption: copy.quotePricedCaption,
+          edit: quote.canEditPhoto ? pricedPhotoEditHref(quote.quoteId, quote.pricedPhoto.id) : null,
+        }
       : null;
   return (
     <article aria-label={quote.title} className="flex max-w-md flex-col gap-2.5 rounded-[12px] bg-surface px-3.5 py-3 shadow-hairline">
@@ -155,7 +162,14 @@ export function QuoteCard({ quoteId, post, language, readOnly }: { quoteId: stri
             {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
             <img alt={top.alt} className="block h-auto w-full" src={top.url} />
           </a>
-          <figcaption className="px-3.5 text-[12px] text-ink-3">{top.caption}</figcaption>
+          <figcaption className="flex items-baseline gap-2 px-3.5 text-[12px] text-ink-3">
+            <span className="min-w-0 flex-1">{top.caption}</span>
+            {top.edit ? (
+              <Link className="shrink-0 font-medium text-ink-2 transition-colors hover:text-ink hover:underline" href={top.edit}>
+                {copy.quoteEditOutlines}
+              </Link>
+            ) : null}
+          </figcaption>
         </figure>
       ) : null}
       <div className="flex items-start gap-3">

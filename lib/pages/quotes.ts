@@ -186,6 +186,8 @@ export type QuoteCard = {
   canApprove: boolean;
   /** The quote's latest priced photo, as the app serves it. */
   pricedPhoto: { id: string; url: string } | null;
+  /** Whether the viewer may fix the priced photo's outlines: a member, not a super admin looking. */
+  canEditPhoto: boolean;
   /** The quote's social post, when the card was asked for one and the quote has a before-and-after. */
   post: { format: PostFormat; url: string } | null;
 };
@@ -247,6 +249,7 @@ export async function quoteCardFor(caller: AppCaller, quoteId: string, options: 
     ready,
     canApprove: caller.memberId !== null && isPrivileged(caller.role) && ready && (quote.status === "draft" || quote.status === "needs_owner"),
     pricedPhoto: priced ? { id: priced.id, url: pricedPhotoHref(priced) } : null,
+    canEditPhoto: caller.memberId !== null && priced !== undefined,
     post: options.post && pair ? { format: options.post, url: socialPostHref({ quoteId, version: pair.version }, { format: options.post, cta: true }) } : null,
   };
 }
