@@ -6,11 +6,10 @@ What comes after the hackathon build, roughly in order.
 
 v1 is on the quote page, opened from the chat's quote card and the price guide too: every object SAM
 found is kept with its outline, hover and tap put an outline on a line, "find in photo" asks SAM
-again inside a drawn box for any phrase, and "draw" outlines by hand what SAM never finds. Edits
-save on `priced_photos` and the photo is redrawn without SAM. Still to do:
+again inside a drawn box for any phrase, or with no phrase for the one thing in the box (a tap off a
+wrong answer asks again), and "draw" outlines by hand what SAM never finds. Edits save on
+`priced_photos` and the photo is redrawn without SAM. Still to do:
 
-- **Point and box prompts.** v1 sends a noun phrase and keeps what lands in the box. If the SAM
-  endpoint takes point or box prompts, "find it here" gets more precise with no phrase at all.
 - **Split and merge.** Cut one outline in two (the left and right hedge) or join two into one line
   object, so counts per piece match what was quoted.
 

@@ -7,7 +7,8 @@ customer approves and pays a deposit, a booked visit, and an invoice. The agent 
 through Meta's Model API, and SAM 3.1 outlines the quoted lines on the yard photo. Every object SAM
 finds is kept with its outline, so a member can edit the photo on the quote page without another SAM
 call, and outline by hand what SAM missed, from the quote page or the Edit links on the chat's quote
-card and the customer's price guide. The model judges what the member means; code checks who they are
+card and the customer's price guide. With no word typed, a box dragged on the photo asks SAM for the
+one thing in it, and a tap off a wrong answer asks again. The model judges what the member means; code checks who they are
 and does the math.
 
 When a quote has a priced photo from before the job and one of the finished work, the two make a
