@@ -203,7 +203,10 @@ const later = (a: Date, b: Date) => (a > b ? a : b);
 export function replanFrom(plan: DayPlan, now: Date, settings: ReplanSettings): DayPlan {
   const touched = plan.stops.some((s) => s.startedAt || s.completedAt || s.status === "completed" || s.delayMinutes > 0);
   if (!touched) return { ...plan, replan: null, atRisk: false };
-  const reached = plan.stops.findLastIndex((s) => s.startedAt || s.status === "completed");
+  // A later stop marked done before its booked start was closed early; it isn't where the crew have got to,
+  // and the route chains past it.
+  const doneEarly = (s: PlanStop) => s.status === "completed" && s.completedAt !== null && s.completedAt < s.startAt;
+  const reached = plan.stops.findLastIndex((s) => s.startedAt || (s.status === "completed" && !doneEarly(s)));
   const underWay = reached >= 0 && plan.stops[reached].status !== "completed" ? reached : -1;
   let overdue = false;
   let leave: Date | null = null;
@@ -212,7 +215,10 @@ export function replanFrom(plan: DayPlan, now: Date, settings: ReplanSettings): 
     const chained: Date = leave === null ? s.plannedArriveAt : s.legIn ? plus(leave, s.legIn.minutes) : later(leave, s.startAt);
     let arrive: Date;
     let leaves: Date;
-    if (s.status === "completed") {
+    if (doneEarly(s)) {
+      const closed = s.completedAt!;
+      return { ...s, plannedArriveAt: s.startedAt ?? closed, plannedLeaveAt: closed, lateMinutes: 0 };
+    } else if (s.status === "completed") {
       leaves = s.completedAt ?? plus(later(chained, s.startAt), length);
       arrive = s.startedAt ?? (chained < leaves ? chained : leaves);
     } else if (s.startedAt) {
@@ -229,7 +235,7 @@ export function replanFrom(plan: DayPlan, now: Date, settings: ReplanSettings): 
   });
   const delayed = stops.find((s) => s.status !== "completed" && s.delayMinutes > 0);
   const current = underWay >= 0 ? stops[underWay] : (delayed ?? null);
-  const last = stops.at(-1)!;
+  const last = stops.findLast((s) => !doneEarly(s)) ?? stops.at(-1)!;
   const backAtYardAt = plan.legOut ? plus(last.plannedLeaveAt, plan.legOut.minutes) : null;
   const bookedEnd = plan.backAtYardAt ?? plan.stops.at(-1)!.plannedLeaveAt;
   const projectedEnd = backAtYardAt ?? last.plannedLeaveAt;

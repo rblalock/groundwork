@@ -16,9 +16,12 @@ type Deps = { now?: Date };
 export const mapsUrl = (address: string) => `https://maps.apple.com/?q=${encodeURIComponent(address)}`;
 
 const isDone = (s: PlanStop) => s.status === "completed";
+/** Done before its booked start: a later stop closed early, not where the crew have got to on the route. */
+export const doneEarly = (s: Pick<PlanStop, "status" | "completedAt" | "startAt">) =>
+  s.status === "completed" && s.completedAt !== null && s.completedAt < s.startAt;
 
-/** The last stop the crew got to (started or done), or -1. */
-const reachedIndex = (plan: DayPlan) => plan.stops.findLastIndex((s) => s.startedAt || isDone(s));
+/** The last stop the crew got to (started, or done in its turn), or -1. */
+const reachedIndex = (plan: DayPlan) => plan.stops.findLastIndex((s) => s.startedAt || (isDone(s) && !doneEarly(s)));
 
 /** The stop they're on: the last one reached, while it isn't done; -1 when there is none. */
 export function underWayIndex(plan: DayPlan): number {

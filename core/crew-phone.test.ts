@@ -33,6 +33,10 @@ test("crew phone: the stop under way, the next one, and the one a delay is about
   const skipped = planOf([stop("v1"), stop("v2", { startedAt: local("10:30") }), stop("v3")]);
   assert.deepEqual([underWayIndex(skipped), nextStopIndex(skipped)], [1, 2]);
 
+  // A later stop closed early (done at 9 for a 4 PM booking) isn't where they've got to: the day still starts at v1.
+  const early = planOf([stop("v1"), stop("v2"), stop("v3", { status: "completed", startAt: local("16:00"), completedAt: local("09:00") })]);
+  assert.deepEqual([underWayIndex(early), nextStopIndex(early), currentStopIndex(early)], [-1, 0, 0]);
+
   const finished = planOf([stop("v1", { status: "completed" }), stop("v2", { status: "completed" })]);
   assert.deepEqual([underWayIndex(finished), nextStopIndex(finished), currentStopIndex(finished)], [-1, -1, -1]);
 
