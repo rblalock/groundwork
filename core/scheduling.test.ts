@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach } from "node:test";
+import { afterEach, test } from "node:test";
 import { and, eq } from "drizzle-orm";
 import { events, visitRevisions } from "../schema/schema";
 import { saveCustomer } from "./customers";
@@ -18,12 +18,16 @@ import {
   closeServiceJob,
   createServiceJob,
   findAvailability,
+  fitsCapacity,
   getServiceJob,
+  rankSlots,
   readSchedule,
   removeTimeOff,
   rescheduleVisit,
   serviceJobsAbout,
   setWorkHours,
+  slotLine,
+  slotLines,
   toSchedule,
   visitForTool,
 } from "./scheduling";
@@ -213,6 +217,102 @@ withTestDb("buffers are the drive: in from the yard or the stop before, out to t
   assert.deepEqual(unplaced.visit.drive, { fromPrevious: null, toNext: null });
   assert.equal(texts.at(-1)?.text, "Pat Owner booked you for Back lot: Tue, Oct 20, 9 AM–10 AM.");
   await assert.rejects(findAvailability(s.owner, { memberIds: [s.ana.memberId], from: "tuesday", propertyId: "prop_elsewhere" }, deps), /PROPERTY_NOT_FOUND/);
+});
+
+test("capacity: a day fits while its work and driving stay within the share of its working hours", () => {
+  const day = { workMinutes: 300, driveMinutes: 40, dayMinutes: 540, capacityBp: 9500 };
+  assert.equal(fitsCapacity(day, 173), true, "513 of 540 is exactly 95%");
+  assert.equal(fitsCapacity(day, 174), false);
+  assert.equal(fitsCapacity({ ...day, dayMinutes: 0 }, 0), false, "a day off fits nothing");
+});
+
+test("slots rank: those that fit first, then the least added driving (unknown last), then the earliest", () => {
+  const at = (iso: string) => new Date(iso);
+  const slots = [
+    { id: "far-early", fits: true, addedDriveMinutes: 20, startAt: at("2026-11-03T13:00:00Z") },
+    { id: "full", fits: false, addedDriveMinutes: 0, startAt: at("2026-11-03T12:00:00Z") },
+    { id: "unknown", fits: true, addedDriveMinutes: null, startAt: at("2026-11-02T13:00:00Z") },
+    { id: "near-late", fits: true, addedDriveMinutes: 5, startAt: at("2026-11-05T13:00:00Z") },
+    { id: "near-later", fits: true, addedDriveMinutes: 5, startAt: at("2026-11-05T14:00:00Z") },
+  ];
+  assert.deepEqual(rankSlots(slots, true).map((s) => s.id), ["near-late", "near-later", "far-early", "unknown", "full"]);
+  assert.deepEqual(rankSlots(slots, false).map((s) => s.id), ["unknown", "far-early", "near-late", "near-later", "full"], "unplaced: by time");
+});
+
+test("slot lines: when, who, the driving it adds, and a day over capacity, one per crew and day", () => {
+  const carlos = { memberId: "mem_carlos", name: "Carlos Reyes" };
+  const ana = { memberId: "mem_ana", name: "Ana Crew" };
+  const slot = (start: string, crew = [carlos], extra: Partial<Parameters<typeof slotLine>[0]> = {}) => ({
+    date: start.slice(0, 10),
+    start: "",
+    end: "",
+    startAt: new Date(`${start}:00-05:00`),
+    endAt: new Date(`${start}:00-05:00`),
+    offsetMinutes: -300,
+    crew,
+    driveFromPreviousMinutes: null,
+    driveToNextMinutes: null,
+    driveEstimated: true,
+    addedDriveMinutes: 10,
+    fits: true,
+    ...extra,
+  });
+  assert.equal(slotLine(slot("2026-11-03T09:00"), NY, "en"), "Tue, Nov 3, 9 AM with Carlos (+10 min driving)");
+  assert.equal(
+    slotLine(slot("2026-11-03T09:30", [carlos, ana], { fits: false }), NY, "en"),
+    "Tue, Nov 3, 9:30 AM with Carlos and Ana (+10 min driving; day would be over capacity)",
+  );
+  assert.equal(slotLine(slot("2026-11-03T09:00", [carlos], { addedDriveMinutes: null }), NY, "en"), "Tue, Nov 3, 9 AM with Carlos");
+  assert.match(slotLine(slot("2026-11-03T09:00"), NY, "es"), /con Carlos \(\+10 min de manejo\)$/);
+  const lines = slotLines([slot("2026-11-03T09:00"), slot("2026-11-03T09:15"), slot("2026-11-03T09:00", [ana]), slot("2026-11-04T09:00"), slot("2026-11-05T09:00")], NY, "en");
+  assert.deepEqual(lines, [
+    "Tue, Nov 3, 9 AM with Carlos (+10 min driving)",
+    "Tue, Nov 3, 9 AM with Ana (+10 min driving)",
+    "Wed, Nov 4, 9 AM with Carlos (+10 min driving)",
+  ]);
+});
+
+withTestDb("slots fit the route: least added driving before a far day, under the day's capacity, and each member when nobody is named", async () => {
+  const s = await seed();
+  await updateProfile(TEST_ORG, { address: "100 Bridge Rd, Tequesta, FL" }, s.owner.memberId);
+  const yard = yardOf(await getProfile(TEST_ORG))!;
+  const maria = await saveCustomer(TEST_ORG, { name: "Maria Alvarez", address: "7 Pine Ave" }, s.owner.memberId);
+  const next = await saveCustomer(TEST_ORG, { name: "Bo Sample", address: "40 Pine Ave" }, s.owner.memberId);
+  const pine = { lat: maria.properties[0].lat!, lng: maria.properties[0].lng! };
+  const work = { lat: next.properties[0].lat!, lng: next.properties[0].lng! };
+  // Wednesday Carlos is at 7 Pine Ave, next door to the work; Tuesday he's free.
+  await bookVisit(s.owner, { title: "Pine Ave beds", customerId: maria.id, propertyId: maria.properties[0].id, memberIds: [s.carlos.memberId], day: "wednesday", time: "09:00" }, deps);
+
+  const ask = () => findAvailability(s.owner, { memberIds: [s.carlos.memberId], from: "tuesday", days: 2, propertyId: next.properties[0].id }, deps);
+  const ranked = await ask();
+  const tuesday = ranked.slots.filter((slot) => slot.date === "2026-10-20");
+  const wednesday = ranked.slots.filter((slot) => slot.date === "2026-10-21");
+  assert.ok(tuesday.length && wednesday.length);
+  assert.equal(ranked.slots[0].date, "2026-10-21", "the day already out that way comes first");
+  assert.ok(tuesday.every((slot) => slot.addedDriveMinutes === driveMinutes(yard, work) + driveMinutes(work, yard)));
+  const afterPine = wednesday.find((slot) => slot.start >= "10:00")!;
+  assert.equal(afterPine.addedDriveMinutes, driveMinutes(pine, work) + driveMinutes(work, yard) - driveMinutes(pine, yard));
+  const minutes = ranked.slots.map((slot) => slot.addedDriveMinutes!);
+  assert.deepEqual(minutes, [...minutes].sort((a, b) => a - b), "least added driving first");
+  assert.ok(ranked.slots.every((slot) => slot.fits));
+  assert.match(slotLines(ranked.slots, NY, "en")[0], new RegExp(`^Wed, Oct 21, .+ with Carlos \\(\\+${ranked.slots[0].addedDriveMinutes} min driving\\)$`));
+
+  // A capacity of 20%: Wednesday's 80 minutes plus this job is over it, Tuesday's isn't. Over-capacity days come last.
+  await updateProfile(TEST_ORG, { capacityBp: 2000 }, s.owner.memberId);
+  const full = await ask();
+  assert.equal(full.slots[0].date, "2026-10-20");
+  const firstFull = full.slots.findIndex((slot) => !slot.fits);
+  assert.ok(firstFull > 0 && full.slots.slice(firstFull).every((slot) => !slot.fits && slot.date === "2026-10-21"));
+  assert.match(slotLines(full.slots.slice(firstFull), NY, "en")[0], /^Wed, Oct 21, .+ with Carlos \(\+\d+ min driving; day would be over capacity\)$/);
+
+  // Nobody named: each member on their own, ranked together; an unplaced yard ranks by time with no added driving.
+  const anyone = await findAvailability(s.owner, { from: "tuesday", days: 1, propertyId: next.properties[0].id }, deps);
+  assert.deepEqual(new Set(anyone.slots.map((slot) => slot.crew[0].name)), new Set(["Pat Owner", "Carlos Crew", "Ana Crew"]));
+  assert.ok(anyone.slots.every((slot) => slot.crew.length === 1));
+  await updateProfile(TEST_ORG, { address: null }, s.owner.memberId);
+  const unrouted = await ask();
+  assert.ok(unrouted.slots.every((slot) => slot.addedDriveMinutes === null));
+  assert.deepEqual(unrouted.slots.filter((slot) => slot.fits).map((slot) => slot.startAt.getTime()), unrouted.slots.filter((slot) => slot.fits).map((slot) => slot.startAt.getTime()).sort((a, b) => a - b));
 });
 
 withTestDb("availability over the clocks changing: no slot in the gap, both of the repeated hour", async () => {

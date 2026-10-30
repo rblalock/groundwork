@@ -24,7 +24,8 @@ import { db, newId, type Db, type Tx } from "./db";
 import { recordEvent } from "./events";
 import { isLanguage, type Language } from "./language";
 import { isPrivileged, type Caller, type Member } from "./members";
-import { crewDrives, driveSettingsOf, legsAround, placeOf, yardOf, type Leg, type Place, type Stop } from "./places";
+import { planDay, type DayPlan } from "./day-plan";
+import { crewAddedDrive, crewDrives, driveSettingsOf, legsAround, placeOf, yardOf, type Leg, type Place, type Stop } from "./places";
 import { getProfileWith, type Profile } from "./profile";
 import { crewChecklist, type CrewChecklist } from "./checklist";
 import type { Poster } from "./quotes";
@@ -452,10 +453,16 @@ export type Slot = {
   startAt: Date;
   endAt: Date;
   offsetMinutes: number;
+  /** Who it's for: the crew asked for, or one member when nobody was named. */
+  crew: CrewRef[];
   /** The crew's drive in from the stop before (or the yard), and out to the next (or back); null when unplaced. */
   driveFromPreviousMinutes: number | null;
   driveToNextMinutes: number | null;
   driveEstimated: boolean;
+  /** The driving it adds to the crew's day (the most it adds to anyone's on it); null when a place is unplaced. */
+  addedDriveMinutes: number | null;
+  /** Everyone's day stays within the business's capacity with it in. */
+  fits: boolean;
 };
 
 async function occupancy(
@@ -492,18 +499,42 @@ async function occupancy(
 }
 
 /**
- * Times the crew are all free for `durationMinutes` (plus buffers), from `from` for `days` days, in
- * 15-minute steps inside each one's working hours, around their visits and time off. Advisory: it
- * holds nothing, and booking checks again. Crew may only look up themselves.
+ * True when a day still fits with `minutes` more of work and driving in it: its work plus driving (`planDay`'s)
+ * stays within the capacity's share of the working day. A day with no working hours fits nothing.
+ */
+export function fitsCapacity(plan: Pick<DayPlan, "workMinutes" | "driveMinutes" | "dayMinutes" | "capacityBp">, minutes: number): boolean {
+  return plan.dayMinutes > 0 && (plan.workMinutes + plan.driveMinutes + minutes) * 10_000 <= plan.capacityBp * plan.dayMinutes;
+}
+
+/**
+ * The order slots are offered in: those that fit the day's capacity first, then (`byDrive`) the least added
+ * driving (unknown last), then the earliest. The sort is stable, so ties keep the order given.
+ */
+export function rankSlots<T extends Pick<Slot, "fits" | "addedDriveMinutes" | "startAt">>(slots: T[], byDrive: boolean): T[] {
+  const drive = (slot: T) => (slot.addedDriveMinutes === null ? Number.POSITIVE_INFINITY : slot.addedDriveMinutes);
+  return [...slots].sort(
+    (a, b) =>
+      Number(b.fits) - Number(a.fits) || (byDrive ? drive(a) - drive(b) : 0) || a.startAt.getTime() - b.startAt.getTime(),
+  );
+}
+
+/**
+ * Times a crew can take a visit of `durationMinutes` (plus buffers), from `from` for `days` days, in 15-minute
+ * steps inside each one's working hours, around their visits and time off. Advisory: it holds nothing, and
+ * booking checks again. With `memberIds` it's that crew; without, each active member on their own.
  *
  * The buffers not given are the drive to the work's property (`propertyId`, else the job's or quote's, else
  * the visit being moved's) from each one's stop before it that day or the yard, and on to the next stop or back.
  * When a place is unknown or unplaced, they fall back to the default and `driveEstimated` is false.
+ *
+ * Slots are ranked (`rankSlots`): those that keep everyone's day within the capacity first, then, when the work
+ * and the yard are placed, the least driving added to the crew's day, then the earliest. `order: "time"` puts
+ * them in time order instead. At most `limit` come back.
  */
 export async function findAvailability(
   actor: Viewer,
   input: {
-    memberIds: string[];
+    memberIds?: string[];
     from: string;
     days?: number;
     durationMinutes?: number;
@@ -514,6 +545,7 @@ export async function findAvailability(
     jobId?: string;
     quoteId?: string;
     limit?: number;
+    order?: "route" | "time";
   },
   deps?: { now?: Date },
 ): Promise<{ timeZone: string; durationMinutes: number; slots: Slot[]; driveEstimated: boolean; advisory: true }> {
@@ -521,7 +553,7 @@ export async function findAvailability(
   const now = deps?.now ?? new Date();
   const profile = await getProfileWith(orgId, db());
   const timeZone = profile.timeZone;
-  const crew = await crewFor(orgId, input.memberIds, db());
+  const crews: CrewMember[][] = input.memberIds ? [await crewFor(orgId, input.memberIds, db())] : (await scheduleCrew(orgId, db())).map((member) => [member]);
   const duration = clampDuration(input.durationMinutes);
   const given = {
     before: input.bufferBeforeMinutes === undefined ? undefined : clampBuffer(input.bufferBeforeMinutes),
@@ -542,60 +574,116 @@ export async function findAvailability(
   const target = work?.place ?? null;
   const yard = yardOf(profile);
   const settings = driveSettingsOf(profile);
+  // Insertion math needs both ends of the day placed; without them, slots go in time order.
+  const byDrive = (input.order ?? "route") === "route" && target !== null && yard !== null;
   const window = { startAt: new Date(dayStart(from, timeZone).getTime() - DAY), endAt: new Date(dayStart(addDays(from, days), timeZone).getTime() + DAY) };
   const busy = new Map<string, Interval[]>();
-  // Each one's stops by local day, for the drives in and out of a slot.
-  const stops = new Map<string, Map<string, Stop[]>>();
-  for (const member of crew) {
+  // Each one's visits by local day: their stops, for the drives in and out of a slot, and their day's plan.
+  const visitsByDay = new Map<string, Map<string, VisitView[]>>();
+  for (const member of new Map(crews.flat().map((m) => [m.memberId, m])).values()) {
     const taken = await occupancy(orgId, member.memberId, window, db(), input.reschedulingVisitId);
     busy.set(member.memberId, [...taken.visits.map(occupiedInterval), ...taken.blocks]);
-    const byDay = new Map<string, Stop[]>();
+    const byDay = new Map<string, VisitView[]>();
     for (const v of taken.visits) {
       const date = wallClock(v.startAt, timeZone).date;
-      byDay.set(date, [...(byDay.get(date) ?? []), stopOf(v)]);
+      byDay.set(date, [...(byDay.get(date) ?? []), v]);
     }
-    stops.set(member.memberId, byDay);
+    visitsByDay.set(member.memberId, byDay);
   }
-  const slots: Slot[] = [];
-  for (let d = 0; d < days && slots.length < limit; d++) {
+  const dayVisits = (member: CrewMember, date: string) => visitsByDay.get(member.memberId)?.get(date) ?? [];
+  const plans = new Map<string, DayPlan>();
+  const planOf = (member: CrewMember, date: string) => {
+    const key = `${member.memberId}:${date}`;
+    if (!plans.has(key)) {
+      const { memberId, name, hours } = member;
+      plans.set(key, planDay({ memberId, name, date, hours, yard, settings, capacityBp: profile.capacityBp, visits: dayVisits(member, date) }));
+    }
+    return plans.get(key)!;
+  };
+  const found: Slot[] = [];
+  for (let d = 0; d < days; d++) {
     const date = addDays(from, d);
-    const starts = new Set<number>();
-    for (const member of crew) for (const s of workingSegments(date, member.hours)) for (let m = s.start; m < s.end; m += 15) starts.add(m);
-    for (const minute of [...starts].sort((a, b) => a - b)) {
-      if (slots.length >= limit) break;
-      for (const startAt of localTimeInstants(date, minutesClock(minute), timeZone)) {
-        if (startAt <= now) continue;
-        const endAt = new Date(startAt.getTime() + duration * MINUTE);
-        const drives = crewDrives(
-          { startAt, place: target },
-          crew.map((member) => stops.get(member.memberId)?.get(date) ?? []),
-          yard,
-          settings,
-        );
-        const buffers = visitBuffers(given, drives);
-        const held = occupiedInterval({ startAt, endAt, ...buffers });
-        const free = crew.every(
-          (member) =>
-            withinWorkingHours(held.startAt, held.endAt, timeZone, member.hours) &&
-            !(busy.get(member.memberId) ?? []).some((taken) => intervalsOverlap(held, taken)),
-        );
-        if (!free) continue;
-        slots.push({
-          date,
-          start: wallClock(startAt, timeZone).time,
-          end: wallClock(endAt, timeZone).time,
-          startAt,
-          endAt,
-          offsetMinutes: offsetMinutesAt(startAt, timeZone),
-          driveFromPreviousMinutes: drives.before,
-          driveToNextMinutes: drives.after,
-          driveEstimated: buffers.driveEstimated,
-        });
+    for (const crew of crews) {
+      const starts = new Set<number>();
+      for (const member of crew) for (const s of workingSegments(date, member.hours)) for (let m = s.start; m < s.end; m += 15) starts.add(m);
+      for (const minute of [...starts].sort((a, b) => a - b)) {
+        for (const startAt of localTimeInstants(date, minutesClock(minute), timeZone)) {
+          if (startAt <= now) continue;
+          const endAt = new Date(startAt.getTime() + duration * MINUTE);
+          const at = { startAt, place: target };
+          const crewStops = crew.map((member) => dayVisits(member, date).map(stopOf));
+          const drives = crewDrives(at, crewStops, yard, settings);
+          const buffers = visitBuffers(given, drives);
+          const held = occupiedInterval({ startAt, endAt, ...buffers });
+          const free = crew.every(
+            (member) =>
+              withinWorkingHours(held.startAt, held.endAt, timeZone, member.hours) &&
+              !(busy.get(member.memberId) ?? []).some((taken) => intervalsOverlap(held, taken)),
+          );
+          if (!free) continue;
+          const added = byDrive ? crewAddedDrive(at, crewStops, yard, settings) : null;
+          found.push({
+            date,
+            start: wallClock(startAt, timeZone).time,
+            end: wallClock(endAt, timeZone).time,
+            startAt,
+            endAt,
+            offsetMinutes: offsetMinutesAt(startAt, timeZone),
+            crew: crew.map(({ memberId, name }) => ({ memberId, name })),
+            driveFromPreviousMinutes: drives.before,
+            driveToNextMinutes: drives.after,
+            driveEstimated: buffers.driveEstimated,
+            addedDriveMinutes: added,
+            fits: crew.every((member) => fitsCapacity(planOf(member, date), duration + (added ?? 0))),
+          });
+        }
       }
     }
   }
+  const ordered = input.order === "time" ? [...found].sort((a, b) => a.startAt.getTime() - b.startAt.getTime()) : rankSlots(found, byDrive);
+  const slots = ordered.slice(0, limit);
   const driveEstimated = slots.length ? slots.every((slot) => slot.driveEstimated) : target !== null && yard !== null;
   return { timeZone, durationMinutes: duration, slots, driveEstimated, advisory: true };
+}
+
+/** The first names of a crew, as `confirmText` says them: "Carlos", "Carlos and Ana". */
+function crewNames(crew: CrewRef[], language: Language): string {
+  const names = crew.map((c) => c.name.split(/\s+/)[0]);
+  const and = language === "es" ? " y " : " and ";
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")}${and}${names.at(-1)}` : (names[0] ?? "");
+}
+
+const SLOT_WORDS: Record<Language, { with: string; driving: (minutes: number) => string; full: string }> = {
+  en: { with: "with", driving: (minutes) => `+${minutes} min driving`, full: "day would be over capacity" },
+  es: { with: "con", driving: (minutes) => `+${minutes} min de manejo`, full: "el día pasaría de la capacidad" },
+};
+
+/** A slot as the member reads it: "Tue, Nov 3, 9 AM with Carlos (+10 min driving)", and when it doesn't fit, "(day would be over capacity)". */
+export function slotLine(slot: Slot, timeZone: string, language: Language): string {
+  const words = SLOT_WORDS[language];
+  const notes = [
+    ...(slot.addedDriveMinutes !== null ? [words.driving(slot.addedDriveMinutes)] : []),
+    ...(slot.fits ? [] : [words.full]),
+  ];
+  const when = `${dayText(slot.date, language)}, ${timeText(slot.startAt, timeZone, language)}`;
+  return `${when} ${words.with} ${crewNames(slot.crew, language)}${notes.length ? ` (${notes.join("; ")})` : ""}`;
+}
+
+/**
+ * The few slots to offer, as lines: the best-ranked one for each crew and day, in rank order, so the offer is a
+ * spread rather than the first minutes of one morning.
+ */
+export function slotLines(slots: Slot[], timeZone: string, language: Language, count = 3): string[] {
+  const seen = new Set<string>();
+  const lines: string[] = [];
+  for (const slot of slots) {
+    const key = `${slot.crew.map((c) => c.memberId).join("+")}:${slot.date}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(slotLine(slot, timeZone, language));
+    if (lines.length >= count) break;
+  }
+  return lines;
 }
 
 const DAY = 24 * 60 * MINUTE;
@@ -1395,9 +1483,7 @@ const CONFIRM: Record<Language, { booked: string; proposed: string; moved: strin
 export function confirmText(kind: "booked" | "moved", visit: VisitView, timeZone: string, language: Language): string {
   const copy = CONFIRM[language];
   const verb = kind === "moved" ? copy.moved : visit.status === "proposed" ? copy.proposed : copy.booked;
-  const names = visit.crew.map((c) => c.name.split(/\s+/)[0]);
-  const and = language === "es" ? " y " : " and ";
-  const crew = names.length > 1 ? `${names.slice(0, -1).join(", ")}${and}${names.at(-1)}` : (names[0] ?? "");
+  const crew = crewNames(visit.crew, language);
   return `${verb}: ${visit.title}, ${whenText(visit.startAt, visit.endAt, timeZone, language)}${crew ? `, ${copy.with} ${crew}` : ""}.`;
 }
 

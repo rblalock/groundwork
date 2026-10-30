@@ -52,6 +52,18 @@ export type Stop = { startAt: Date; place: Place | null };
 /** One drive: its minutes, and the other end's address (`yard` when it's the yard). */
 export type Leg = { minutes: number; label: string; yard: boolean };
 
+/** The stops either side of `at` on a day: the latest one starting earlier, and the first one starting later. */
+export function neighbours(at: Pick<Stop, "startAt">, stops: Stop[]): { previous: Stop | null; next: Stop | null } {
+  let previous: Stop | null = null;
+  let next: Stop | null = null;
+  for (const stop of stops) {
+    const t = stop.startAt.getTime();
+    if (t < at.startAt.getTime() && (!previous || t > previous.startAt.getTime())) previous = stop;
+    if (t > at.startAt.getTime() && (!next || t < next.startAt.getTime())) next = stop;
+  }
+  return { previous, next };
+}
+
 /**
  * The drives around a visit at `at` on one crew member's day: from the stop before it (the latest one
  * starting earlier, else the yard) and to the stop after it (the first one starting later, else back to the
@@ -63,13 +75,7 @@ export function legsAround(
   yard: Place | null,
   settings: DriveSettings = DEFAULT_DRIVE,
 ): { before: Leg | null; after: Leg | null } {
-  let previous: Stop | null = null;
-  let next: Stop | null = null;
-  for (const stop of stops) {
-    const t = stop.startAt.getTime();
-    if (t < at.startAt.getTime() && (!previous || t > previous.startAt.getTime())) previous = stop;
-    if (t > at.startAt.getTime() && (!next || t < next.startAt.getTime())) next = stop;
-  }
+  const { previous, next } = neighbours(at, stops);
   const leg = (other: Place | null, isYard: boolean): Leg | null =>
     at.place && other ? { minutes: driveMinutes(other, at.place, settings), label: other.label, yard: isYard } : null;
   return {
@@ -94,6 +100,26 @@ export function crewDrives(
   const longest = (side: "before" | "after") =>
     legs.every((l) => l[side]) ? Math.max(...legs.map((l) => (l[side] as Leg).minutes)) : null;
   return { before: longest("before"), after: longest("after") };
+}
+
+/**
+ * The driving a visit at `at` adds to one crew member's day: the drive in and the drive out, less the drive its
+ * neighbours had between them (from the stop before, or the yard, to the stop after, or back; yard to yard on an
+ * empty day is none). Null when any of those places is unplaced.
+ */
+export function addedDrive(at: Stop, stops: Stop[], yard: Place | null, settings: DriveSettings = DEFAULT_DRIVE): number | null {
+  const { previous, next } = neighbours(at, stops);
+  const from = previous ? previous.place : yard;
+  const to = next ? next.place : yard;
+  if (!at.place || !from || !to) return null;
+  const added = driveMinutes(from, at.place, settings) + driveMinutes(at.place, to, settings) - driveMinutes(from, to, settings);
+  return Math.max(0, added);
+}
+
+/** The most driving a visit at `at` adds to anyone's day on its crew; null when it can't be worked out for someone, or there's no crew. */
+export function crewAddedDrive(at: Stop, crewStops: Stop[][], yard: Place | null, settings: DriveSettings = DEFAULT_DRIVE): number | null {
+  const added = crewStops.map((stops) => addedDrive(at, stops, yard, settings));
+  return added.length && added.every((minutes) => minutes !== null) ? Math.max(...(added as number[])) : null;
 }
 
 /** The business profile's drive settings. */

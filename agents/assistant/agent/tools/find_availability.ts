@@ -1,14 +1,13 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { findAvailability } from "../../../../core/scheduling";
-import { dayText, timeText } from "../../../../core/scheduling-time";
+import { findAvailability, slotLines } from "../../../../core/scheduling";
 import { plain, requireCaller, toolError } from "../../../../core/tool-context";
 
 export default defineTool({
   description:
-    "Find open times when all the given crew are free for a visit of durationMinutes (default 60), inside their working hours and around their visits and time off, in 15-minute steps. Advisory: it holds nothing, and book_visit checks again. Use it when the member asks when someone is free, or when a time they asked for is taken. Pass reschedulingVisitId when moving that visit, so its own time counts as free. Pass the work (quoteId, jobId, or propertyId): the buffers are then the drive from the crew's stop before (or the yard) and on to the next stop (or back), worked out by the code. driveEstimated false means a place couldn't be placed and no drive was held; say so. Crew can only look up themselves. Offer two or three times, not the whole list.",
+    "Find times a crew can take a visit of durationMinutes (default 60), inside their working hours and around their visits and time off. Advisory: it holds nothing, and book_visit checks again. Use it when the member asks when someone is free or when to fit a job in, or when a time they asked for is taken. With memberIds it's that crew; without, each member on their own. Pass reschedulingVisitId when moving that visit, so its own time counts as free. Pass the work (quoteId, jobId, or propertyId): the buffers are then the drive from the crew's stop before (or the yard) and on to the next stop (or back), and the code ranks the slots: those that keep the crew's day under the business's capacity first, then the least driving added to their day, then the earliest. Send `lines` as they are: two or three of the best, each with who and the minutes of driving it adds, and \"(day would be over capacity)\" when it doesn't fit. Never rank or work out minutes yourself. driveEstimated false means a place couldn't be placed and no drive was held; say so. Crew can only look up themselves.",
   inputSchema: z.object({
-    memberIds: z.array(z.string()).min(1).max(6).describe("From read_business."),
+    memberIds: z.array(z.string()).min(1).max(6).optional().describe("The crew, from read_business. Omit to look at each member on their own."),
     day: z.string().default("today").describe("The first day to look: YYYY-MM-DD, today, tomorrow, or a weekday name."),
     days: z.number().int().min(1).max(14).default(5),
     durationMinutes: z.number().int().min(15).max(960).default(60),
@@ -35,20 +34,23 @@ export default defineTool({
         propertyId,
         limit: 40,
       });
-      // Grouped by day, so the model offers a spread instead of the first few minutes of one morning.
-      const byDay = new Map<string, string[]>();
-      for (const slot of found.slots) byDay.set(slot.date, [...(byDay.get(slot.date) ?? []), timeText(slot.startAt, found.timeZone, caller.language)]);
       return plain({
         timeZone: found.timeZone,
         durationMinutes: found.durationMinutes,
         advisory: true,
         driveEstimated: found.driveEstimated,
-        days: [...byDay.entries()].map(([date, starts]) => ({ date, day: dayText(date, caller.language), starts })),
-        slots: found.slots.map(({ date, start, end, offsetMinutes, driveFromPreviousMinutes, driveToNextMinutes }) => ({
+        // The best for each crew and day, in rank order: what to offer.
+        lines: slotLines(found.slots, found.timeZone, caller.language),
+        // Best first.
+        slots: found.slots.map(({ date, start, end, offsetMinutes, crew, addedDriveMinutes, fits, driveFromPreviousMinutes, driveToNextMinutes }) => ({
           date,
           start,
           end,
           offsetMinutes,
+          memberIds: crew.map((c) => c.memberId),
+          crew: crew.map((c) => c.name).join(", "),
+          ...(addedDriveMinutes !== null ? { addedDriveMinutes } : {}),
+          fits,
           ...(driveFromPreviousMinutes !== null ? { driveFromPreviousMinutes } : {}),
           ...(driveToNextMinutes !== null ? { driveToNextMinutes } : {}),
         })),

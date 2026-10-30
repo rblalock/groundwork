@@ -6,6 +6,8 @@ import { saveCustomer } from "./customers";
 import { db } from "./db";
 import { createMember } from "./members";
 import {
+  addedDrive,
+  crewAddedDrive,
   crewDrives,
   DEFAULT_DRIVE,
   driveMinutes,
@@ -108,6 +110,28 @@ test("a crew's drives: the longest in and out of anyone on it, and none when any
   });
   assert.deepEqual(crewDrives(visit, [], yard), { before: null, after: null });
   assert.deepEqual(crewDrives({ startAt: eleven, place: null }, [[]], yard), { before: null, after: null });
+});
+
+test("added driving: in and out, less what the neighbours drove between them, and none when a place is unplaced", () => {
+  const yard = at(26.9, -80.1, "100 Bridge Rd");
+  // A twentieth of a degree apart going north: 10 minutes between neighbours.
+  const oak = at(26.95, -80.1, "412 Oak St");
+  const pine = at(27.0, -80.1, "7 Pine Ave");
+  const elm = at(27.05, -80.1, "4 Elm Rd");
+  const nine = new Date("2026-11-03T14:00:00Z");
+  const eleven = new Date("2026-11-03T16:00:00Z");
+  const one = new Date("2026-11-03T18:00:00Z");
+  assert.equal(addedDrive({ startAt: eleven, place: oak }, [], yard), 20, "an empty day: out from the yard and back");
+  assert.equal(addedDrive({ startAt: eleven, place: pine }, [{ startAt: nine, place: oak }, { startAt: one, place: elm }], yard), 0, "on the way");
+  assert.equal(addedDrive({ startAt: eleven, place: elm }, [{ startAt: nine, place: oak }], yard), 40, "oak, then elm and back, instead of oak and back");
+  assert.equal(addedDrive({ startAt: eleven, place: oak }, [{ startAt: one, place: oak }], yard), 0, "the same place as the next stop");
+  assert.equal(addedDrive({ startAt: eleven, place: null }, [], yard), null);
+  assert.equal(addedDrive({ startAt: eleven, place: oak }, [], null), null);
+  assert.equal(addedDrive({ startAt: eleven, place: oak }, [{ startAt: nine, place: null }], yard), null);
+
+  assert.equal(crewAddedDrive({ startAt: eleven, place: pine }, [[{ startAt: nine, place: oak }, { startAt: one, place: elm }], []], yard), 40, "the most anyone on it drives more");
+  assert.equal(crewAddedDrive({ startAt: eleven, place: pine }, [[], [{ startAt: nine, place: null }]], yard), null);
+  assert.equal(crewAddedDrive({ startAt: eleven, place: pine }, [], yard), null);
 });
 
 test("the yard is placed only with an address and a point", () => {

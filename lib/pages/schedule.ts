@@ -268,6 +268,7 @@ export async function availabilityFromApp(caller: AppCaller, input: z.infer<type
       quoteId: input.quoteId,
       jobId: input.jobId,
       limit: 60,
+      order: "time",
     });
     return found.slots.map(({ date, start, end }) => ({ date, start, end }));
   } catch (error) {
