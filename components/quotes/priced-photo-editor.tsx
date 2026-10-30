@@ -38,6 +38,8 @@ import { ErrorLine, inputClass, NativeSelect } from "../pages/client-kit";
 const PALETTE = ["#ff9f0a", "#0a84ff", "#ff375f", "#bf5af2", "#ffd60a", "#64d2ff", "#ff3b30", "#30d158"];
 const colorOf = (lineIndex: number) => PALETTE[lineIndex % PALETTE.length];
 
+/** The height of the page around the photo: the app's title bar, the section bar, the buttons under the photo, and the find form. */
+const STAGE_RESERVE = "22rem";
 /** A tap, not a drag, makes a box this share of the photo's width around where it landed. */
 const TAP_BOX = 0.15;
 /** A tap this close to an outline's first point, in screen pixels, closes it. */
@@ -452,9 +454,13 @@ export function PricedPhotoEditor({
     <div className="space-y-3">
       <div
         // While a box is drawn, a drag never selects text and a touch never scrolls the page.
-        className={cn("relative w-full overflow-hidden rounded-[8px] bg-inset shadow-hairline", drawing && "touch-none select-none")}
+        className={cn("relative mx-auto overflow-hidden rounded-[8px] bg-inset shadow-hairline", drawing && "touch-none select-none")}
         ref={stageRef}
-        style={{ aspectRatio: `${state.width} / ${state.height}` }}
+        style={{
+          aspectRatio: `${state.width} / ${state.height}`,
+          // No taller than the view less the bar, the buttons, and the find form, so Find is pressed with the photo in sight.
+          width: `min(100%, max(16rem, calc((100dvh - ${STAGE_RESERVE}) * ${(state.width / state.height).toFixed(4)})))`,
+        }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
         <img alt={e.photoAlt} className="absolute inset-0 size-full select-none" draggable={false} src={state.photoUrl} />
