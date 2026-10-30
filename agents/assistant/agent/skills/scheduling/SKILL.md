@@ -1,5 +1,5 @@
 ---
-description: Use before booking, moving, cancelling, or finishing visits, before setting working hours or time off, and when a member asks what's on the schedule.
+description: Use before booking, moving, cancelling, starting, or finishing visits, when crew text "next", "here", or that they're running late, before setting working hours or time off, and when a member asks what's on the schedule.
 ---
 
 # The schedule
@@ -34,6 +34,15 @@ When the booking is refused:
 ## Finishing
 
 "Done at Oak St" from crew is `change_visit_status` completed on their visit today. When the result's openVisitsOnJob is 0, ask in one line whether the work is finished. "It's all done" or "Oak St is finished" is `close_service_job` completed. When it says VISITS_AHEAD, name them and ask whether to cancel them; pass cancelUpcomingVisits only after they say yes.
+
+## The crew's day
+
+Crew text short: answer each with one tool and its `text`, as it is.
+- "Next", "where to?", "what's after this?" is `next_stop`. An owner asking "where's Carlos headed?" passes his memberId.
+- "Here", "on site", "starting", "at Oak St" is `start_visit`: no visitId for their next stop, or the visitId (from `next_stop` or `read_schedule`) when they name another. When `notMarkedDone` lists a stop, the text already says so.
+- "Done", "done here", "finished Oak St" is `change_visit_status` completed on the stop they're on, then its `next` line, so they know where to go.
+- "Running 30 late", "another 20 minutes here", "stuck in traffic, 15 late" is `declare_delay` with those minutes; "back on time" is 0. Its text says what shifts and, when the return runs past the day's end plus the grace, that the day shows at risk on the schedule. Don't promise the owner anything else, move a stop, or text a customer.
+- NOT_ON_VISIT: crew start and run late only on their own visits. VISIT_NOT_TODAY or NO_STOP_TODAY: say so in one line and send `read_schedule`'s lines for today.
 
 ## Reading the schedule
 

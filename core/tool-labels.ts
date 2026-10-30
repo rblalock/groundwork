@@ -119,6 +119,17 @@ export const toolLabels: Record<string, ToolLabel> = {
   },
   reschedule_visit: { active: "Moving the visit", done: "Moved the visit" },
   change_visit_status: { active: "Updating the visit", done: "Updated the visit" },
+  next_stop: { active: "Finding the next stop", done: "Found the next stop" },
+  start_visit: {
+    active: "Starting the stop",
+    done: "Started the stop",
+    detail: "Marks the crew on site; the rest of their day re-plans from now.",
+  },
+  declare_delay: {
+    active: "Re-planning the day",
+    done: "Re-planned the day",
+    detail: "The stops after it shift on the schedule. No visit moves, and no customer is texted.",
+  },
   read_checklist: { active: "Reading the checklist", done: "Read the checklist" },
   tick_checklist: {
     active: "Ticking the checklist",
@@ -300,6 +311,17 @@ export const toolLabelsEs: Record<string, ToolLabel> = {
   },
   reschedule_visit: { active: "Moviendo la visita", done: "Moví la visita" },
   change_visit_status: { active: "Actualizando la visita", done: "Actualicé la visita" },
+  next_stop: { active: "Buscando la siguiente parada", done: "Encontré la siguiente parada" },
+  start_visit: {
+    active: "Empezando la parada",
+    done: "Empecé la parada",
+    detail: "Marca al equipo en el sitio; el resto del día se replanea desde ahora.",
+  },
+  declare_delay: {
+    active: "Replaneando el día",
+    done: "Replaneé el día",
+    detail: "Las paradas siguientes se mueven en la agenda. Ninguna visita cambia y ningún cliente recibe un texto.",
+  },
   read_checklist: { active: "Leyendo la lista", done: "Leí la lista" },
   tick_checklist: {
     active: "Marcando la lista",

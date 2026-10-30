@@ -1300,6 +1300,65 @@ export async function changeVisitStatus(
   return { visit, openVisitsOnJob: open.n, notified };
 }
 
+/** Crew change only visits they're on; owners and admins any. Throws `NOT_ON_VISIT`. */
+function requireOnVisit(actor: Pick<Actor, "memberId" | "role">, visit: Pick<VisitView, "crew">): void {
+  if (!isPrivileged(actor.role) && !visit.crew.some((c) => c.memberId === actor.memberId)) throw new Error("NOT_ON_VISIT");
+}
+
+/** An open visit of today's, for the crew on site or running late. Throws when it isn't one. */
+async function openVisitToday(actor: Actor, visitId: string, tx: Tx, now: Date): Promise<VisitView> {
+  const before = await getVisit(actor, visitId, tx);
+  if (!before) throw new Error("VISIT_NOT_FOUND");
+  requireOnVisit(actor, before);
+  if (!OPEN_VISIT.includes(before.status)) throw new Error(`VISIT_NOT_OPEN: it is ${before.status}`);
+  const timeZone = (await getProfileWith(actor.orgId, tx)).timeZone;
+  if (wallClock(before.startAt, timeZone).date !== wallClock(now, timeZone).date) throw new Error("VISIT_NOT_TODAY");
+  return before;
+}
+
+/**
+ * The crew are on site: marks today's visit started at `now`, which the day's route re-plans from
+ * (`core/day-plan.ts`). A delay declared on the way is dropped, since they're there. Anyone on its crew, or an
+ * owner or admin for any visit. Starting one already started changes nothing.
+ */
+export async function startVisit(actor: Actor, input: { visitId: string }, deps?: Deps): Promise<{ visit: VisitView; alreadyStarted: boolean }> {
+  const { orgId } = actor;
+  const now = deps?.now ?? new Date();
+  const alreadyStarted = await db().transaction(async (tx) => {
+    await lockSchedule(tx, orgId);
+    const before = await openVisitToday(actor, input.visitId, tx, now);
+    if (before.startedAt) return true;
+    await tx
+      .update(visits)
+      .set({ startedAt: now, delayMinutes: 0, revision: sql`${visits.revision} + 1`, updatedAt: now })
+      .where(and(eq(visits.orgId, orgId), eq(visits.id, before.visitId)));
+    await saveRevision(tx, actor, before.visitId, "started", null);
+    return false;
+  });
+  return { visit: (await getVisit(actor, input.visitId)) as VisitView, alreadyStarted };
+}
+
+/**
+ * The crew say they're running late on today's visit: on the way (its arrival moves) or on site (its finish
+ * does). `minutes` replaces any delay declared before; 0 clears it. Anyone on its crew, or an owner or admin.
+ */
+export async function setVisitDelay(actor: Actor, input: { visitId: string; minutes: number }, deps?: Deps): Promise<VisitView> {
+  const { orgId } = actor;
+  const now = deps?.now ?? new Date();
+  const minutes = Math.round(input.minutes);
+  if (!Number.isFinite(minutes) || minutes < 0 || minutes > 480) throw new Error("INVALID_DELAY");
+  await db().transaction(async (tx) => {
+    await lockSchedule(tx, orgId);
+    const before = await openVisitToday(actor, input.visitId, tx, now);
+    await tx
+      .update(visits)
+      .set({ delayMinutes: minutes, revision: sql`${visits.revision} + 1`, updatedAt: now })
+      .where(and(eq(visits.orgId, orgId), eq(visits.id, before.visitId)));
+    await saveRevision(tx, actor, before.visitId, "delayed", `${minutes} min`);
+  });
+  return (await getVisit(actor, input.visitId)) as VisitView;
+}
+
 /**
  * Closes a job, owners and admins only: `completed` when the work is done (its visits that have started
  * are marked done), or `cancelled`. Visits still ahead are refused with `VISITS_AHEAD` unless
