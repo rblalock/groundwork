@@ -479,11 +479,12 @@ function VisitDetail({
         {visit.address && visit.address !== visit.title ? (
           <Row icon={<MapPin className="size-3.5" />} label={d.address}>
             {visit.address}
-            {visit.drive?.fromPrevious && visit.drive.fromPrevious.minutes > 0 ? (
-              <span className="block text-[12px] text-ink-3 tabular-nums">
-                {d.driveFrom(visit.drive.fromPrevious.minutes, visit.drive.fromPrevious.yard ? null : visit.drive.fromPrevious.label)}
-              </span>
-            ) : null}
+          </Row>
+        ) : null}
+        {/* The drive in, on its own row: the title is often the address, which hides the row above. */}
+        {visit.drive?.fromPrevious && visit.drive.fromPrevious.minutes > 0 ? (
+          <Row icon={<Clock className="size-3.5" />} label={d.drive}>
+            <span className="tabular-nums">{d.driveFrom(visit.drive.fromPrevious.minutes, visit.drive.fromPrevious.yard ? null : visit.drive.fromPrevious.label)}</span>
           </Row>
         ) : null}
         <Row icon={<Users className="size-3.5" />} label={d.crew}>
