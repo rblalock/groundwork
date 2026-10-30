@@ -21,6 +21,7 @@
     "traces:dataset": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/export-dataset.ts",
     "admin:create": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/admin-create.ts",
     "evals": "IMESSAGE_FAKE=1 PHOTON_ADMIN_FAKE=1 IMESSAGE_PROJECT_ID= IMESSAGE_PROJECT_SECRET= RESEND_API_KEY= EMAIL_FROM= EMAIL_FAKE=1 STRIPE_FAKE=1 STRIPE_SECRET_KEY= STRIPE_WEBHOOK_SECRET= AGENTMAIL_FAKE=1 AGENTMAIL_API_KEY= AGENTMAIL_WEBHOOK_SECRET= PLACES_FAKE=1 WEATHER_FAKE=1 eve eval --agent assistant",
+    "evals:capture": "EVAL_CAPTURE_DIR=${EVAL_CAPTURE_DIR:-.eve/capture} npm run evals --",
     "scorecard": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/scorecard.ts",
     "photon:webhook": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/photon-webhook.ts",
     "email:inbox": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/email-inbox.ts",

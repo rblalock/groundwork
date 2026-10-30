@@ -5,6 +5,7 @@ import { languageModel, modelProviderOptions } from "../../../core/model-provide
 import { forceOffline } from "../../../core/offline";
 import { truncateAll } from "../../../core/test-db";
 import { VERTICALS } from "../../../verticals";
+import { captureDir, captureReporter, stagingSeeds } from "./capture";
 import {
   seedDraftQuote,
   seedDuplicateCustomers,
@@ -31,8 +32,12 @@ const judge = new Experimental_DecisionLanguageModel({
   }),
 });
 
+// `EVAL_CAPTURE_DIR` turns the run's passing evals into training examples (./capture.ts).
+const capture = captureDir();
+
 export default defineEvalConfig({
   judge: { model: judge },
+  reporters: capture ? [captureReporter(capture)] : [],
   // Every eval truncates the database and seeds one business, and the agent resolves that business's
   // first owner, so evals must not overlap.
   maxConcurrency: 1,
@@ -51,26 +56,26 @@ export default defineEvalConfig({
     }
     // Start from an empty database; each seed also truncates first, so every eval is self-contained.
     await truncateAll();
-    return {
-      seed: {
-        empty: seedEmptyBusiness,
-        priced: seedPricedBusiness,
-        oneItem: seedOneItemBusiness,
-        draftQuote: seedDraftQuote,
-        scheduled: seedScheduledBusiness,
-        todaysVisits: seedTodaysVisits,
-        workToInvoice: seedWorkToInvoice,
-        invoices: seedInvoices,
-        siteNote: seedSiteNote,
-        duplicateCustomers: seedDuplicateCustomers,
-        emailBusiness: seedEmailBusiness,
-        // One seed per trade pack, for the evals tagged with its id.
-        landscaping: () => seedVerticalBusiness(VERTICALS.landscaping),
-        irrigation: () => seedVerticalBusiness(VERTICALS.irrigation),
-        pool: () => seedVerticalBusiness(VERTICALS.pool),
-        tree: () => seedVerticalBusiness(VERTICALS.tree),
-      },
+    const seed = {
+      empty: seedEmptyBusiness,
+      priced: seedPricedBusiness,
+      oneItem: seedOneItemBusiness,
+      draftQuote: seedDraftQuote,
+      scheduled: seedScheduledBusiness,
+      todaysVisits: seedTodaysVisits,
+      workToInvoice: seedWorkToInvoice,
+      invoices: seedInvoices,
+      siteNote: seedSiteNote,
+      duplicateCustomers: seedDuplicateCustomers,
+      emailBusiness: seedEmailBusiness,
+      // One seed per trade pack, for the evals tagged with its id.
+      landscaping: () => seedVerticalBusiness(VERTICALS.landscaping),
+      irrigation: () => seedVerticalBusiness(VERTICALS.irrigation),
+      pool: () => seedVerticalBusiness(VERTICALS.pool),
+      tree: () => seedVerticalBusiness(VERTICALS.tree),
     };
+    // Capturing, each seed first copies the last eval's turns, before it empties the database.
+    return { seed: capture ? stagingSeeds(seed) : seed };
   },
   async teardown() {
     const { closeDb } = await import("../../../core/db");
