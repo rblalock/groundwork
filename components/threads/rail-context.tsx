@@ -61,7 +61,10 @@ function load(key: string): Saved {
     if (saved && Array.isArray(saved.tabs)) {
       const tabs = saved.tabs.filter((tab) => typeof tab?.id === "string" && typeof tab?.title === "string").slice(0, MAX_TABS);
       const active = tabs.some((tab) => tab.id === saved.active) ? saved.active : (tabs[0]?.id ?? null);
-      return { tabs, active, open: Boolean(saved.open) && tabs.length > 0 };
+      // Below the docked width the panel covers the whole page, so a phone starts with it closed even when
+      // the desktop left it open; the tabs are still there behind "Threads".
+      const narrow = typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches;
+      return { tabs, active, open: Boolean(saved.open) && tabs.length > 0 && !narrow };
     }
   } catch {
     // A bad or blocked store starts empty.
