@@ -1,7 +1,8 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
+import { pairOf } from "../../../../core/before-after";
 import type { Language } from "../../../../core/language";
-import { createPricedPhoto, type PricedPhotoResult } from "../../../../core/priced-photo";
+import { createPricedPhoto, pricedPhotosFor, type PricedPhotoResult } from "../../../../core/priced-photo";
 import { recentQuoteRef } from "../../../../core/quotes";
 import { getServiceJob } from "../../../../core/scheduling";
 import { listWorkPhotos, resolveWorkTarget } from "../../../../core/work-photos";
@@ -33,16 +34,16 @@ const NOTES: Record<Language, Record<Reason, string>> = {
   },
 };
 
-function summaryText(located: number, lines: number, notLocated: string[], language: Language): string {
+function summaryText(located: number, lines: number, notLocated: string[], language: Language, beforeAfter: boolean): string {
   if (language === "es") {
-    return `Foto con precios lista: ${located} de ${lines} líneas ubicadas${notLocated.length ? ` (no ubicadas: ${notLocated.join(", ")})` : ""}.`;
+    return `Foto con precios lista: ${located} de ${lines} líneas ubicadas${notLocated.length ? ` (no ubicadas: ${notLocated.join(", ")})` : ""}.${beforeAfter ? " El antes y después con la foto de la cotización está en la factura y en la guía de precios del cliente." : ""}`;
   }
-  return `Priced photo ready: ${located} of ${lines} lines located${notLocated.length ? ` (not located: ${notLocated.join(", ")})` : ""}.`;
+  return `Priced photo ready: ${located} of ${lines} lines located${notLocated.length ? ` (not located: ${notLocated.join(", ")})` : ""}.${beforeAfter ? " The before-and-after with the quote's photo is on the invoice and the customer's price guide." : ""}`;
 }
 
 export default defineTool({
   description:
-    "Make the priced photo for a quote: its photo with each quoted thing outlined and labeled with the line's quantity and price, and every line listed under it. It shows on the quote's card, its page, the customer's link, and the customer's price guide. Nothing is measured: quantities and prices come from the quote. Without quoteId it uses the quote the member just made or changed. After the job, pass jobId (the work, sj_…) instead: the work's latest photo is priced with the work's quote and saved to the customer's price guide. Making it again replaces the one for that photo. located and notLocated say which lines were found in the photo; send summaryText's facts in your reply. A null pricedPhotoId comes with a note: say it in one line.",
+    "Make the priced photo for a quote: its photo with each quoted thing outlined and labeled with the line's quantity and price, and every line listed under it. It shows on the quote's card, its page, the customer's link, and the customer's price guide. Nothing is measured: quantities and prices come from the quote. Without quoteId it uses the quote the member just made or changed. After the job, pass jobId (the work, sj_…) instead: the work's latest photo is priced with the work's quote and saved to the customer's price guide; when the quote already has a priced photo from before the job, beforeAfter: true says the two now make a before-and-after on the invoice and the price guide. Making it again replaces the one for that photo. located and notLocated say which lines were found in the photo; send summaryText's facts in your reply. A null pricedPhotoId comes with a note: say it in one line.",
   inputSchema: z.object({
     quoteId: z.string().optional().describe("The quote; defaults to the one the member just made or changed."),
     source: z
@@ -70,13 +71,16 @@ export default defineTool({
       }
       const result: PricedPhotoResult = id ? await createPricedPhoto(caller, { quoteId: id, source }) : { pricedPhotoId: null, reason: "quote_not_found" };
       if (result.pricedPhotoId === null) return { ...result, quoteId: id, note: NOTES[caller.language][result.reason] };
+      // After the job, paired with the quote's own priced photo when it has one.
+      const beforeAfter = Boolean(jobId && id && pairOf(await pricedPhotosFor(caller.orgId, id)));
       return {
         quoteId: id,
         pricedPhotoId: result.pricedPhotoId,
         located: result.located,
         notLocated: result.notLocated,
         lines: result.regions.map((region) => ({ name: region.name, located: region.located })),
-        summaryText: summaryText(result.located, result.regions.length, result.notLocated, caller.language),
+        ...(beforeAfter ? { beforeAfter: true } : {}),
+        summaryText: summaryText(result.located, result.regions.length, result.notLocated, caller.language, beforeAfter),
       };
     } catch (error) {
       return toolError(error);
