@@ -1,9 +1,11 @@
 # Post-training an open-weight model on Groundwork's traces
 
 Groundwork records every assistant turn (`turn_traces`, see HACKATHON.md, "Traces"). This is the recipe
-for turning those turns into a supervised fine-tuning set, training a Llama 3.x 8B adapter on it, and
-scoring the result beside Muse Wonder with the same evals. The repo does the first and last parts:
-the dataset and the measurement. Training needs a GPU or a provider account, and hasn't been run.
+for turning those turns into a supervised fine-tuning set, training a LoRA adapter for Muse Spark
+Open (Meta's open-weight model) on it, and scoring the result beside Muse Wonder and the stock model
+with the same evals. The repo does the first and last parts: the dataset and the measurement.
+Training runs on Fireworks' Serverless Training API and hasn't been run yet; the order of work and
+the budget are in [ROADMAP.md](../ROADMAP.md).
 
 What the model would learn is the shape of the work: which tool to call, its arguments (saved item ids,
 quantities in the trade's units, rule ids), the one numbered confirm or question, and a reply that
@@ -64,7 +66,9 @@ Its sidecar line:
 {"traceId":"trc_b262a5013e634def","turnId":"t1","eveSessionId":"ses_demo","source":"local","modelId":"muse-wonder-1.0","vertical":"landscaping","instructionsHash":"f2f31d69c69b00cb","reconstructed":false,"labels":["quote_approved_unchanged"],"startedAt":"2026-10-30T18:08:24.965Z"}
 ```
 
-The llama format is the same example as Llama 3.x chat-template text, split where training starts:
+The llama format is the same example as Llama 3.x chat-template text, for trainers that take rendered
+text. It is not Muse Spark Open's template (see section 4), so the openai format is the one to train
+Spark Open on. It is split where training starts:
 `prompt` is the system header (the tools as JSON after `Environment: ipython`, then the instructions),
 the earlier turns, and the member's message, up to the assistant's header; `completion` is the rest.
 A tool call is its JSON, `{"name": …, "parameters": {…}}`, one per line, and a result is an `ipython`
@@ -121,120 +125,71 @@ Sizes: the 17 landscaping evals send 19 member messages, so a passing run gives 
 repeats: paraphrases of each eval's messages (a list of phrasings per eval, sent in turn with
 `t.send`), more seeded businesses, and other packs' evals.
 
-## 4. Fine-tune a Llama 3.x 8B with LoRA
+## 4. Train a LoRA adapter for Muse Spark Open
 
-These are starting points; check each provider's current flags and its format for tool calls.
+Muse Spark Open is an 816B mixture-of-experts model (42B active per token) with a channel-based chat
+template: an assistant turn addresses `self` for its reasoning, a tool by name for a call, or `user`
+for the reply, and tools go in as OpenAI-style function schemas. Full fine-tuning is cluster work; a
+LoRA adapter on Fireworks' shared Serverless Training pool is what a set of a few hundred examples
+wants. The base model there is `accounts/fireworks/models/muse-spark-open-nvfp4` with a 256K context;
+the examples here are about 30,000 tokens each.
 
-**Together** (the openai format; `weight` keys may need removing if its checker refuses them, or export
-with `--history 0`):
+The SDK is Python (`pip install "fireworks-ai[training]"`, key in `FIREWORKS_API_KEY`), and the
+starting point is the cookbook's `recipes/sft_loop.py` (github.com/fw-ai/cookbook, `training/`):
 
-```bash
-together files upload dataset.jsonl
-together fine-tuning create \
-  --training-file <file-id> \
-  --model meta-llama/Meta-Llama-3.1-8B-Instruct-Reference \
-  --lora --lora-r 16 --n-epochs 3 --learning-rate 1e-4 --suffix groundwork
-```
+- The renderer for the base model turns each openai line (messages and tools) into tokens and
+  per-token loss weights: 0 on the system prompt, the member's text, and tool results, 1 on the
+  model's tool calls and replies. History turns carry `weight: 0` in the export and stay at 0.
+  Reasoning isn't in the examples, so the adapter learns the calls and the reply; the model still
+  reasons in its own channel at inference.
+- `create_lora_training_client(base_model, rank)` attaches to the pool; `forward_backward` and
+  `optim_step` run the epochs; `save_weights_for_sampler(name)` saves a checkpoint (names of 17
+  characters or fewer).
+- Rank 8 to 16, one or two epochs, the recipe's learning rate. Check the renderer's parity test
+  (`training/renderer/`) against a serverless chat completion first, so the rendered tool list matches
+  what the model sees when the agent calls it.
 
-**Fireworks** (the openai format):
+Billing is per token on three meters; at list, Spark Open trains at $18.58 per million tokens, so 100
+examples is about 3 million tokens and $56 an epoch. A DPO run (`recipes/dpo_loop.py`) takes
+preference pairs: for one prompt, the stock model's failing turn as `rejected` and Wonder's passing
+turn as `chosen`.
 
-```bash
-firectl create dataset groundwork-turns dataset.jsonl
-firectl create sftj \
-  --base-model accounts/fireworks/models/llama-v3p1-8b-instruct \
-  --dataset groundwork-turns --output-model groundwork-8b \
-  --lora-rank 16 --epochs 3 --learning-rate 1e-4
-```
+## 5. Score it
 
-**Locally with torchtune** (the llama format, one GPU with 48 GB or more at this sequence length): the
-lines are already in the template, so a small dataset component tokenizes them as they are and trains
-on the completion only. Check that your tokenizer turns the `<|…|>` strings into their special tokens;
-if it reads them as text, encode with special tokens allowed.
-
-```python
-# groundwork_dataset.py
-from datasets import load_dataset
-from torch.utils.data import Dataset
-from torchtune.data import CROSS_ENTROPY_IGNORE_IDX
-
-class GroundworkTurns(Dataset):
-    def __init__(self, tokenizer, path, max_seq_len=32768):
-        self.rows = load_dataset("json", data_files=path, split="train")
-        self.tokenizer, self.max_seq_len = tokenizer, max_seq_len
-
-    def __len__(self):
-        return len(self.rows)
-
-    def __getitem__(self, i):
-        row = self.rows[i]
-        prompt = self.tokenizer.encode(row["prompt"], add_bos=False, add_eos=False)
-        completion = self.tokenizer.encode(row["completion"], add_bos=False, add_eos=False)
-        tokens = (prompt + completion)[: self.max_seq_len]
-        labels = ([CROSS_ENTROPY_IGNORE_IDX] * len(prompt) + completion)[: self.max_seq_len]
-        return {"tokens": tokens, "labels": labels}
-
-def groundwork_turns(tokenizer, path):
-    return GroundworkTurns(tokenizer, path)
-```
-
-```yaml
-# groundwork_lora.yaml, from torchtune's llama3_1/8B_lora_single_device
-dataset:
-  _component_: groundwork_dataset.groundwork_turns
-  path: dataset.llama.jsonl
-tokenizer:
-  max_seq_len: 32768
-model:
-  lora_rank: 16
-  lora_alpha: 32
-epochs: 3
-batch_size: 1
-gradient_accumulation_steps: 8
-enable_activation_checkpointing: True
-```
+The agent reaches a model over an OpenAI-compatible API. Stock Spark Open is on Fireworks' serverless
+inference with tool calling, so the baseline is a scorecard condition as it stands:
 
 ```bash
-tune run lora_finetune_single_device --config groundwork_lora.yaml
+npm run scorecard -- --model accounts/fireworks/models/muse-spark-open \
+  --base-url https://api.fireworks.ai/inference/v1 --api-key-env FIREWORKS_API_KEY
 ```
 
-## 5. Serve it and score it
-
-The agent reaches a model over an OpenAI-compatible API, so the tuned model needs one. Together and
-Fireworks serve a fine-tuned adapter at `https://api.together.xyz/v1` and
-`https://api.fireworks.ai/inference/v1` once it is deployed. Locally, vLLM serves the adapter and parses
-the Llama JSON tool calls:
+A trained adapter isn't served on that pool. Either sample the saved checkpoint through the training
+endpoint's Completions API (`https://api.fireworks.ai/training/v1/serverless`, per token) behind a
+small local shim that renders the agent's messages and tools with Spark Open's template and parses the
+tool-call blocks back into `tool_calls`, then point the scorecard at the shim:
 
 ```bash
-vllm serve meta-llama/Llama-3.1-8B-Instruct \
-  --enable-lora --lora-modules groundwork=./output/lora \
-  --enable-auto-tool-choice --tool-call-parser llama3_json --max-model-len 65536
+npm run scorecard -- --model <checkpoint> --base-url http://localhost:8010/v1
 ```
 
-Then:
+or promote the checkpoint to a model and put it on an on-demand deployment, billed by the GPU-second
+while it is up, and point the scorecard at Fireworks' inference URL with the model's id.
 
-```bash
-TUNED_MODEL_API_KEY=<key> npm run scorecard -- --model groundwork --base-url http://localhost:8000/v1
-npm run scorecard -- --model <id> --base-url <url> --api-key-env TOGETHER_API_KEY
-```
-
-That adds a condition, "Groundwork (tuned <id>)", beside the baseline and the pack: the same evals on
-the same seeded business, with the pack's instructions, and the agent on the tuned model over Chat
-Completions. The judge stays Muse Wonder (`agents/assistant/evals/evals.config.ts` builds it before it
-points the agent elsewhere). The key reaches the run but is never written to the scorecard, which goes
-to `docs/evals/scorecard-tuned.md` so the committed one is left alone. Its cost uses Muse Wonder's
-rates unless `MODEL_PRICES` names the tuned model's.
+Either way that adds a condition, "Groundwork (tuned <id>)", beside the baseline and the pack: the
+same evals on the same seeded business, with the pack's instructions, and the agent on the tuned model
+over Chat Completions. The judge stays Muse Wonder (`agents/assistant/evals/evals.config.ts` builds it
+before it points the agent elsewhere). The key reaches the run but is never written to the scorecard,
+which goes to `docs/evals/scorecard-tuned.md` so the committed one is left alone. Its cost uses Muse
+Wonder's rates unless `MODEL_PRICES` names the tuned model's.
 
 ## What to expect
 
-With a few dozen captured turns, this run proves the pipeline, not a better model: an 8B adapter on 50
-examples will copy the format and some of the tool choices, and likely score below Muse Wonder on the
-judge. A dataset worth training needs hundreds of real turns from working businesses, labelled by what
-happened after (approved, booked, not corrected), across trades and in both languages, with the
-captured eval turns as a small seed. The win to look for is cost: if the tuned model holds the pass
-rate on the evals that matter (the interview, no invented price, approve and schedule), it quotes for a
-fraction of Muse Wonder's cost per quote.
-
-A rough cost for a real run: 500 examples of about 28,000 tokens is 14 million tokens an epoch, 42
-million over three epochs. LoRA on an 8B model is priced at roughly $0.50 per million training tokens
-at Together and Fireworks, so about $20 a run; most of those tokens are the same instructions and tool
-list on every line, which a later export could trim to the tools each example uses.
+Three numbers side by side: Muse Wonder with the pack, stock Spark Open with the pack, tuned Spark Open
+with the pack, on pass rate, judge mean, completion, and cost per quote. A set of one or two hundred
+distilled turns moves the evals it was built from, the ones the stock model failed, and not much else;
+the write-up reports whatever the difference is. A dataset worth more needs hundreds of real turns
+from working businesses, labelled by what happened after (approved, booked, not corrected), across
+trades and in both languages, with the captured eval turns as the seed. Most of every example is the
+same instructions and tool list; a later export could trim the tools to those the pack uses, if the
+agent's tool list is trimmed the same way.

@@ -27,21 +27,101 @@ quote page or sent to the thread by `make_post`. Still to do:
   a set time, instead of the member sharing it by hand.
 - **A template per business.** Its colors and fonts on the band and the labels.
 
-## Post-train an open-weight model on exported traces
+## Post-train Muse Spark Open on the agent's traces
 
-The recipe is [docs/post-training.md](docs/post-training.md).
+The point of this one: traces of the agent doing a landscaping business's work right, turned into
+training data for Muse Spark Open, Meta's open-weight model, and a measured difference on the same
+evals between the stock model and the tuned one. Pricing stays in code either way. What the model
+learns is the shape of the work: which tool to call, its arguments (saved item ids, quantities in the
+trade's units, rule ids), the one numbered confirm or question, and never a price the calculator
+didn't return. The recipe is [docs/post-training.md](docs/post-training.md).
 
-- **The dataset.** Shipped: `npm run traces:dataset` and `npm run evals:capture` write each turn as a
-  redacted training example (instructions, tools, the member's message, calls, results, the reply).
-- **The filter.** Shipped: clean completed turns are kept and labelled from their quotes and visits;
-  voided or corrected quotes are dropped.
-- **How it is measured.** Shipped: `npm run scorecard -- --model <id> --base-url <url>` adds the tuned
-  model as a condition, judged by Muse Wonder.
-- **What we would tune.** An open-weight Llama model, supervised on these trajectories: which tool to
-  call, its arguments (saved item ids, quantities in the trade's units, rule ids), the one numbered
-  confirm or question, and never stating a price the calculator didn't return. Pricing stays in code
-  either way. Next: a few hundred real turns and an 8B LoRA run, about $20 at Together or Fireworks
-  list prices (500 examples of about 28,000 tokens, three epochs).
+Shipped so far:
+
+- **The dataset.** `npm run traces:dataset` and `npm run evals:capture` write each turn as a redacted
+  training example (the instructions, the tools, the member's message, the calls, results, and reply)
+  in the chat-completions JSONL that Fireworks' training takes.
+- **The filter.** Clean completed turns are kept and labelled from their quotes and visits; voided or
+  corrected quotes are dropped.
+- **The measurement.** `npm run scorecard -- --model <id> --base-url <url> [--api-key-env NAME]` adds
+  any model behind an OpenAI-compatible Chat Completions URL as a condition, judged by Muse Wonder,
+  written to `docs/evals/scorecard-tuned.md`.
+
+Still to do, in this order. Each step has a number to record before the next starts.
+
+1. **Baseline on stock Muse Spark Open.** Fireworks serves it serverless with tool calling
+   (`accounts/fireworks/models/muse-spark-open`, 1M context, list price $1.25 per million input tokens
+   and $4.25 output). The condition is one command:
+
+   ```bash
+   npm run scorecard -- --model accounts/fireworks/models/muse-spark-open \
+     --base-url https://api.fireworks.ai/inference/v1 --api-key-env FIREWORKS_API_KEY
+   ```
+
+   This is the number to beat, beside Muse Wonder with the pack (16 or 17 of 17). A scorecard
+   condition is about 2 million input tokens, so about $3 at list. One check first: every call sends
+   `reasoning_effort` (`core/model-provider.ts`); Spark Open takes low, medium, high, and xhigh and
+   can't turn reasoning off, so confirm Fireworks passes the field through, or send it only when the
+   base URL is Meta's.
+
+2. **Mine the failures.** From that run, one line per eval on what stock Spark Open gets wrong: the
+   wrong tool, quantities in the wrong units, a price it made up, a confirm it skipped, a photo it
+   didn't price. Keep the list in `docs/evals/` beside the scorecard. It decides what the set has to
+   teach and which evals' examples to weight or multiply.
+
+3. **Build the set.** The teacher is Muse Wonder with the pack through `npm run evals:capture`: one
+   passing run is 19 examples of about 30,000 tokens, each mostly the instructions and tool schemas.
+   That has to be multiplied, keeping only turns that pass the gates and with redaction on:
+   paraphrases of each eval's messages (a list of phrasings per eval, sent in turn), several seeded
+   businesses so item ids, prices, and totals vary, the other packs' evals, and any real turns the
+   filter labels `quote_approved_unchanged` or `visit_booked_clean`. Target 100 to 200 examples, more
+   of the evals the failure list names. Use the `openai` format: Fireworks' training format is
+   chat-completions JSONL with tool calls, multi-turn, and per-message weights. The `llama` format is
+   Llama 3.x's template and does not fit Spark Open, whose template is channel-based (an assistant
+   turn addresses `self` for reasoning, a tool by name, or `user` for the reply); the renderer in
+   Fireworks' training SDK does that rendering from the openai lines, so the examples never spell
+   the template out.
+
+4. **Train a LoRA adapter on Spark Open.** Fireworks' Serverless Training API is LoRA only, which is
+   what a set this size wants anyway: base model `accounts/fireworks/models/muse-spark-open-nvfp4`,
+   256K context, the `fireworks-ai[training]` Python SDK, and the cookbook's `recipes/sft_loop.py`
+   (response-only loss: weight 0 on the system prompt, the member's text, and tool results, 1 on the
+   model's tool calls and replies). Rank 8 to 16, one or two epochs, the cookbook's learning rate. At
+   list the training meter is $18.58 per million tokens, so 100 examples of 30,000 tokens is 3
+   million tokens and about $56 an epoch; 200 examples or two epochs doubles it. A second experiment
+   if the budget allows: DPO (`recipes/dpo_loop.py`) with the stock model's failing turn as the
+   rejected answer and Wonder's passing turn as the chosen one, for the same prompt. That is the
+   failure list made literal. A cheaper rehearsal of the same pipeline is Muse Glimmer 30B on the same
+   pool (the same tokenizer family and template), but it isn't the model the result is about.
+
+5. **Score the adapter.** Fireworks doesn't serve a trained LoRA on its per-token serverless pool.
+   Two ways to put it behind the scorecard:
+
+   - **Sample the checkpoint through the training endpoint.** Saved checkpoints answer the
+     Completions API at `https://api.fireworks.ai/training/v1/serverless` per token ($6.19 per
+     million prompt tokens, $1.24 when cached, $15.48 sampled). That API takes a rendered prompt, so a
+     small local shim speaks Chat Completions to the agent: it renders the messages and tools with
+     Spark Open's template, calls completions with the checkpoint's path, and parses the model's
+     tool-call blocks back into `tool_calls`. Then
+     `npm run scorecard -- --model <checkpoint> --base-url http://localhost:<port>/v1`. About $5 to
+     $13 a run, since the system prompt is cached after the first call.
+   - **An on-demand deployment.** Promote the checkpoint to a model and deploy it, billed by the
+     GPU-second (B200s at $13 an hour each; an 816B model needs several). A 20-minute scorecard run
+     fits in a few tens of dollars if the deployment comes up quickly and is deleted right after.
+
+   The judge stays Muse Wonder. The photo evals send an image with the message; if the sampling path
+   is text-only, score them apart from the rest.
+
+6. **Report it.** Three conditions on the same seeded business, all judged by Muse Wonder: Muse Wonder
+   with the pack, stock Spark Open with the pack, tuned Spark Open with the pack: pass rate, judge
+   mean, completion, and cost per quote. HACKATHON.md gets the numbers whichever way they fall. A set
+   of a hundred or two moves the evals it was built from, not all of them, and the write-up says so;
+   the result is the measured difference and the pipeline that produced it.
+
+Open before step 4: whether Fireworks' renderer for Spark Open renders a `tools` list the same way its
+serverless inference does (the cookbook ships a parity check under `training/renderer/`); the exact
+tool-call block the model emits, so the shim's parser matches the checkpoint; and the Muse Model
+License's attribution line if the adapter is ever published.
 
 ## Trades: what v1 leaves out
 

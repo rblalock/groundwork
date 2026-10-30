@@ -172,7 +172,8 @@ instructions carry. The scorecard file holds the current numbers and the failed 
   turn ran with, the member's message, the calls, results, and reply, redacted and labelled from
   what happened after), `npm run evals:capture` does the same for a passing eval run, and
   `npm run scorecard -- --model <id> --base-url <url>` scores a tuned model beside Muse Wonder. The
-  recipe for fine-tuning an open-weight Llama on them is [docs/post-training.md](docs/post-training.md).
+  recipe for fine-tuning Muse Spark Open, Meta's open-weight model, on them is
+  [docs/post-training.md](docs/post-training.md).
 
 ## Dispatch
 
