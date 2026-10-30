@@ -236,7 +236,7 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
                             <span className="min-w-0 flex-1 truncate text-ink">{photo.quoteTitle}</span>
                             <span className="shrink-0 text-ink-3">{formatDate(photo.createdAt, language, tz)}</span>
                             {canEdit ? (
-                              <Link className="shrink-0 font-medium text-accent-ink hover:underline" href={`/?say=${encodeURIComponent(copy.quotes.quoteAgainSay(photo.quoteTitle, customer.name))}`}>
+                              <Link className="shrink-0 font-medium text-accent-ink hover:underline" href={`/?say=${encodeURIComponent(copy.quotes.quoteAgainSay(photo.quoteTitle, customer.name, formatDate(photo.createdAt, language, tz)))}`}>
                                 {copy.quotes.quoteAgain}
                               </Link>
                             ) : null}

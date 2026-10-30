@@ -112,7 +112,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
   // A quote past its draft can be proposed again at today's prices, from the member's chat.
   const repeatHref =
     caller.memberId !== null && !["draft", "needs_owner"].includes(quote.status)
-      ? `/?say=${encodeURIComponent(q.quoteAgainSay(quote.title, quote.customerName))}`
+      ? `/?say=${encodeURIComponent(q.quoteAgainSay(quote.title, quote.customerName, formatDate(quote.updatedAt, language, tz)))}`
       : undefined;
 
   // Where it stands, from drafted to paid, naming the next visit while it's booked.

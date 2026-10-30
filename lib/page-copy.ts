@@ -39,7 +39,7 @@ const en = {
   quotes: {
     title: "Quotes",
     quoteAgain: "Quote it again",
-    quoteAgainSay: (title: string, customer: string | null) => `Quote ${title} again${customer ? ` for ${customer}` : ""}, same as last time.`,
+    quoteAgainSay: (title: string, customer: string | null, date: string) => `Quote ${title} again${customer ? ` for ${customer}` : ""}, same as the quote from ${date}.`,
     all: "All",
     filters: {
       draft: "Open drafts",
@@ -1223,7 +1223,7 @@ const es: PageCopy = {
   quotes: {
     title: "Cotizaciones",
     quoteAgain: "Cotizarla otra vez",
-    quoteAgainSay: (title: string, customer: string | null) => `Cotiza ${title} otra vez${customer ? ` para ${customer}` : ""}, igual que la última vez.`,
+    quoteAgainSay: (title: string, customer: string | null, date: string) => `Cotiza ${title} otra vez${customer ? ` para ${customer}` : ""}, igual que la cotización del ${date}.`,
     all: "Todas",
     filters: {
       draft: "Borradores",
