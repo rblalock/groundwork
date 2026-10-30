@@ -48,11 +48,24 @@ export function agentTools(source: string): Promise<ToolSchema[]> {
   return tools;
 }
 
+/**
+ * Imports a tool's TypeScript file. Under `tsx` a plain import works; inside eve's bundled eval runner
+ * there is no TypeScript loader, so the file goes through tsx's own API instead.
+ */
+async function importTool(url: string): Promise<{ default: ToolModule }> {
+  try {
+    return (await import(url)) as { default: ToolModule };
+  } catch {
+    const { tsImport } = await import("tsx/esm/api");
+    return (await tsImport(url, import.meta.url)) as { default: ToolModule };
+  }
+}
+
 async function load(source: string): Promise<ToolSchema[]> {
   const files = readdirSync(TOOLS_DIR).filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"));
   const out: ToolSchema[] = [];
   for (const file of files.sort()) {
-    const mod = (await import(pathToFileURL(resolve(TOOLS_DIR, file)).href)).default as ToolModule;
+    const mod = (await importTool(pathToFileURL(resolve(TOOLS_DIR, file)).href)).default as ToolModule;
     const resolver = mod.events?.["turn.started"];
     const definition = (resolver ? await resolver({}, { session: { auth: { current: authFor(source) } } }) : mod) as ToolDefinition | null;
     if (!definition?.inputSchema) continue;
