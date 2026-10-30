@@ -7,7 +7,7 @@ import { latestInbound, plain, refuseFromEmail, requireCaller, toolError } from 
 
 export default defineTool({
   description:
-    "Save prices the owner or an admin just stated or confirmed, the moment they do: one call for all of them, up to 200, such as a whole price list. Each item is matched by name: a known name updates its price, a new name is added. Names and units are the member's own words, lightly tidied. Prices are integer cents ($12 → 1200). The minimum charge is not an item: save it with update_profile. equipment is what doing the work needs, in the owner's words (\"mulch jobs need the trailer\"), only when they said it; it replaces the item's list. Returns how many were added, updated, and already saved as is.",
+    "Save prices the owner or an admin just stated or confirmed, the moment they do: one call for all of them, up to 200, such as a whole price list. Each item is matched by name: a known name updates its price, a new name is added. Names and units are the member's own words, lightly tidied. Prices are integer cents ($12 → 1200). The minimum charge is not an item: save it with update_profile. equipment is what doing the work needs, in the owner's words (\"mulch jobs need the trailer\"), only when they said it; it replaces the item's list. weatherSensitive marks work rain or heat calls off (\"don't mow in the rain\"), only when they said it: its stops are checked against the forecast the evening before. Returns how many were added, updated, and already saved as is.",
   inputSchema: z.object({
     items: z
       .array(
@@ -20,6 +20,7 @@ export default defineTool({
           group: z.string().optional(),
           notes: z.string().optional(),
           equipment: equipmentSchema.optional().describe('What the work needs, like "trailer" or "chipper".'),
+          weatherSensitive: z.boolean().optional().describe("Only when the owner said rain or heat calls this work off."),
           createdFromQuoteId: z.string().optional().describe("The quote that prompted this price, if any."),
         }),
       )
@@ -46,6 +47,7 @@ export default defineTool({
           priceCents: i.priceCents,
           taxable: i.taxable,
           ...(i.equipment.length ? { equipment: i.equipment } : {}),
+          ...(i.weatherSensitive ? { weatherSensitive: true } : {}),
         })),
       });
     } catch (error) {

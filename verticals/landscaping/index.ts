@@ -9,9 +9,9 @@ export const landscaping: VerticalPack = {
   minimumChargeCents: 15000,
   profile: { quoteValidityDays: 14, depositPercent: 30 },
   items: [
-    { name: "Lawn mowing", unitKind: "visit", unitLabel: "visit", priceCents: 6500, group: "Maintenance", photoPrompt: "lawn" },
-    { name: "Mulch installed", unitKind: "each", unitLabel: "cubic yard", priceCents: 9500, group: "Beds", photoPrompt: "mulch bed" },
-    { name: "Bed edging", unitKind: "linear_ft", unitLabel: "linear foot", priceCents: 250, group: "Beds", photoPrompt: "mulch bed" },
+    { name: "Lawn mowing", unitKind: "visit", unitLabel: "visit", priceCents: 6500, group: "Maintenance", photoPrompt: "lawn", weatherSensitive: true },
+    { name: "Mulch installed", unitKind: "each", unitLabel: "cubic yard", priceCents: 9500, group: "Beds", photoPrompt: "mulch bed", weatherSensitive: true },
+    { name: "Bed edging", unitKind: "linear_ft", unitLabel: "linear foot", priceCents: 250, group: "Beds", photoPrompt: "mulch bed", weatherSensitive: true },
     { name: "Hedge trimming", unitKind: "other", unitLabel: "cubic foot", priceCents: 250, group: "Trimming", photoPrompt: "hedge" },
     { name: "Palm trimming", unitKind: "each", unitLabel: "palm", priceCents: 4500, group: "Trimming", photoPrompt: "palm tree" },
     {
@@ -23,8 +23,8 @@ export const landscaping: VerticalPack = {
       notes: "Labor only; the customer supplies the plant.",
       photoPrompt: "shrub",
     },
-    { name: "Sod installed", unitKind: "sqft", unitLabel: "square foot", priceCents: 185, group: "Lawn", photoPrompt: "lawn" },
-    { name: "Cleanup labor", unitKind: "hour", unitLabel: "hour", priceCents: 5500, group: "Cleanup" },
+    { name: "Sod installed", unitKind: "sqft", unitLabel: "square foot", priceCents: 185, group: "Lawn", photoPrompt: "lawn", weatherSensitive: true },
+    { name: "Cleanup labor", unitKind: "hour", unitLabel: "hour", priceCents: 5500, group: "Cleanup", weatherSensitive: true },
     { name: "Haul-away", unitKind: "flat", unitLabel: "load", priceCents: 15000, group: "Cleanup" },
     {
       name: "Sprinkler head replacement",

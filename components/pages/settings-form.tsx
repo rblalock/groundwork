@@ -33,6 +33,9 @@ export type SettingsValues = {
   lateAfterMinutes: number;
   dayEndGraceMinutes: number;
   leadMinutes: number;
+  rainThresholdPct: number;
+  heatThresholdF: number;
+  weatherLeadHours: number;
   /** Whether the address (the yard) is placed, and where. */
   yard: { status: "pending" | "ok" | "not_found" | "failed"; label: string | null };
 };
@@ -133,6 +136,9 @@ export function SettingsForm({
         lateAfterMinutes: Number(form.get("lateAfterMinutes")),
         dayEndGraceMinutes: Number(form.get("dayEndGraceMinutes")),
         leadMinutes: Number(form.get("leadMinutes")),
+        rainThresholdPct: Number(form.get("rainThresholdPct")),
+        heatThresholdF: Number(form.get("heatThresholdF")),
+        weatherLeadHours: Number(form.get("weatherLeadHours")),
       };
       const roadFactorBp = parseFactor(String(form.get("roadFactor") ?? ""));
       if (roadFactorBp === undefined) errors.roadFactor = s.errors.factor;
@@ -291,6 +297,39 @@ export function SettingsForm({
                 label={s.lead}
                 max={240}
                 min={0}
+                required
+                type="number"
+              />
+              <Field
+                defaultValue={values.rainThresholdPct}
+                hint={s.rainThresholdHelp}
+                id="rainThresholdPct"
+                inputMode="numeric"
+                label={s.rainThreshold}
+                max={100}
+                min={10}
+                required
+                type="number"
+              />
+              <Field
+                defaultValue={values.heatThresholdF}
+                hint={s.heatThresholdHelp}
+                id="heatThresholdF"
+                inputMode="numeric"
+                label={s.heatThreshold}
+                max={130}
+                min={70}
+                required
+                type="number"
+              />
+              <Field
+                defaultValue={values.weatherLeadHours}
+                hint={s.weatherLeadHelp}
+                id="weatherLeadHours"
+                inputMode="numeric"
+                label={s.weatherLead}
+                max={24}
+                min={1}
                 required
                 type="number"
               />

@@ -65,6 +65,13 @@ withTestDb("settings: owners change only what differs; crew and super admins can
   assert.deepEqual(late.body?.changed, ["lateAfterMinutes", "leadMinutes"]);
   assert.deepEqual([(await getProfile(TEST_ORG)).leadMinutes, (await getProfile(s.other)).leadMinutes], [60, 45]);
 
+  // Weather: 60% rain, 95°F, checked 15 hours before the workday, until changed.
+  assert.deepEqual([after.rainThresholdPct, after.heatThresholdF, after.weatherLeadHours], [60, 95, 15]);
+  refused(await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { rainThresholdPct: 5 } }), 400);
+  const weather = await call(settingsRoute, ownerHeaders, { method: "PATCH", body: { rainThresholdPct: 50, heatThresholdF: 95, weatherLeadHours: 14 } });
+  assert.deepEqual(weather.body?.changed, ["rainThresholdPct", "weatherLeadHours"]);
+  assert.deepEqual([(await getProfile(TEST_ORG)).rainThresholdPct, (await getProfile(s.other)).rainThresholdPct], [50, 60]);
+
   const admin = await superAdminViewing(TEST_ORG);
   assert.equal((await settingsFor(await appCaller(admin))).name, "Example Services");
   refused(await call(settingsRoute, admin, { method: "PATCH", body: { taxRateBp: 0 } }), 403, "NOT_A_MEMBER");

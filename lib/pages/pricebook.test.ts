@@ -49,6 +49,14 @@ withTestDb("price book: owners reprice, retire, and restore items, logged as the
   assert.equal(row.priceCents, 1500);
   const [otherRow] = await db().select().from(pricebookItems).where(eq(pricebookItems.id, s.otherItem.id));
   assert.equal(otherRow.priceCents, 500);
+
+  // Weather-sensitive: off until the owner ticks it, logged as any change.
+  assert.equal(row.weatherSensitive, false);
+  await call(itemRoute, ownerHeaders, { method: "PATCH", params: { id: s.item.id }, body: { weatherSensitive: true } });
+  const [sensitive] = await db().select().from(pricebookItems).where(eq(pricebookItems.id, s.item.id));
+  assert.equal(sensitive.weatherSensitive, true);
+  const logged = await db().select().from(pricebookChanges).where(eq(pricebookChanges.itemId, s.item.id));
+  assert.ok(logged.some((c) => c.field === "weather_sensitive" && c.oldValue === "false" && c.newValue === "true"));
 });
 
 withTestDb("price book: owners accept or turn down crew suggestions and retire rules", async () => {

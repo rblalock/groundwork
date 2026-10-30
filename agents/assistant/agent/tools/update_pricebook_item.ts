@@ -7,7 +7,7 @@ import { latestInbound, plain, refuseFromEmail, requireCaller, toolError } from 
 
 export default defineTool({
   description:
-    "Change one saved pricebook item: reprice, rename, change its unit, mark it taxable or not, set what the work needs (equipment: \"mulch jobs need the trailer\"), or retire it (status retired). equipment is the whole list and replaces it: read_business shows what's saved, and [] clears it. Existing quotes keep the price they were made with. Prices are integer cents.",
+    "Change one saved pricebook item: reprice, rename, change its unit, mark it taxable or not, set what the work needs (equipment: \"mulch jobs need the trailer\"), mark it weather-sensitive or not (weatherSensitive: \"we don't lay sod in the rain\" is true; its stops are checked against the forecast the evening before), or retire it (status retired). equipment is the whole list and replaces it: read_business shows what's saved, and [] clears it. Existing quotes keep the price they were made with. Prices are integer cents.",
   inputSchema: z.object({
     itemId: z.string(),
     priceCents: cents.optional(),
@@ -17,6 +17,7 @@ export default defineTool({
     taxable: z.boolean().optional(),
     status: z.enum(["active", "retired"]).optional(),
     equipment: equipmentSchema.optional(),
+    weatherSensitive: z.boolean().optional(),
   }),
   approval: privilegedOnly("change prices"),
   async execute({ itemId, ...patch }, ctx) {

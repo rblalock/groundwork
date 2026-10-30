@@ -39,6 +39,9 @@ export function settingsValues(profile: Profile): SettingsValues {
     lateAfterMinutes: profile.lateAfterMinutes,
     dayEndGraceMinutes: profile.dayEndGraceMinutes,
     leadMinutes: profile.leadMinutes,
+    rainThresholdPct: profile.rainThresholdPct,
+    heatThresholdF: profile.heatThresholdF,
+    weatherLeadHours: profile.weatherLeadHours,
     yard: { status: profile.yardGeocodeStatus, label: profile.yardPlaceLabel },
   };
 }
@@ -73,6 +76,9 @@ const FIELDS = [
   "lateAfterMinutes",
   "dayEndGraceMinutes",
   "leadMinutes",
+  "rainThresholdPct",
+  "heatThresholdF",
+  "weatherLeadHours",
 ] as const satisfies readonly (keyof ProfilePatch)[];
 
 /**

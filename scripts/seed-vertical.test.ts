@@ -28,6 +28,11 @@ withTestDb("applying the landscaping pack twice adds its items, rules, notes, mi
   assert.equal(rules.length, 3);
   assert.equal((await businessNotes(org.id)).length, 3);
 
+  assert.deepEqual(
+    items.filter((i) => i.weatherSensitive).map((i) => i.name),
+    ["Bed edging", "Cleanup labor", "Lawn mowing", "Mulch installed", "Sod installed"],
+    "rain or heat calls off mowing, sod, mulch, edging, and cleanup",
+  );
   const haulAway = items.find((i) => i.name === "Haul-away");
   const rush = rules.find((r) => r.text.toLowerCase().includes("rush"));
   assert.ok(haulAway && rush?.effect && Array.isArray(rush.effect.appliesTo));

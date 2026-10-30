@@ -57,6 +57,7 @@ export default defineTool({
           group: i.group,
           notes: i.notes,
           ...(i.equipment.length ? { equipment: i.equipment } : {}),
+          ...(i.weatherSensitive ? { weatherSensitive: true } : {}),
         })),
         rules: rules.map((r) => ({ id: r.id, text: r.text, kind: r.kind, effect: r.effect, status: r.status })),
         pdf: {

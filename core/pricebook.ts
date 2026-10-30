@@ -20,10 +20,12 @@ export type NewItem = {
   photoPrompt?: string;
   /** What doing it needs ("trailer"); see `core/equipment.ts`. */
   equipment?: string[];
+  /** Work rain or heat calls off; checked against the forecast the evening before. */
+  weatherSensitive?: boolean;
   createdFromQuoteId?: string;
 };
 export type ItemPatch = Partial<
-  Pick<Item, "name" | "unitLabel" | "unitKind" | "priceCents" | "taxable" | "status" | "group" | "notes" | "photoPrompt" | "equipment">
+  Pick<Item, "name" | "unitLabel" | "unitKind" | "priceCents" | "taxable" | "status" | "group" | "notes" | "photoPrompt" | "equipment" | "weatherSensitive">
 >;
 
 /** Lowercase, trim, collapse whitespace, strip punctuation except `/` and `-`. */
@@ -63,6 +65,7 @@ const TRACKED_FIELDS = [
   "notes",
   "photoPrompt",
   "equipment",
+  "weatherSensitive",
 ] as const satisfies readonly (keyof ItemPatch)[];
 
 const FIELD_NAMES: Record<(typeof TRACKED_FIELDS)[number], string> = {
@@ -76,6 +79,7 @@ const FIELD_NAMES: Record<(typeof TRACKED_FIELDS)[number], string> = {
   notes: "notes",
   photoPrompt: "photo_prompt",
   equipment: "equipment",
+  weatherSensitive: "weather_sensitive",
 };
 
 /** A field's value as the change log keeps it: a list as its words joined by commas. */
@@ -169,6 +173,7 @@ export async function saveItemsWithOutcome(
             notes: input.notes ?? null,
             photoPrompt: input.photoPrompt ?? null,
             equipment: cleanEquipment(input.equipment ?? []),
+            weatherSensitive: input.weatherSensitive ?? false,
             createdFromQuoteId: input.createdFromQuoteId ?? null,
           })
           .returning();
@@ -188,6 +193,7 @@ export async function saveItemsWithOutcome(
           notes: input.notes,
           photoPrompt: input.photoPrompt,
           equipment: input.equipment && cleanEquipment(input.equipment),
+          weatherSensitive: input.weatherSensitive,
           status: "active",
         },
         memberId,
@@ -201,7 +207,7 @@ export async function saveItemsWithOutcome(
   });
 }
 
-/** Edits one item (rename, reprice, what it needs, retire). Throws `ITEM_NOT_FOUND` or `NAME_TAKEN`. */
+/** Edits one item (rename, reprice, what it needs, whether weather calls it off, retire). Throws `ITEM_NOT_FOUND` or `NAME_TAKEN`. */
 export async function updateItem(
   orgId: string,
   itemId: string,

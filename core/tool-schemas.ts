@@ -184,5 +184,26 @@ export const profilePatchSchema = z
       .max(240)
       .optional()
       .describe("A stop starting within this many minutes stays put when the day's stops move: the crew is already on the way. Default 45."),
+    rainThresholdPct: z
+      .number()
+      .int()
+      .min(10)
+      .max(100)
+      .optional()
+      .describe("The chance of rain, in percent, at which a weather-sensitive stop is at risk and the evening check proposes moving it (\"call it off above 50% rain\" is 50). Default 60."),
+    heatThresholdF: z
+      .number()
+      .int()
+      .min(70)
+      .max(130)
+      .optional()
+      .describe("The temperature in °F at which a weather-sensitive stop is at risk (\"heat limit 100\" is 100). Default 95."),
+    weatherLeadHours: z
+      .number()
+      .int()
+      .min(1)
+      .max(24)
+      .optional()
+      .describe("How many hours before the next workday starts the weather check runs: 15 is 5 PM the evening before an 8 AM start. Default 15."),
   })
   .refine((patch) => Object.values(patch).some((v) => v !== undefined), "Pass at least one fact.");

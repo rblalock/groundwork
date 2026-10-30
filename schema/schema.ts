@@ -342,6 +342,14 @@ export const businessProfile = pgTable("business_profile", {
   lateAfterMinutes: integer("late_after_minutes").notNull().default(30),
   dayEndGraceMinutes: integer("day_end_grace_minutes").notNull().default(15),
   leadMinutes: integer("lead_minutes").notNull().default(45),
+  /**
+   * The weather check (`core/weather-check.ts`): a weather-sensitive stop is at risk when the forecast's chance of
+   * rain over its window reaches `rainThresholdPct` or its temperature reaches `heatThresholdF`. The check runs
+   * `weatherLeadHours` before the next workday starts: 15 is 5 PM the evening before an 8 AM start.
+   */
+  rainThresholdPct: integer("rain_threshold_pct").notNull().default(60),
+  heatThresholdF: integer("heat_threshold_f").notNull().default(95),
+  weatherLeadHours: integer("weather_lead_hours").notNull().default(15),
   version: integer("version").notNull().default(1),
   pricebookVersion: integer("pricebook_version").notNull().default(0),
   rulesVersion: integer("rules_version").notNull().default(0),
@@ -501,6 +509,8 @@ export const pricebookItems = pgTable(
     photoPrompt: text("photo_prompt"),
     /** What doing this work needs, in the owner's words ("trailer", "chipper"); a crew booked for it should carry all of it. */
     equipment: text("equipment").array().notNull().default([]),
+    /** Work rain or heat calls off (mowing, sod): a stop doing it is checked against the forecast the evening before. */
+    weatherSensitive: boolean("weather_sensitive").notNull().default(false),
     status: itemStatus("status").notNull().default("active"),
     createdFromQuoteId: text("created_from_quote_id"),
     version: integer("version").notNull().default(1),

@@ -33,6 +33,9 @@ export type ProfilePatch = Partial<
     | "lateAfterMinutes"
     | "dayEndGraceMinutes"
     | "leadMinutes"
+    | "rainThresholdPct"
+    | "heatThresholdF"
+    | "weatherLeadHours"
   >
 >;
 

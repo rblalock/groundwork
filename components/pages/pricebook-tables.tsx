@@ -25,6 +25,8 @@ export type ItemRow = {
   group: string | null;
   /** What doing it needs. */
   equipment: string[];
+  /** Rain or heat calls it off. */
+  weatherSensitive: boolean;
 };
 
 export type RuleRow = {
@@ -61,6 +63,7 @@ export function ItemDialog({ item, language }: { item?: ItemRow; language: Langu
       priceCents,
       taxable: form.get("taxable") === "on",
       equipment: equipmentList(String(form.get("equipment") ?? "")),
+      weatherSensitive: form.get("weatherSensitive") === "on",
     };
     const saved = item
       ? await send("save", `/api/price-book/items/${item.id}`, { method: "PATCH", body: fields })
@@ -116,6 +119,13 @@ export function ItemDialog({ item, language }: { item?: ItemRow; language: Langu
               maxLength={600}
               placeholder={p.equipmentPlaceholder}
             />
+            <label className="flex items-start gap-2 text-[13px]">
+              <input className="mt-0.5 size-4 shrink-0 accent-[var(--color-accent)]" defaultChecked={item?.weatherSensitive ?? false} name="weatherSensitive" type="checkbox" />
+              <span>
+                {p.fields.weatherSensitive}
+                <span className="block text-[12px] text-ink-3">{p.weatherSensitiveHint}</span>
+              </span>
+            </label>
             <ErrorLine>{error}</ErrorLine>
             <DialogFooter>
               <DialogClose render={<Button size="sm" type="button" variant="quiet" />}>{copy.common.cancel}</DialogClose>
@@ -159,6 +169,7 @@ export function PricebookItems({ items, language, canEdit }: { items: ItemRow[];
                 <span className={cn("font-medium", retired ? "text-ink-3" : "text-ink")}>{item.name}</span>
                 <span className="block text-[12px] text-ink-3 sm:hidden">{item.unitLabel}</span>
                 {item.equipment.length ? <span className="block text-[12px] text-ink-3">{p.needs(item.equipment.join(", "))}</span> : null}
+                {item.weatherSensitive ? <span className="block text-[12px] text-ink-3">{p.fields.weatherSensitive}</span> : null}
               </Td>
               <Td className="hidden text-ink-2 @xl:table-cell">{item.unitLabel}</Td>
               <Td className="text-right whitespace-nowrap tabular-nums">{formatCents(item.priceCents, language)}</Td>

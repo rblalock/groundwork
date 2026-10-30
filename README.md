@@ -174,6 +174,8 @@ Each switch stands in for an outside service on this machine. Never set them in 
   with only `BLOB_FAKE=1`, `price_photo` reports the photo as unreadable.
 - `PLACES_FAKE=1`: places the seeded addresses at made-up points without asking the geocoder. On by
   default locally when unset; `PLACES_FAKE=0` asks the US Census geocoder.
+- `WEATHER_FAKE=1`: a fixed forecast, dry but for rain at 70% from 10 AM to 2 PM tomorrow. On by default
+  locally when unset; `WEATHER_FAKE=0` asks api.weather.gov (`WEATHER_CONTACT` is the email its User-Agent gives).
 - `LOGIN_CODE_LOG=1`: prints sign-in codes to the server console.
 
 ## Tests, evals, and tools
