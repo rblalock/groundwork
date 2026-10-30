@@ -7,6 +7,7 @@ import { dayPlans, type DayPlan, type PlanStop } from "./day-plan";
 import type { Language } from "./language";
 import { isPrivileged } from "./members";
 import { listNotes } from "./notes";
+import { dayAtRisk } from "./running-long";
 import { getVisit, setVisitDelay, startVisit, type Actor, type Viewer, type VisitView } from "./scheduling";
 import { timeText, wallClock } from "./scheduling-time";
 
@@ -100,7 +101,7 @@ const WORDS = {
     shifts: (list: string) => ` Now: ${list}.`,
     holds: " The rest of the day holds.",
     back: (at: string) => ` Back at the yard about ${at}.`,
-    atRisk: (end: string) => ` That's past the ${end} end of the day, so the day shows at risk on the schedule.`,
+    atRisk: (end: string) => ` That's past the ${end} end of the day, so the owners are being asked about moving the last stops.`,
   },
   es: {
     yard: "la base",
@@ -121,7 +122,7 @@ const WORDS = {
     shifts: (list: string) => ` Ahora: ${list}.`,
     holds: " El resto del día se mantiene.",
     back: (at: string) => ` De vuelta a la base como a las ${at}.`,
-    atRisk: (end: string) => ` Eso pasa del fin del día a las ${end}, así que el día sale en riesgo en la agenda.`,
+    atRisk: (end: string) => ` Eso pasa del fin del día a las ${end}, así que se les pregunta a los dueños si mover las últimas paradas.`,
   },
 } satisfies Record<Language, unknown>;
 
@@ -281,6 +282,8 @@ export async function declareDelay(actor: Actor, input: { minutes: number; visit
   text += shifts.length ? w.shifts(shifts.map((s) => w.shift(s.title, at(s.arriveAbout), s.lateMinutes)).join(", ")) : w.holds;
   if (backAbout) text += w.back(at(backAbout));
   if (atRisk && plan?.replan?.dayEndAt) text += w.atRisk(at(plan.replan.dayEndAt));
+  // A declared delay that puts the day at risk asks the owners now, rather than at the next ten-minute check.
+  if (atRisk && plan) await dayAtRisk(actor.orgId, plan).catch((error: unknown) => console.error("crew phone: the day at risk was not proposed", error));
   return { visit, plan, timeZone, shifts, backAbout, atRisk, text };
 }
 

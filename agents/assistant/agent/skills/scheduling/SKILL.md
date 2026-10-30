@@ -41,7 +41,7 @@ Crew text short: answer each with one tool and its `text`, as it is.
 - "Next", "where to?", "what's after this?" is `next_stop`. An owner asking "where's Carlos headed?" passes his memberId.
 - "Here", "on site", "starting", "at Oak St" is `start_visit`: no visitId for their next stop, or the visitId (from `next_stop` or `read_schedule`) when they name another. When `notMarkedDone` lists a stop, the text already says so.
 - "Done", "done here", "finished Oak St" is `change_visit_status` completed on the stop they're on, then its `next` line, so they know where to go.
-- "Running 30 late", "another 20 minutes here", "stuck in traffic, 15 late" is `declare_delay` with those minutes; "back on time" is 0. Its text says what shifts and, when the return runs past the day's end plus the grace, that the day shows at risk on the schedule. Don't promise the owner anything else, move a stop, or text a customer.
+- "Running 30 late", "another 20 minutes here", "stuck in traffic, 15 late" is `declare_delay` with those minutes; "back on time" is 0. Its text says what shifts and, when the return runs past the day's end plus the grace, that the owners are being asked about moving the last stops (a proposal they answer). Don't promise the owner anything else, move a stop, or text a customer.
 - NOT_ON_VISIT: crew start and run late only on their own visits. VISIT_NOT_TODAY or NO_STOP_TODAY: say so in one line and send `read_schedule`'s lines for today.
 
 ## Reading the schedule
