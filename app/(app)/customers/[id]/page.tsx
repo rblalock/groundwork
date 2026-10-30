@@ -227,10 +227,10 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
                     <p className="mb-2.5 text-[13px] text-ink-3 text-pretty">{c.priceGuideHelp}</p>
                     <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       {priceGuide.map((photo) => (
-                        <li className="min-w-0" key={photo.id}>
+                        <li className={photo.beforeAfter ? "min-w-0 sm:col-span-2" : "min-w-0"} key={photo.id}>
                           <Link className="block overflow-hidden rounded-[8px] bg-inset shadow-hairline transition-opacity hover:opacity-90" href={`/quotes/${photo.quoteId}`}>
                             {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
-                            <img alt={c.priceGuideAlt(photo.quoteTitle)} className="block h-auto w-full" loading="lazy" src={photo.href} />
+                            <img alt={photo.beforeAfter ? c.priceGuideBeforeAfterAlt(photo.quoteTitle) : c.priceGuideAlt(photo.quoteTitle)} className="block h-auto w-full" loading="lazy" src={photo.href} />
                           </Link>
                           <p className="mt-1 flex gap-2 text-[12px]">
                             <span className="min-w-0 flex-1 truncate text-ink">{photo.quoteTitle}</span>

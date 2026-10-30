@@ -29,6 +29,7 @@ import { QuoteLanguageControl, QuoteText, QuoteTranslationProvider, QuoteViewTog
 import { mayChangeQuoteLanguage, unitTextId } from "@/lib/pages/quote-language";
 import { editorItems } from "@/lib/pages/quote-editor";
 import { AddPhotosButton, EditQuoteButton, RemovePhotoButton } from "@/components/quotes/quote-editor";
+import { BeforeAfterCard } from "@/components/quotes/before-after-card";
 import { PricedPhotoSection } from "@/components/quotes/priced-photo-section";
 import { copyFor } from "@/lib/copy";
 import { JumpBar, type JumpSection } from "@/components/record/jump-bar";
@@ -79,7 +80,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
   const caller = await pageMember();
   const { id } = await params;
   const { priced: pricedOutcome } = await searchParams;
-  const { quote, timeline, depositPaidCents, pricedPhoto } = await quoteFor(caller, id).catch((error: unknown) => {
+  const { quote, timeline, depositPaidCents, pricedPhoto, beforeAfter } = await quoteFor(caller, id).catch((error: unknown) => {
     if (error instanceof HttpError && error.status === 404) notFound();
     throw error;
   });
@@ -348,6 +349,11 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
                       pricedPhoto={pricedPhoto}
                       quoteId={quote.quoteId}
                     />
+                    {beforeAfter ? (
+                      <div className="mt-6">
+                        <BeforeAfterCard href={beforeAfter.href} language={language} />
+                      </div>
+                    ) : null}
                   </RecordSection>
                 ) : null}
 

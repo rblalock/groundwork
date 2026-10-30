@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { pairOf } from "../../core/before-after";
 import { readStoredFile } from "../../core/blob";
 import {
   createInvoice,
@@ -31,11 +32,12 @@ import {
   type ReadyToInvoice,
 } from "../../core/invoices";
 import { invoicePdfFileName } from "../../core/pdf";
+import { pricedPhotosFor } from "../../core/priced-photo";
 import { isLanguage } from "../../core/language";
 import { HttpError, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { notFound, privilegedActor } from "./access";
-import type { StoredFile } from "./quotes";
+import { beforeAfterHref, type StoredFile } from "./quotes";
 
 // Who may see and do what with invoices and payments: owners and admins only, since they're the
 // business's money. Crew get a 403 from the routes and a 404 from the pages. A super admin's look-only
@@ -223,6 +225,14 @@ export async function updateFromApp(caller: AppCaller, invoiceId: string, input:
 export async function invoicePhotosFor(caller: AppCaller, invoice: InvoiceDetail): Promise<InvoicePhoto[]> {
   requireMoney(caller);
   return invoicePhotos(caller.orgId, invoice);
+}
+
+/** The before-and-after of the invoice's quote, as the app serves it; null without a quote or a pair. */
+export async function invoiceBeforeAfterFor(caller: AppCaller, invoice: InvoiceDetail): Promise<{ href: string; quoteId: string } | null> {
+  requireMoney(caller);
+  if (!invoice.quoteId) return null;
+  const pair = pairOf(await pricedPhotosFor(caller.orgId, invoice.quoteId));
+  return pair ? { href: beforeAfterHref({ quoteId: invoice.quoteId, version: pair.version }), quoteId: invoice.quoteId } : null;
 }
 
 export const photosSchema = z.object({ photoIds: z.array(id).max(INVOICE_PHOTO_LIMIT) }).strict();

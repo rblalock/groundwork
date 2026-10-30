@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ExternalLink, FileText } from "lucide-react";
 import { CopyButton, InvoiceActions, RemovePaymentButton } from "@/components/invoices/actions";
 import { InvoicePhotos } from "@/components/invoices/photos";
+import { BeforeAfterCard } from "@/components/quotes/before-after-card";
 import { InvoiceStatusPill } from "@/components/invoices/kit";
 import { AskAssistantButton } from "@/components/threads/thread-rail";
 import { copyFor } from "@/lib/copy";
@@ -22,7 +23,7 @@ import { formatDate, formatDateOnlyShort, money, quantity } from "@/lib/format";
 import { HttpError } from "@/lib/guards";
 import { pageCopyFor } from "@/lib/page-copy";
 import { pagePrivileged } from "@/lib/page-session";
-import { invoiceFor, invoicePhotosFor } from "@/lib/pages/invoices";
+import { invoiceBeforeAfterFor, invoiceFor, invoicePhotosFor } from "@/lib/pages/invoices";
 import { invoiceProgress } from "@/lib/record-progress";
 
 function signed(cents: number, language: Language) {
@@ -36,11 +37,12 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
     if (error instanceof HttpError && error.status === 404) notFound();
     throw error;
   });
-  const [profile, cards, customer, photos] = await Promise.all([
+  const [profile, cards, customer, photos, beforeAfter] = await Promise.all([
     getProfile(caller.orgId),
     takesCardPayments(caller.orgId),
     invoice.customerId ? getCustomer(caller.orgId, invoice.customerId) : null,
     invoicePhotosFor(caller, invoice),
+    invoiceBeforeAfterFor(caller, invoice),
   ]);
   const { language } = caller;
   const copy = pageCopyFor(language);
@@ -54,6 +56,7 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
   const sections: JumpSection[] = [
     { id: "lines", label: t.lines, count: invoice.lines.length },
     ...(invoice.payments.length > 0 ? [{ id: "payments", label: t.payments, count: livePayments.length }] : []),
+    ...(beforeAfter ? [{ id: "before-after", label: copy.quotes.beforeAfter }] : []),
     ...(photos.length > 0 ? [{ id: "photos", label: t.photos, count: photos.length }] : []),
     ...(invoice.notes ? [{ id: "notes", label: copy.customers.notes }] : []),
   ];
@@ -231,6 +234,12 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
                 ) : (
                   <EmptyFold actions={null}>{t.noPayments}</EmptyFold>
                 )}
+
+                {beforeAfter ? (
+                  <RecordSection id="before-after">
+                    <BeforeAfterCard description={t.beforeAfterHelp} href={beforeAfter.href} language={language} quoteHref={`/quotes/${beforeAfter.quoteId}`} />
+                  </RecordSection>
+                ) : null}
 
                 {photos.length > 0 ? (
                   <RecordSection id="photos">

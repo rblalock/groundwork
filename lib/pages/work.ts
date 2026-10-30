@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { quotes } from "../../schema/schema";
 import { readStoredFile, storeInboundAttachment } from "../../core/blob";
+import { pairOf } from "../../core/before-after";
 import { db } from "../../core/db";
 import { invoicesForJobs, type InvoiceRef } from "../../core/invoices";
 import { isPrivileged } from "../../core/members";
@@ -12,7 +13,7 @@ import { memberCaller, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { notFound, refuse } from "./access";
 import { preparePhoto } from "./photo-upload";
-import { pricedPhotoHref, type StoredFile } from "./quotes";
+import { beforeAfterHref, pricedPhotoHref, type StoredFile } from "./quotes";
 
 // A piece of work (a service job) on its own page: its customer, quote, invoice, visits, and photos.
 // Everyone on the team sees it and adds photos; the invoice opens for owners and admins only.
@@ -56,10 +57,25 @@ export function customerWorkPhotos(caller: AppCaller, customerId: string): Promi
   return listWorkPhotos(caller.orgId, { customerId }, 24);
 }
 
-/** The priced photos on a customer's quotes, newest first: their price guide, served by the app. */
-export async function customerPriceGuide(caller: AppCaller, customerId: string): Promise<Array<{ id: string; quoteId: string; quoteTitle: string; createdAt: Date; href: string }>> {
+export type PriceGuideTile = { id: string; quoteId: string; quoteTitle: string; createdAt: Date; href: string; beforeAfter: boolean };
+
+/**
+ * The priced photos on a customer's quotes, newest first: their price guide, served by the app. A quote
+ * with a priced photo from before the job and one after shows its before-and-after in their place, where
+ * the newer of the two would be.
+ */
+export async function customerPriceGuide(caller: AppCaller, customerId: string): Promise<PriceGuideTile[]> {
   const photos = await pricedPhotosForCustomer(caller.orgId, customerId, 12);
-  return photos.map((photo) => ({ id: photo.id, quoteId: photo.quoteId, quoteTitle: photo.quoteTitle, createdAt: photo.createdAt, href: pricedPhotoHref(photo) }));
+  const pairs = new Map([...new Set(photos.map((photo) => photo.quoteId))].map((quoteId) => [quoteId, pairOf(photos.filter((photo) => photo.quoteId === quoteId))]));
+  const shown = new Set<string>();
+  return photos.flatMap((photo): PriceGuideTile[] => {
+    const pair = pairs.get(photo.quoteId);
+    const tile = { id: photo.id, quoteId: photo.quoteId, quoteTitle: photo.quoteTitle, createdAt: photo.createdAt };
+    if (!pair || (photo.id !== pair.before.id && photo.id !== pair.after.id)) return [{ ...tile, href: pricedPhotoHref(photo), beforeAfter: false }];
+    if (shown.has(photo.quoteId)) return [];
+    shown.add(photo.quoteId);
+    return [{ ...tile, id: `${photo.quoteId}:before-after`, href: beforeAfterHref({ quoteId: photo.quoteId, version: pair.version }), beforeAfter: true }];
+  });
 }
 
 /** A photo uploaded on the work's page, stored and added, optionally on one of its visits. */

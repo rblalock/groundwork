@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { workPhotos } from "../../schema/schema";
 import type { PricedBox, PricedPhotoEditorState } from "../../schema/types";
+import { beforeAfterFor, pairOf, renderBeforeAfter, type BeforeAfter } from "../../core/before-after";
 import { readStoredFile } from "../../core/blob";
 import { db } from "../../core/db";
 import { quoteDeposits } from "../../core/invoices";
@@ -111,18 +112,22 @@ export async function assertVisible(caller: AppCaller, quoteId: string): Promise
 /**
  * `depositPaidCents` is what's been paid of the quote's deposit, for owners and admins (null otherwise, or
  * with none asked). `pricedPhoto` is its latest priced photo, and the lines it couldn't find in it.
+ * `beforeAfter` is its before-and-after, when it has a priced photo from before the job and one after.
  */
 export type QuotePage = {
   quote: QuoteDetail;
   timeline: TimelineEntry[];
   depositPaidCents: number | null;
   pricedPhoto: { id: string; url: string; notLocated: string[] } | null;
+  beforeAfter: { href: string } | null;
 };
 
 export async function quoteFor(caller: AppCaller, quoteId: string): Promise<QuotePage> {
   await assertVisible(caller, quoteId);
-  const [quote, timeline, [priced]] = await Promise.all([getQuote(caller.orgId, quoteId), quoteTimeline(caller.orgId, quoteId), pricedPhotosFor(caller.orgId, quoteId)]);
+  const [quote, timeline, photos] = await Promise.all([getQuote(caller.orgId, quoteId), quoteTimeline(caller.orgId, quoteId), pricedPhotosFor(caller.orgId, quoteId)]);
   if (!quote) throw notFound();
+  const [priced] = photos;
+  const pair = pairOf(photos);
   // A quote approved before links existed gets its link the first time it's looked at.
   const customerLink = quote.customerLink ?? (await customerLinkFor(caller.orgId, quoteId));
   const deposits = quote.depositCents && isPrivileged(caller.role) ? await quoteDeposits(caller.orgId, quoteId) : null;
@@ -133,6 +138,7 @@ export async function quoteFor(caller: AppCaller, quoteId: string): Promise<Quot
     pricedPhoto: priced
       ? { id: priced.id, url: pricedPhotoHref(priced), notLocated: priced.regions.filter((region) => !region.located).map((region) => region.name) }
       : null,
+    beforeAfter: pair ? { href: beforeAfterHref({ quoteId, version: pair.version }) } : null,
   };
 }
 
@@ -153,6 +159,10 @@ export type QuoteCard = {
 /** Where the app serves a priced photo; the version changes when it's made again or edited, so a cached one isn't shown. */
 export const pricedPhotoHref = (photo: Pick<PricedPhoto, "id" | "quoteId" | "createdAt" | "editedAt">) =>
   `/api/quotes/${encodeURIComponent(photo.quoteId)}/priced/${encodeURIComponent(photo.id)}?v=${Math.max(photo.createdAt.getTime(), photo.editedAt?.getTime() ?? 0)}`;
+
+/** Where the app serves a quote's before-and-after; the version changes when either photo is made again or edited. */
+export const beforeAfterHref = (pair: Pick<BeforeAfter, "quoteId" | "version">) =>
+  `/api/quotes/${encodeURIComponent(pair.quoteId)}/before-after?v=${pair.version}`;
 
 /**
  * A quote's card for the chat, for whoever may see the quote (`assertVisible`); a 404 for anyone else.
@@ -270,6 +280,21 @@ export async function pricedPhotoFile(caller: AppCaller, quoteId: string, priced
   return { bytes, contentType: "image/png", filename: `priced-photo-${quoteId}.png` };
 }
 
+/**
+ * The quote's before-and-after, drawn for anyone who may see the quote, in their language and with the
+ * total. A 404 when it has no pair, or when either photo can't be read anymore.
+ */
+export async function beforeAfterFile(caller: AppCaller, quoteId: string): Promise<StoredFile & { version: number }> {
+  await assertVisible(caller, quoteId);
+  const pair = await beforeAfterFor(caller.orgId, quoteId);
+  if (!pair) throw notFound();
+  const drawn = await renderBeforeAfter(pair, caller.language, { linePrices: true }).catch((error: unknown) => {
+    console.error("before and after: drawing failed", { quoteId, error });
+    throw notFound();
+  });
+  return { bytes: drawn.png, contentType: "image/png", filename: `before-after-${quoteId}.png`, version: pair.version };
+}
+
 /** Makes (or makes again) the quote's priced photo from its latest photo, as the assistant's price_photo does. */
 export async function pricePhotoFromApp(caller: AppCaller, quoteId: string): Promise<PricedPhotoResult> {
   await assertVisible(caller, quoteId);
@@ -355,13 +380,13 @@ async function sourcePhotoHref(caller: AppCaller, photo: PricedPhoto): Promise<s
 }
 
 /** A stored file as a response: images and PDFs open in the browser, anything else downloads. */
-export function fileResponse(file: StoredFile): Response {
+export function fileResponse(file: StoredFile, cacheControl = "private, max-age=300"): Response {
   const inline = file.contentType === "application/pdf" || file.contentType.startsWith("image/");
   return new Response(Buffer.from(file.bytes), {
     headers: {
       "content-type": file.contentType,
       "content-disposition": `${inline ? "inline" : "attachment"}; filename="${file.filename.replace(/[^\x20-\x7e]|"/g, "_")}"; filename*=UTF-8''${encodeURIComponent(file.filename)}`,
-      "cache-control": "private, max-age=300",
+      "cache-control": cacheControl,
     },
   });
 }
