@@ -298,8 +298,9 @@ export async function proposeMoves(orgId: string, plan: DayPlan, deps?: Deps): P
   const [raised] = await db()
     .select({ id: proposals.id })
     .from(proposals)
-    .where(and(eq(proposals.orgId, orgId), eq(proposals.kind, "move_stops"), eq(proposals.memberId, plan.memberId), eq(proposals.date, plan.date)))
+    .where(and(eq(proposals.orgId, orgId), eq(proposals.kind, "move_stops"), eq(proposals.memberId, plan.memberId), eq(proposals.date, plan.date), eq(proposals.status, "open")))
     .limit(1);
+  // One open question at a time per crew and day; once it's answered, a day that runs long again can ask again.
   if (raised) return null;
   const viewer = businessViewer(orgId);
   const views = (await Promise.all(plan.stops.map((s) => getVisit(viewer, s.visitId)))).filter((v): v is VisitView => v !== null);

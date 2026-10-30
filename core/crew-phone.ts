@@ -103,6 +103,7 @@ const WORDS = {
     holds: " The rest of the day holds.",
     back: (at: string) => ` Back at the yard about ${at}.`,
     atRisk: (end: string) => ` That's past the ${end} end of the day, so the owners are being asked about moving the last stops.`,
+    atRiskOnly: (end: string) => ` That's past the ${end} end of the day; the day shows at risk on the schedule.`,
   },
   es: {
     yard: "la base",
@@ -124,6 +125,7 @@ const WORDS = {
     holds: " El resto del día se mantiene.",
     back: (at: string) => ` De vuelta a la base como a las ${at}.`,
     atRisk: (end: string) => ` Eso pasa del fin del día a las ${end}, así que se les pregunta a los dueños si mover las últimas paradas.`,
+    atRiskOnly: (end: string) => ` Eso pasa del fin del día a las ${end}; el día sale en riesgo en la agenda.`,
   },
 } satisfies Record<Language, unknown>;
 
@@ -282,14 +284,16 @@ export async function declareDelay(actor: Actor, input: { minutes: number; visit
   let text = visit.delayMinutes === 0 ? w.cleared(visit.title) : w.delay(visit.delayMinutes, visit.title);
   text += shifts.length ? w.shifts(shifts.map((s) => w.shift(s.title, at(s.arriveAbout), s.lateMinutes)).join(", ")) : w.holds;
   if (backAbout) text += w.back(at(backAbout));
-  if (atRisk && plan?.replan?.dayEndAt) text += w.atRisk(at(plan.replan.dayEndAt));
   // A declared delay that puts the day at risk asks the owners now, rather than at the next ten-minute check. An
   // owner declaring their own delay gets the proposal in this reply, since a text to themself may not reach them.
-  if (atRisk && plan) {
+  // When nothing can be proposed (nowhere for the last stops to go, or the owners are already being asked), the
+  // reply says only that the day is at risk.
+  if (atRisk && plan?.replan?.dayEndAt) {
     const raised = await dayAtRisk(actor.orgId, plan).catch((error: unknown) => {
       console.error("crew phone: the day at risk was not proposed", error);
       return null;
     });
+    text += raised ? w.atRisk(at(plan.replan.dayEndAt)) : w.atRiskOnly(at(plan.replan.dayEndAt));
     if (raised && isPrivileged(actor.role)) text += `\n\n${ownerText(raised.proposal, plan.name, timeZone, actor.language)}`;
   }
   return { visit, plan, timeZone, shifts, backAbout, atRisk, text };
