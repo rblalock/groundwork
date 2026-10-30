@@ -27,6 +27,12 @@ up, an item no longer in the price book (it stays unpriced for the owner), a tot
 time (not repeated). Nothing is saved until the member says yes. "Quote it again" on the customer's
 price guide and on a quote's page opens the chat with the request typed in.
 
+Work from a quote gets a checklist, one item per line: its name, quantity, and unit, marked when the
+priced photo outlines it, never with a price. The crew booked get it in their booking text with the
+priced photo, drawn for them with quantities only. They tick items by text ("mulch is done"), or
+anyone on the team ticks them on the work's page, and the schedule shows how many are done. The tick
+that finishes the list marks the work's visit done when its day has come.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 

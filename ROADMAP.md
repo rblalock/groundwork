@@ -66,11 +66,21 @@ the quote page opens the chat with the request typed in. Still to do:
 - **Recurring work every season.** Repeat the spring cleanup each spring on its own, which belongs
   with dispatch's route days rather than one quote at a time.
 
-## Crew checklist from the priced photo
+## Crew checklist: what v1 leaves out
 
-Turn each located line of the priced photo into a checklist item for the visit (mulch the outlined
-beds, trim the outlined hedge) and send it with the photo to the crew booked on it. Crew mark items
-done by text, and the visit closes when they are.
+v1 makes one item per quote line when the work's first visit is booked, marks the ones the priced
+photo outlines, and sends the list with a quantities-only copy of the photo to the crew booked. Crew
+tick items by text and anyone ticks them on the work's page; the last tick marks today's visit done.
+Still to do:
+
+- **Crew verbs per price book item.** "Spread 3 yards of mulch", "trim the front hedge": a verb saved
+  on the item, so the list reads as the work rather than the quote.
+- **A photo per item.** Crop the priced photo to each item's outline, so a crew member sees exactly
+  which bed or hedge it means.
+- **A checklist template per job type.** The steps a spring cleanup always has, beyond what was
+  quoted.
+- **Items from site notes.** "Lock the gate", "dog in the back yard": the property's notes as items
+  to tick before leaving.
 
 ## Dispatch: routes for crews and jobs
 
