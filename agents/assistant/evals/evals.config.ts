@@ -48,6 +48,11 @@ export default defineEvalConfig({
     forceOffline();
     // `EVAL_MODEL_ID` runs the agent on another model; the dev server inherits it as `MODEL_ID`.
     if (process.env.EVAL_MODEL_ID) process.env.MODEL_ID = process.env.EVAL_MODEL_ID;
+    // `EVAL_MODEL_BASE_URL`, with its key and API, puts the agent on another OpenAI-compatible server (a
+    // tuned model's, `npm run scorecard -- --model`). The judge was built above, so it stays on Meta.
+    if (process.env.EVAL_MODEL_BASE_URL) process.env.MODEL_BASE_URL = process.env.EVAL_MODEL_BASE_URL;
+    if (process.env.EVAL_MODEL_API_KEY) process.env.META_MODEL_API_KEY = process.env.EVAL_MODEL_API_KEY;
+    if (process.env.EVAL_MODEL_API) process.env.MODEL_API = process.env.EVAL_MODEL_API;
     process.env.BLOB_FAKE = "1";
     process.env.EMAIL_FAKE = "1";
     process.env.STRIPE_FAKE = "1";

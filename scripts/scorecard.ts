@@ -5,7 +5,10 @@
 //   npm run scorecard                        # landscaping, baseline and pack, on the default model
 //   npm run scorecard -- --spark             # and the pack condition on Muse Spark
 //   npm run scorecard -- --vertical pool     # another pack's evals (irrigation, pool, tree)
-// Needs the local test database evals use (DATABASE_URL in .env.local); every eval empties it.
+//   npm run scorecard -- --model <id> --base-url <url> [--api-key-env NAME]
+//                                            # and the pack on a tuned model behind an OpenAI-compatible URL
+// Needs the local test database evals use (DATABASE_URL in .env.local); every eval empties it. A tuned
+// run writes scorecard-tuned.md (scorecard-<id>-tuned.md) so the committed scorecard stays as it was.
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -14,10 +17,16 @@ import { VERTICAL_BUSINESSES } from "../agents/assistant/evals/seed";
 import { estimateCostUsd, ratesFor } from "../core/model-pricing";
 import { VERTICALS } from "../verticals";
 
-type Condition = { name: string; env: Record<string, string> };
+/** `secret` reaches the eval run but is never written to the scorecard. */
+type Condition = { name: string; env: Record<string, string>; secret?: Record<string, string> };
 
-const flag = process.argv.indexOf("--vertical");
-const id = flag >= 0 ? (process.argv[flag + 1] ?? "") : "landscaping";
+/** A flag's value, or null when it isn't given. */
+function option(name: string): string | null {
+  const at = process.argv.indexOf(name);
+  return at >= 0 ? (process.argv[at + 1] ?? "") : null;
+}
+
+const id = option("--vertical") ?? "landscaping";
 const pack = VERTICALS[id];
 if (!pack) {
   console.error(`No pack named "${id}". Packs: ${Object.keys(VERTICALS).join(", ")}.`);
@@ -30,6 +39,25 @@ const CONDITIONS: Condition[] = [
   { name: `Groundwork (${trade} pack)`, env: { VERTICAL: id } },
 ];
 const SPARK: Condition = { name: "Groundwork on Muse Spark", env: { VERTICAL: id, EVAL_MODEL_ID: "muse-spark-1.3" } };
+
+// A tuned model (docs/post-training.md) behind an OpenAI-compatible URL, on Chat Completions. Only the
+// agent moves to it: evals.config.ts builds the judge before it applies these, so the judge stays on Meta.
+const tunedModel = option("--model");
+const tunedUrl = option("--base-url");
+const keyEnv = option("--api-key-env") ?? "TUNED_MODEL_API_KEY";
+if ((tunedModel === null) !== (tunedUrl === null) || tunedModel === "" || tunedUrl === "") {
+  console.error("A tuned condition needs both: --model <id> --base-url <url> [--api-key-env NAME]");
+  process.exit(1);
+}
+const TUNED: Condition | null =
+  tunedModel && tunedUrl
+    ? {
+        name: `Groundwork (tuned ${tunedModel})`,
+        env: { VERTICAL: id, EVAL_MODEL_ID: tunedModel, EVAL_MODEL_BASE_URL: tunedUrl, EVAL_MODEL_API: "chat" },
+        // A local server takes any key; the provider's client needs one.
+        secret: { EVAL_MODEL_API_KEY: process.env[keyEnv]?.trim() || "none" },
+      }
+    : null;
 
 // The eval that measures end-to-end completion: quoted, approved, and booked in three messages. Only
 // packs with one report completion.
@@ -55,7 +83,7 @@ const OFFLINE: Record<string, string> = {
 };
 
 const OUT_DIR = resolve(process.cwd(), "docs/evals");
-const OUT_NAME = id === "landscaping" ? "scorecard" : `scorecard-${id}`;
+const OUT_NAME = `${id === "landscaping" ? "scorecard" : `scorecard-${id}`}${TUNED ? "-tuned" : ""}`;
 
 // The parts of `eve eval --json` the scorecard reads.
 type Assertion = { name: string; key?: string; score: number; passed: boolean; metadata?: { judge?: string } };
@@ -108,7 +136,7 @@ function runEvals(condition: Condition): Promise<Report> {
   const args = ["eval", "--agent", "assistant", "--tag", id, "--json"];
   console.error(`\n== ${condition.name}: eve ${args.join(" ")} (${Object.entries(condition.env).map(([k, v]) => `${k}=${v}`).join(" ")})`);
   return new Promise((done, fail) => {
-    const child = spawn(bin, args, { env: { ...process.env, ...OFFLINE, ...condition.env }, stdio: ["ignore", "pipe", "inherit"] });
+    const child = spawn(bin, args, { env: { ...process.env, ...OFFLINE, ...condition.env, ...condition.secret }, stdio: ["ignore", "pipe", "inherit"] });
     let stdout = "";
     child.stdout.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => (stdout += chunk));
@@ -202,7 +230,8 @@ function cell(row: EvalRow | undefined): string {
 }
 
 function render(summaries: Summary[], at: Date): string {
-  const command = id === "landscaping" ? "npm run scorecard" : `npm run scorecard -- --vertical ${id}`;
+  const flags = [id === "landscaping" ? "" : `--vertical ${id}`, TUNED ? `--model ${tunedModel} --base-url <url>` : ""].filter(Boolean).join(" ");
+  const command = flags ? `npm run scorecard -- ${flags}` : "npm run scorecard";
   const shortId = (evalId: string) => evalId.replace(new RegExp(`^${id}/`), "");
   const lines = [
     `# ${pack.label} eval scorecard`,
@@ -228,7 +257,8 @@ function render(summaries: Summary[], at: Date): string {
         : "Completion is n/a: this pack has no end-to-end eval yet. ") +
       "Cost is estimated from token counts at " +
       "list prices (core/model-pricing.ts), agent only; cost per quote divides the cost of the evals that made a " +
-      "quote by the quotes they made.",
+      "quote by the quotes they made." +
+      (TUNED ? ` The tuned model is priced at Muse Wonder's rates unless MODEL_PRICES names ${tunedModel}.` : ""),
     "",
     "## Per eval",
     "",
@@ -247,7 +277,7 @@ function render(summaries: Summary[], at: Date): string {
   return `${lines.join("\n")}\n`;
 }
 
-const conditions = process.argv.includes("--spark") ? [...CONDITIONS, SPARK] : CONDITIONS;
+const conditions = [...CONDITIONS, ...(process.argv.includes("--spark") ? [SPARK] : []), ...(TUNED ? [TUNED] : [])];
 const summaries: Summary[] = [];
 for (const condition of conditions) {
   summaries.push(summarize(condition, await runEvals(condition)));
