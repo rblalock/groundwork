@@ -1,10 +1,11 @@
 import { irrigation } from "./irrigation";
 import { landscaping } from "./landscaping";
+import { pool } from "./pool";
 import type { VerticalPack } from "./types";
 
 export type { PackItem, PackNote, PackRule, VerticalPack } from "./types";
 
-export const VERTICALS: Record<string, VerticalPack> = { landscaping, irrigation };
+export const VERTICALS: Record<string, VerticalPack> = { landscaping, irrigation, pool };
 
 const warned = new Set<string>();
 
