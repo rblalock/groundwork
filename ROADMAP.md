@@ -17,6 +17,20 @@ on `priced_photos` and the photo is redrawn without SAM. Still to do:
 - **Split and merge.** Cut one outline in two (the left and right hedge) or join two into one line
   object, so counts per piece match what was quoted.
 
+## Social post: what v1 leaves out
+
+v1 crops the before-and-after to a square or a story, evens out each photo, and adds the business's
+name, logo, and a line asking for the next job, with a caption written in code. It's shared from the
+quote page or sent to the thread by `make_post`. Still to do:
+
+- **Captions in the business's voice.** The model writes the caption from the quote and the
+  business's past posts, still with no price or address in it.
+- **Exposure matched across the halves.** Each photo is leveled on its own; matching the after to
+  the before would make the change read as the work, not the light.
+- **Scheduling and posting.** Post to the business's accounts through the networks' APIs, now or at
+  a set time, instead of the member sharing it by hand.
+- **A template per business.** Its colors and fonts on the band and the labels.
+
 ## Post-train an open-weight model on exported traces
 
 - **The dataset.** `npm run traces:export -- --org <slug> --redact` already writes one turn per JSONL
@@ -40,14 +54,6 @@ on `priced_photos` and the photo is redrawn without SAM. Still to do:
 Each trade is a pack under `verticals/<id>/` (price book items with photo prompts, rules, notes, a
 minimum charge, and an instruction overlay) with its own eval set tagged by trade and its own
 scorecard run. Candidates: irrigation, pool service, pest control, tree work.
-
-## A social post from the before-and-after
-
-This builds on the before-and-after composite the invoice and the price guide already show, and
-makes it a post the business can share as it is: the two photos side by side, lightly cleaned up
-(crop to one frame, level the exposure between the two, the business's name in a corner), with an
-optional line inviting people to get their own quote. The operator taps share and goes; nothing to
-design, nothing to write.
 
 ## Repeat quotes proposed from the price guide
 

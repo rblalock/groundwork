@@ -15,6 +15,12 @@ outlines" draws each one's kept masks on it. It's drawn on demand from the two p
 call and nothing stored, and shows on the invoice and its PDF, the quote page, and the customer's
 price guide.
 
+The same pair makes a post the business can share: the two photos cropped to match, side by side on
+a square or stacked on a story, with the business's name and logo and an optional line asking for
+the next job by text or email. No outlines, prices, or address. On the quote page, Share shows it
+with a caption to edit: download it, copy the caption, or send both through the phone's share
+sheet. In chat, "make a post" sends the image and its caption to the member's thread.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 
