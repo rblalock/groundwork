@@ -26,6 +26,7 @@ import type {
   NoteFile,
   PricedCandidate,
   PricedRegion,
+  ProposalItem,
   RuleEffect,
   RuleLine,
   TraceStep,
@@ -96,6 +97,8 @@ export const conversationStatus = pgEnum("conversation_status", ["active", "runn
 export const serviceJobStatus = pgEnum("service_job_status", ["open", "completed", "cancelled"]);
 /** `proposed` is pencilled in and still holds the time; `scheduled` is booked. */
 export const visitStatus = pgEnum("visit_status", ["proposed", "scheduled", "completed", "cancelled"]);
+export const proposalKind = pgEnum("proposal_kind", ["move_stops"]);
+export const proposalStatus = pgEnum("proposal_status", ["open", "applied", "dropped", "expired"]);
 /**
  * `draft` until it's issued (lines editable); `sent` once issued, with its lines frozen; then
  * `partially_paid` and `paid` as payments come in. `void` only with no payments on it.
@@ -1189,6 +1192,36 @@ export const visitRevisions = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("visit_revisions_visit_revision_idx").on(t.orgId, t.visitId, t.revision)],
+);
+
+/**
+ * A change the code proposes and the owner decides (`core/proposals.ts`): for now, moving a crew member's last
+ * stops off a day that runs past its end (`move_stops`). `date` is that day, local; `reason` is one line the code
+ * wrote. Nothing in `items` happens until an owner or admin applies them; `applied_item_ids` are the ones that
+ * moved. One open proposal per member and day; an open one expires once its day is over.
+ */
+export const proposals = pgTable(
+  "proposals",
+  {
+    id: text("id").primaryKey(),
+    orgId: orgId(),
+    kind: proposalKind("kind").notNull(),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id),
+    date: date("date", { mode: "string" }).notNull(),
+    reason: text("reason").notNull(),
+    items: jsonb("items").$type<ProposalItem[]>().notNull(),
+    status: proposalStatus("status").notNull().default("open"),
+    createdAt: createdAt(),
+    decidedAt: timestamptz("decided_at"),
+    decidedByMemberId: text("decided_by_member_id").references(() => members.id),
+    appliedItemIds: text("applied_item_ids").array().notNull().default([]),
+  },
+  (t) => [
+    index("proposals_org_status_idx").on(t.orgId, t.status, t.date),
+    uniqueIndex("proposals_open_member_day_idx").on(t.orgId, t.kind, t.memberId, t.date).where(sql`${t.status} = 'open'`),
+  ],
 );
 
 /**

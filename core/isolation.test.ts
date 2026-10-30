@@ -322,6 +322,31 @@ async function seedBusiness(n: 1 | 2, timeZone: string, extraDraft = false) {
   const booked = await bookVisit(owner, { quoteId: approved.quoteId, memberIds: [crew.memberId], day: "2026-10-27", time: "09:00" }, quiet);
   await rescheduleVisit(owner, { visitId: booked.visit.visitId, time: "10:00" }, quiet);
   const timeOff = await addTimeOff(crew, { memberId: crew.memberId, day: "2026-10-28", reason: "Off" }, quiet);
+  // An open proposal to move that visit to the next day, with the same crew.
+  const visitAt = booked.visit.startAt.toISOString();
+  await db()
+    .insert(schema.proposals)
+    .values({
+      id: `prop_seed_${n}`,
+      orgId,
+      kind: "move_stops",
+      memberId: crew.memberId,
+      date: "2026-10-27",
+      reason: "Sam is running 40 min late",
+      items: [
+        {
+          id: "1",
+          visitId: booked.visit.visitId,
+          revision: 2,
+          title: "100 Example St",
+          customerName: null,
+          from: { startAt: visitAt, endAt: visitAt, memberIds: [crew.memberId] },
+          to: { startAt: visitAt, endAt: visitAt, date: "2026-10-28", time: "10:00", offsetMinutes: 0, memberIds: [crew.memberId], names: [crew.name], bufferBeforeMinutes: 0, bufferAfterMinutes: 0 },
+          customerText: "Hi, your visit moves.",
+          crewText: "100 Example St moves.",
+        },
+      ],
+    });
   // A photo of that work, added by the crew.
   const workPhoto = await addUploadedWorkPhoto(crew, { jobId: booked.visit.jobId, visitId: booked.visit.visitId }, { url: `file:///seed/after-${n}.png`, name: "after.png", mimeType: "image/png" });
   // The approved quote's invoice, sent and partly paid by hand, and the business's Stripe account with
@@ -433,7 +458,7 @@ const idsOf = (rows: Array<{ id: string }>) => rows.map((r) => r.id).sort();
 
 withTestDb("every business table has org_id, and the seed fills each one for both businesses", async () => {
   const { a, b } = await seedTwo();
-  assert.equal(businessTables.length, 45);
+  assert.equal(businessTables.length, 46);
   for (const table of businessTables) {
     const name = getTableName(table);
     for (const orgId of [a.orgId, b.orgId]) {

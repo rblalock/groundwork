@@ -168,3 +168,32 @@ export type PricedPhotoEditorState = {
   editedAt: string | null;
   editedBy: string | null;
 };
+
+/**
+ * One stop a proposal moves (`core/proposals.ts`): the visit at the revision it was proposed on, where it was
+ * and where it would go (instants as ISO strings, the new local day and clock), and the drafts: a text for the
+ * customer, which the owner forwards, and the line the receiving crew will be told. `id` is its number in the
+ * owner's text ("1", "2").
+ */
+export type ProposalItem = {
+  id: string;
+  visitId: string;
+  revision: number;
+  title: string;
+  customerName: string | null;
+  from: { startAt: string; endAt: string; memberIds: string[] };
+  /** The new local day and clock (`offsetMinutes` settles a clock the fall-back hour repeats), and its buffers: the drives around it. */
+  to: {
+    startAt: string;
+    endAt: string;
+    date: string;
+    time: string;
+    offsetMinutes: number;
+    memberIds: string[];
+    names: string[];
+    bufferBeforeMinutes: number;
+    bufferAfterMinutes: number;
+  };
+  customerText: string;
+  crewText: string;
+};

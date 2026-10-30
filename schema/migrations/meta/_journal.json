@@ -92,6 +92,13 @@
       "when": 1793369570906,
       "tag": "0012_on-site",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793370817437,
+      "tag": "0013_proposals",
+      "breakpoints": true
     }
   ]
 }
