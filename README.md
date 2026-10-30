@@ -124,7 +124,7 @@ phone, inbox, or card. Then:
 node --env-file=.env.local node_modules/.bin/drizzle-kit migrate   # or: npm run db:migrate with DATABASE_URL set
 cp provision.example.json provision.json                           # a business and its owner
 npm run provision
-npm run seed:vertical -- landscaping                                # the landscaping price book, rules, and notes
+npm run seed:vertical -- landscaping                                # the landscaping price book, rules, and notes (or irrigation, pool, tree)
 npm run dev          # the web app at http://localhost:3000, agents at /eve/<name>/v1
 npm run dev:agent    # optional: the assistant alone, in eve's terminal UI
 ```
@@ -138,15 +138,25 @@ console. Super admins are made with `npm run admin:create -- you@example.com` an
 ## Trade packs
 
 A trade lives in `verticals/<id>/`: price book items (each with a `photoPrompt` when a photo can show
-it), pricing rules, business notes, a minimum charge, and an instruction overlay. Landscaping is the
-one pack today.
+it, and the `equipment` the work needs), pricing rules, business notes, a minimum charge, and an
+instruction overlay. Four packs ship:
 
-- `npm run seed:vertical -- landscaping [provision.json]` loads the pack's items, rules, notes, and
-  minimum into the business whose owner is in `provision.json`. It finds the business by the owner's
-  phone, touches no other business, and is safe to run again.
-- `VERTICAL=landscaping` adds the pack's instructions (vocabulary, units to ask for, photo and rule
-  handling) to the assistant every turn. Unset or `none`, the assistant stays trade-agnostic; an
-  unknown name is an error.
+- `landscaping`: mowing, mulch, edging, hedges, palms, shrubs, sod, cleanup, haul-away, sprinkler heads.
+- `irrigation`: zone inspections, heads, valves, controllers, drip line, pipe repairs, backflow tests,
+  wire tracing, seasonal start-ups.
+- `pool` (pool service): weekly service and chemicals, green-to-clean, filter and salt cell cleaning,
+  pump motors, acid wash, waterline tile, leak detection.
+- `tree` (tree work): removals, crown and palm trimming, stump grinding, limbs, storm debris, chipping,
+  haul-away, crane days.
+
+Each has three or more evals in `agents/assistant/evals/<id>/`, tagged with its id.
+
+- `npm run seed:vertical -- landscaping [provision.json]` (or `-- pool`, and so on) loads the pack's
+  items, rules, notes, and minimum into the business whose owner is in `provision.json`. It finds the
+  business by the owner's phone, touches no other business, and is safe to run again.
+- `VERTICAL=landscaping` (or another pack's id) adds the pack's instructions (vocabulary, units to
+  ask for, photo and rule handling) to the assistant every turn. Unset or `none`, the assistant stays
+  trade-agnostic; an unknown name is an error.
 
 ## Line prices for customers
 
@@ -209,6 +219,7 @@ npm run evals       # conversation evals in agents/assistant/evals/ against a lo
 VERTICAL=landscaping npm run evals   # the same, with the landscaping instructions
 npm run scorecard   # landscaping evals with and without the pack; writes docs/evals/scorecard.md
 npm run scorecard -- --spark         # and a third run of the pack on Muse Spark
+npm run scorecard -- --vertical pool # another pack's evals; writes docs/evals/scorecard-pool.md
 npm run traces:export -- --org <slug> --redact > traces.jsonl   # every turn's trace, one JSON line each
 npm run smoke:model # live check of the Meta Model API: text, tool call, structured output, fallback
 npm run sam:probe -- agents/assistant/evals/fixtures/yard-front.jpg lawn "mulch bed"   # SAM 3.1 on a photo
@@ -219,9 +230,9 @@ real credentials. SAM tests decode a recorded stream in `test-fixtures/sam/`. `n
 `npm run evals`, and `npm run scorecard` empty the tables of the database they point at, so give them
 a local database of their own, and never run them at the same time.
 
-The scorecard runs the evals tagged `landscaping` twice on the same seeded business: a baseline with
-`VERTICAL=none` and a run with `VERTICAL=landscaping`. The latest results are in
-[docs/evals/scorecard.md](docs/evals/scorecard.md). `traces:export` also takes `--since <ISO time>`
+The scorecard runs the evals tagged with a pack's id (`landscaping` unless `--vertical` names
+another) twice on the same seeded business: a baseline with `VERTICAL=none` and a run with the pack.
+The latest landscaping results are in [docs/evals/scorecard.md](docs/evals/scorecard.md). `traces:export` also takes `--since <ISO time>`
 and `--out <path>`; `--redact` blanks phones, emails, and addresses. `sam:probe` writes overlays to
 `/tmp/sam-probe/`. The yard photo the photo evals send is made by Muse Image:
 `node --env-file=.env.local node_modules/.bin/tsx agents/assistant/evals/fixtures/generate-yard-photo.ts`.

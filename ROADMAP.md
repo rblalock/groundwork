@@ -49,11 +49,18 @@ quote page or sent to the thread by `make_post`. Still to do:
   the pack on Muse Wonder, and the pack on Muse Spark: the same seeded business, the same evals, and
   Muse Wonder as the judge, compared on pass rate, judge mean, completion, and cost per quote.
 
-## More trades as packs
+## Trades: what v1 leaves out
 
-Each trade is a pack under `verticals/<id>/` (price book items with photo prompts, rules, notes, a
-minimum charge, and an instruction overlay) with its own eval set tagged by trade and its own
-scorecard run. Candidates: irrigation, pool service, pest control, tree work.
+v1 ships four packs under `verticals/`: landscaping, irrigation, pool service, and tree work, each
+with items, rules, the three notes, a minimum, an instruction overlay, and evals tagged with its id.
+`npm run scorecard -- --vertical <id>` scores any of them. Still to do:
+
+- **Pest control.** A pack priced per treatment, per square foot, and per visit, with rules for the
+  applicator's license number and the re-entry time after a spray.
+- **SAM prompts tuned per trade on real photos.** The irrigation, pool, and tree photo prompts are
+  first guesses; each needs a probe on the trade's own photos, as landscaping's had.
+- **A scorecard run per pack.** Run the irrigation, pool, and tree scorecards and record their
+  numbers in HACKATHON beside landscaping's.
 
 ## Repeat quotes: what v1 leaves out
 

@@ -194,7 +194,8 @@ and nothing reaches a customer because a rule fired: customer texts are drafts t
 
 The trade lives in a pack under `verticals/landscaping/`: price book items with photo prompts,
 pricing rules, business notes, a minimum charge, and an instruction overlay added each turn while
-`VERTICAL=landscaping`. `npm run seed:vertical -- landscaping` loads it into a business.
+`VERTICAL=landscaping`. `npm run seed:vertical -- landscaping` loads it into a business. Irrigation,
+pool service, and tree work are packs of the same shape beside it, each with three evals of its own.
 
 ## Running it yourself
 
