@@ -151,6 +151,14 @@ owner approves anything that moves a customer. Done in the order below; each ste
 - **Route days.** Recurring work (weekly mowing, monthly beds) is placed by area: the assistant
   proposes which weekday each neighborhood gets so a crew's recurring day is one loop, and new
   recurring customers land on the day their neighbors have.
+  Shipped: work can repeat every week, two weeks, or month (the same weekday of the month), set when
+  it's booked or opened and stopped by text; each visit marked done books the next with the same crew
+  and time, on the first later day with room when the crew are off, silently, and the hourly tick
+  books any that went missing. On demand (by text or on the Schedule page), the recurring jobs are
+  sorted by bearing from the yard and cut into contiguous arcs, one per weekday worked, balanced by
+  count; each job whose day changes becomes an item of one proposal to its new weekday next week,
+  applied like the others, which moves the work's weekday too. `find_availability` gives recurring
+  work the weekday whose loop it adds the least driving to, first in its lines.
 - **Weather.** The forecast from api.weather.gov (no key) for each crew's day: rain probability and
   heat by hour for the yard's grid point. A day with a high chance of rain over a mowing route gets
   a proposal the evening before, with the next dry day per customer. Thresholds are business

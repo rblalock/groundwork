@@ -78,6 +78,13 @@ Settings, and those at risk become one proposal for the business: each to its ow
 with room ("Rain likely tomorrow 10 AM–2 PM (70%) over 3 lawn mowing stops. Move 3 stops to a dry
 day?"), decided like any other. `read_schedule` and the Route view show the day's forecast in one line.
 
+Recurring work ("mow it every week") repeats from its first visit: each visit marked done books the
+next, same crew and time, a day later when the crew are off, with no text to anyone. "Plan our mowing
+days" (or Plan route days on the Schedule page) groups the recurring work by area from the yard, one
+loop for each weekday the business works, and proposes moving each job whose day changes to its new
+weekday next week, decided like any other proposal; a new recurring customer is offered the weekday
+their neighbors are on ("Tue, Nov 10, 10 AM with Carlos (+5 min driving; your Tue loop)").
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 
