@@ -191,11 +191,14 @@ html {
 /* ── interface hygiene (interfaces.dev cheat sheet) ────── */
 
 /* headings balance; descriptions avoid orphans (skip long-form — we have none) */
-h1,
-h2,
-h3,
-h4 {
-  text-wrap: balance;
+/* In the base layer, so a utility like `truncate` on a heading still wins. */
+@layer base {
+  h1,
+  h2,
+  h3,
+  h4 {
+    text-wrap: balance;
+  }
 }
 
 /* In the base layer, so a utility like `truncate` on a paragraph still wins. */
