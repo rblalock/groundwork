@@ -41,18 +41,13 @@ Each trade is a pack under `verticals/<id>/` (price book items with photo prompt
 minimum charge, and an instruction overlay) with its own eval set tagged by trade and its own
 scorecard run. Candidates: irrigation, pool service, pest control, tree work.
 
-## Before-and-after photos from the same masks
-
-The priced photo already runs SAM on the quote's photo, and `price_photo` with a job prices the
-finished-job photo. Next: pair the two for the same lines and show them side by side on the invoice
-and the customer's price guide.
-
 ## A social post from the before-and-after
 
-The before-and-after pair becomes a post the business can share as it is: the two photos side by
-side, lightly cleaned up (crop to one frame, level the exposure between the two, the business's name
-in a corner), with an optional line inviting people to get their own quote. The operator taps share
-and goes; nothing to design, nothing to write.
+This builds on the before-and-after composite the invoice and the price guide already show, and
+makes it a post the business can share as it is: the two photos side by side, lightly cleaned up
+(crop to one frame, level the exposure between the two, the business's name in a corner), with an
+optional line inviting people to get their own quote. The operator taps share and goes; nothing to
+design, nothing to write.
 
 ## Repeat quotes proposed from the price guide
 

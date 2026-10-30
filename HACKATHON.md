@@ -50,8 +50,9 @@ What a judge sees, in order. The demo business is LOX Landscape Co, its owner is
    the assistant offers two or three open times from `find_availability`.
 8. **The invoice.** After the visit, "it's all done, invoice it". `create_invoice` copies the agreed
    quote's lines and total, moves the paid deposit onto it, and `send_invoice` sends the PDF with a
-   `/pay/<token>` link for the balance. A finished-job photo priced with `price_photo` goes on the
-   customer's price guide.
+   `/pay/<token>` link for the balance. The crew texts the done photo and `price_photo` prices it
+   with the job. Paired with the quote's priced photo, it makes a before-and-after, outlined from the
+   same lines, on the invoice and the customer's price guide.
 9. **The same thread over iMessage.** The owner texts the business's line from their phone and
    picks up where the web chat left off. A member's web chat and iMessage thread are one agent
    session, so the quote, the customer, and the context carry over. Replies to texts go out by

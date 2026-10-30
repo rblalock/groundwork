@@ -8,6 +8,12 @@ through Meta's Model API, and SAM 3.1 outlines the quoted lines on the yard phot
 finds is kept with its outline, so a member can edit the photo on the quote page without another SAM
 call. The model judges what the member means; code checks who they are and does the math.
 
+When a quote has a priced photo from before the job and one of the finished work, the two make a
+before-and-after: side by side, each outlined from its own kept masks, with the quote's title and
+total under them (the PDF leaves the total off when the business hides line prices). It's drawn on
+demand from the two photos, with no SAM call and nothing stored, and shows on the invoice and its
+PDF, the quote page, and the customer's price guide.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 
