@@ -371,6 +371,9 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
                           <li key={property.id}>
                             {property.address}
                             {property.notes ? <span className="block text-[12px] text-ink-3">{property.notes}</span> : null}
+                            {property.geocodeStatus !== "ok" ? (
+                              <span className="block text-[12px] text-ink-3">{property.geocodeStatus === "not_found" ? c.notPlaced : c.notPlacedYet}</span>
+                            ) : null}
                           </li>
                         ))}
                       </ul>

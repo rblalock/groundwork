@@ -4,6 +4,7 @@ import { db, type Db, type Tx } from "./db";
 import { recordEvent } from "./events";
 import type { Language } from "./language";
 import type { Role } from "./members";
+import { placeYard } from "./places";
 
 export type Profile = typeof businessProfile.$inferSelect;
 export type ProfilePatch = Partial<
@@ -60,14 +61,17 @@ export function getProfile(orgId: string): Promise<Profile> {
 }
 
 export async function updateProfile(orgId: string, patch: ProfilePatch, memberId: string): Promise<Profile> {
-  return db().transaction(async (tx) => {
-    await getProfileWith(orgId, tx);
+  const { row: updated, moved } = await db().transaction(async (tx) => {
+    const before = await getProfileWith(orgId, tx);
     const changes = Object.fromEntries(
       Object.entries(patch).filter(([, value]) => value !== undefined),
     ) as ProfilePatch;
+    // A new address unplaces the yard until it's placed again, below.
+    const moved = changes.address !== undefined && changes.address !== before.address;
+    const unplaced = moved ? { yardLat: null, yardLng: null, yardPlaceLabel: null, yardGeocodeStatus: "pending" as const, yardGeocodedAt: null } : {};
     const [row] = await tx
       .update(businessProfile)
-      .set({ ...changes, version: sql`${businessProfile.version} + 1`, updatedAt: new Date() })
+      .set({ ...changes, ...unplaced, version: sql`${businessProfile.version} + 1`, updatedAt: new Date() })
       .where(eq(businessProfile.orgId, orgId))
       .returning();
     // The organization's name is what the web app shows for the business, so it follows the profile.
@@ -76,8 +80,12 @@ export async function updateProfile(orgId: string, patch: ProfilePatch, memberId
       { orgId, kind: "profile.updated", memberId, data: { fields: Object.keys(changes), version: row.version } },
       tx,
     );
-    return row;
+    return { row, moved };
   });
+  if (!moved) return updated;
+  // Placing is fail-soft: a failure leaves the yard unplaced and the profile saved.
+  await placeYard(orgId);
+  return getProfile(orgId);
 }
 
 /** Increment the pricebook or rules counter that invalidates stale quotes; returns the new value. */

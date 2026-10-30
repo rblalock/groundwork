@@ -17,6 +17,7 @@ import { db, newId, type Db, type Tx } from "./db";
 import { recordEvent } from "./events";
 import { normalizeE164 } from "./members";
 import type { Language } from "./language";
+import { placeProperty } from "./places";
 import { businessLanguage } from "./profile";
 
 export type Customer = typeof customers.$inferSelect;
@@ -373,6 +374,7 @@ export async function saveCustomer(
   const email = input.email === undefined || input.email.trim() === "" ? undefined : cleanEmail(input.email);
   const address = input.address?.trim() || undefined;
 
+  const added: string[] = [];
   const id = await db().transaction(async (tx) => {
     let customer: Customer;
     let changed = false;
@@ -419,6 +421,7 @@ export async function saveCustomer(
       if (!existing.some((p) => addressKey(p.address) === addressKey(address))) {
         const [property] = await tx.insert(properties).values({ id: newId("prop"), orgId, customerId: customer.id, address }).returning();
         await recordChange(tx, { orgId, customerId: customer.id, memberId, kind: "property.added", after: { id: property.id, address } });
+        added.push(property.id);
         changed = true;
       }
     }
@@ -430,6 +433,8 @@ export async function saveCustomer(
     );
     return customer.id;
   });
+  // A new property is placed for drive times once it's saved; a failure leaves it unplaced and saves anyway.
+  for (const propertyId of added) await placeProperty(orgId, propertyId);
   return (await getCustomer(orgId, id)) as CustomerWithProperties;
 }
 

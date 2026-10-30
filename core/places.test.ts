@@ -1,6 +1,24 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
-import { DEFAULT_DRIVE, driveMinutes, geocode, haversineMeters, legsAround, placesFake, setGeocoderForTests, yardOf, type Place } from "./places";
+import { and, eq } from "drizzle-orm";
+import { properties } from "../schema/schema";
+import { saveCustomer } from "./customers";
+import { db } from "./db";
+import { createMember } from "./members";
+import {
+  DEFAULT_DRIVE,
+  driveMinutes,
+  geocode,
+  haversineMeters,
+  legsAround,
+  placesFake,
+  placeUnplaced,
+  setGeocoderForTests,
+  yardOf,
+  type Place,
+} from "./places";
+import { getProfile, updateProfile } from "./profile";
+import { TEST_ORG, withTestDb } from "./test-db";
 
 afterEach(() => setGeocoderForTests(null));
 
@@ -117,4 +135,54 @@ test("a geocoder that fails throws from geocode, for the caller to record", asyn
     throw new Error("timeout");
   });
   await assert.rejects(geocode("412 Oak St"), /timeout/);
+});
+
+withTestDb("a saved address is placed; one with no match says so; a failing geocoder leaves it unplaced and saves anyway", async () => {
+  const owner = await createMember({ orgId: TEST_ORG, name: "Pat Ortega", role: "owner" });
+  const maria = await saveCustomer(TEST_ORG, { name: "Maria Alvarez", address: "412 Oak St" }, owner.id);
+  assert.deepEqual(
+    [maria.properties[0].geocodeStatus, maria.properties[0].lat, maria.properties[0].lng, maria.properties[0].placeLabel],
+    ["ok", 26.9617, -80.0942, "412 Oak St, Tequesta, FL 33469"],
+  );
+  assert.ok(maria.properties[0].geocodedAt);
+
+  const nowhere = await saveCustomer(TEST_ORG, { customerId: maria.id, address: "999 Nowhere Ln" }, owner.id);
+  const unplaced = nowhere.properties.find((p) => p.address === "999 Nowhere Ln")!;
+  assert.equal(unplaced.geocodeStatus, "not_found");
+  assert.equal(unplaced.lat, null, "never guessed");
+
+  setGeocoderForTests(async () => {
+    throw new Error("timeout");
+  });
+  const saved = await saveCustomer(TEST_ORG, { customerId: maria.id, address: "7 Pine Ave" }, owner.id);
+  const failed = saved.properties.find((p) => p.address === "7 Pine Ave")!;
+  assert.equal(failed.geocodeStatus, "failed");
+  assert.equal(failed.lat, null);
+
+  setGeocoderForTests(null);
+  const counts = await placeUnplaced({ orgId: TEST_ORG });
+  assert.equal(counts.ok, 1, "the backfill tries the failed one again, and leaves not-found alone");
+  const [pine] = await db().select().from(properties).where(and(eq(properties.orgId, TEST_ORG), eq(properties.id, failed.id)));
+  assert.equal(pine.geocodeStatus, "ok");
+  const [still] = await db().select().from(properties).where(and(eq(properties.orgId, TEST_ORG), eq(properties.id, unplaced.id)));
+  assert.equal(still.geocodeStatus, "not_found");
+});
+
+withTestDb("the yard is placed when the profile's address changes, and unplaced when it's cleared", async () => {
+  const owner = await createMember({ orgId: TEST_ORG, name: "Pat Ortega", role: "owner" });
+  const placed = await updateProfile(TEST_ORG, { address: "100 Bridge Rd, Tequesta, FL" }, owner.id);
+  assert.deepEqual([placed.yardGeocodeStatus, placed.yardLat, placed.yardLng], ["ok", 26.934, -80.129]);
+  assert.deepEqual(yardOf(placed), { lat: 26.934, lng: -80.129, label: "100 Bridge Rd, Tequesta, FL" });
+  const version = placed.version;
+
+  const renamed = await updateProfile(TEST_ORG, { name: "LOX Landscape Co" }, owner.id);
+  assert.equal(renamed.yardLat, 26.934, "another fact leaves the yard where it is");
+  assert.equal(renamed.version, version + 1);
+
+  const cleared = await updateProfile(TEST_ORG, { address: null }, owner.id);
+  assert.deepEqual([cleared.yardGeocodeStatus, cleared.yardLat, yardOf(cleared)], ["pending", null, null]);
+
+  const moved = await updateProfile(TEST_ORG, { address: "1 Unknown Way" }, owner.id);
+  assert.deepEqual([moved.yardGeocodeStatus, moved.yardLat], ["not_found", null]);
+  assert.equal((await getProfile(TEST_ORG)).yardGeocodeStatus, "not_found");
 });

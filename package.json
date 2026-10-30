@@ -25,7 +25,8 @@
     "email:inbox": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/email-inbox.ts",
     "smoke:model": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/smoke-model.ts",
     "email:fake": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/email-fake.ts",
-    "sam:probe": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/sam-probe.ts"
+    "sam:probe": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/sam-probe.ts",
+    "places:backfill": "node --env-file-if-exists=.env.local node_modules/.bin/tsx scripts/places-backfill.ts"
   },
   "engines": {
     "node": ">=24"
