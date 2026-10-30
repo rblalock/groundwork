@@ -610,6 +610,11 @@ export async function findAvailability(
   missingEquipment: string[];
   /** With `missingEquipment`: the members who each carry all the work needs. */
   carriedBy: CrewRef[];
+  /** Where the work is, when that's known and placed. */
+  place: Place | null;
+  /** The work's job, when there is one, and whether it repeats (`core/route-days.ts` places it by area). */
+  jobId: string | null;
+  recurring: boolean;
   advisory: true;
 }> {
   const { orgId } = actor;
@@ -637,7 +642,7 @@ export async function findAvailability(
     (moving?.propertyId ? { propertyId: moving.propertyId, place: moving.place } : null);
   const target = work?.place ?? null;
   const jobId = input.jobId ?? moving?.jobId;
-  const job = !input.quoteId && jobId ? await jobRow(orgId, jobId, db()) : null;
+  const job = !input.quoteId && jobId ? await jobRow(orgId, jobId, db()) : input.quoteId ? await jobForQuote(orgId, input.quoteId, db()) : null;
   const needs = await equipmentNeeded(orgId, input.quoteId ?? job?.quoteId ?? moving?.quoteId, db());
   const lacking = named ? missingEquipment(needs, named.map((m) => m.equipment)) : [];
   const crews: CrewMember[][] = named ? [named] : team.filter((m) => carriesAll(needs, [m.equipment])).map((m) => [m]);
@@ -713,7 +718,19 @@ export async function findAvailability(
   const slots = ordered.slice(0, limit);
   const driveEstimated = slots.length ? slots.every((slot) => slot.driveEstimated) : target !== null && yard !== null;
   const carriedBy = lacking.length ? team.filter((m) => carriesAll(needs, [m.equipment])).map(({ memberId, name }) => ({ memberId, name })) : [];
-  return { timeZone, durationMinutes: duration, slots, driveEstimated, needs, missingEquipment: lacking, carriedBy, advisory: true };
+  return {
+    timeZone,
+    durationMinutes: duration,
+    slots,
+    driveEstimated,
+    needs,
+    missingEquipment: lacking,
+    carriedBy,
+    place: target,
+    jobId: job?.id ?? null,
+    recurring: Boolean(job?.recurrence),
+    advisory: true,
+  };
 }
 
 /** The first names of a crew, as `confirmText` says them: "Carlos", "Carlos and Ana". */
@@ -728,12 +745,16 @@ const SLOT_WORDS: Record<Language, { with: string; driving: (minutes: number) =>
   es: { with: "con", driving: (minutes) => `+${minutes} min de manejo`, full: "el día pasaría de la capacidad" },
 };
 
-/** A slot as the member reads it: "Tue, Nov 3, 9 AM with Carlos (+10 min driving)", and when it doesn't fit, "(day would be over capacity)". */
-export function slotLine(slot: Slot, timeZone: string, language: Language): string {
+/**
+ * A slot as the member reads it: "Tue, Nov 3, 9 AM with Carlos (+10 min driving)", and when it doesn't fit, "(day
+ * would be over capacity)". `note` goes last in the brackets: "(+5 min driving; your Tue loop)".
+ */
+export function slotLine(slot: Slot, timeZone: string, language: Language, note?: string | null): string {
   const words = SLOT_WORDS[language];
   const notes = [
     ...(slot.addedDriveMinutes !== null ? [words.driving(slot.addedDriveMinutes)] : []),
     ...(slot.fits ? [] : [words.full]),
+    ...(note ? [note] : []),
   ];
   const when = `${dayText(slot.date, language)}, ${timeText(slot.startAt, timeZone, language)}`;
   return `${when} ${words.with} ${crewNames(slot.crew, language)}${notes.length ? ` (${notes.join("; ")})` : ""}`;
@@ -745,9 +766,10 @@ const OFFER_GAP_MS = 2 * 60 * 60 * 1000;
 /**
  * The few slots to offer, as lines: the best-ranked one for each crew and day, in rank order, so the offer is a
  * spread rather than the first minutes of one morning. When that leaves fewer than `count` (one crew asked
- * about one day), the next-ranked slots fill in, each a couple of hours from the others on its day.
+ * about one day), the next-ranked slots fill in, each a couple of hours from the others on its day. `note` adds a
+ * word to a slot's line (`slotLine`).
  */
-export function slotLines(slots: Slot[], timeZone: string, language: Language, count = 3): string[] {
+export function slotLines(slots: Slot[], timeZone: string, language: Language, count = 3, note?: (slot: Slot) => string | null): string[] {
   const seen = new Set<string>();
   const chosen: Slot[] = [];
   const keyOf = (slot: Slot) => `${slot.crew.map((c) => c.memberId).join("+")}:${slot.date}`;
@@ -765,7 +787,7 @@ export function slotLines(slots: Slot[], timeZone: string, language: Language, c
     const crowded = chosen.some((c) => keyOf(c) === key && Math.abs(c.startAt.getTime() - slot.startAt.getTime()) < OFFER_GAP_MS);
     if (!crowded) chosen.push(slot);
   }
-  return chosen.map((slot) => slotLine(slot, timeZone, language));
+  return chosen.map((slot) => slotLine(slot, timeZone, language, note?.(slot)));
 }
 
 const DAY = 24 * 60 * MINUTE;

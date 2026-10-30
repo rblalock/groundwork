@@ -6,18 +6,20 @@
 // proposal (`core/proposals.ts`): its next open visit to the first fitting slot on its new weekday next week, with
 // its own crew. Nothing moves until an owner or admin applies it, which also puts the work on its new weekday.
 // Raised on demand only: `plan_route_days` by text, or the Schedule page's button. Nothing here reaches a
-// customer: their texts are drafts the owner forwards.
+// customer: their texts are drafts the owner forwards. New recurring work is offered the weekday whose recurring
+// stops it's nearest (`routeDayFor`): the one whose loop from the yard it adds the least driving to.
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { customers, properties, proposals, quoteRevisions, quotes, serviceJobs } from "../schema/schema";
 import type { ProposalItem, WorkingInterval } from "../schema/types";
 import { db, newId } from "./db";
 import { isLanguage, type Language } from "./language";
 import { isPrivileged } from "./members";
-import type { Point } from "./places";
+import { DEFAULT_DRIVE, driveSettingsOf, type DriveSettings, type Point } from "./places";
 import { getProfile } from "./profile";
 import { claimSlot, ownerText, pickSlot, slotTarget, weekdayWord, type Claimed, type Proposal } from "./proposals";
 import { weekdayName } from "./recurrence";
-import { findAvailability, nextOpenVisits, type Actor, type Slot, type Viewer } from "./scheduling";
+import { routeDriveMinutes, suggestOrder } from "./route-order";
+import { findAvailability, nextOpenVisits, slotLines, type Actor, type Slot, type Viewer } from "./scheduling";
 import { dayText, timeText, wallClock, weekStart, weekdayOf } from "./scheduling-time";
 import { addDays } from "./time";
 
@@ -109,6 +111,24 @@ export function planRouteDays<T extends RouteJob>(yard: Point, jobs: T[], weekda
   return arcs.map((arc, i) => ({ weekday: days[i], jobs: arc })).sort((a, b) => a.weekday - b.weekday);
 }
 
+/** A weekday's recurring stops, as a loop from the yard and back. */
+export type Loop = { weekday: number; places: Point[] };
+
+/**
+ * The loop a stop at `place` adds the least driving to (its shortest order from the yard and back, with it and
+ * without, `suggestOrder`), and how much; on a tie the one with fewer stops, then the earlier weekday. Loops with no
+ * stops don't count. Pure; null when none has a stop.
+ */
+export function nearestLoop(yard: Point, place: Point, loops: Loop[], settings: DriveSettings = DEFAULT_DRIVE): { weekday: number; addedDriveMinutes: number } | null {
+  const loopMinutes = (places: Point[]) => routeDriveMinutes(yard, suggestOrder(yard, places.map((p) => ({ place: p })), settings).map((s) => s.place), settings);
+  const scored = loops
+    .filter((loop) => loop.places.length > 0)
+    .map((loop) => ({ loop, added: Math.max(0, loopMinutes([...loop.places, place]) - loopMinutes(loop.places)) }))
+    .sort((a, b) => a.added - b.added || a.loop.places.length - b.loop.places.length || a.loop.weekday - b.loop.weekday);
+  const [best] = scored;
+  return best ? { weekday: best.loop.weekday, addedDriveMinutes: best.added } : null;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Words
 
@@ -173,6 +193,45 @@ const NOTHING: Record<Language, { yard: string; hours: string; few: (n: number) 
 
 // ---------------------------------------------------------------------------------------------
 // Raising one
+
+/** "your Tue loop"; "tu ruta del mar". */
+export const loopLabel = (weekday: number, language: Language) =>
+  language === "es" ? `tu ruta del ${shortWeekday(weekday, language)}` : `your ${shortWeekday(weekday, language)} loop`;
+
+// ---------------------------------------------------------------------------------------------
+// New recurring work
+
+export type RouteDayHint = { weekday: number; label: string; addedDriveMinutes: number };
+
+/**
+ * The route day for recurring work at `place`: of the weekdays the business works, the one whose recurring stops
+ * (other open recurring jobs set on that weekday, `excludeJobId` left out) it adds the least driving to
+ * (`nearestLoop`). Null without a placed yard or place, or when no weekday has a recurring stop yet.
+ */
+export async function routeDayFor(orgId: string, input: { place: Point | null; excludeJobId?: string | null }, language: Language): Promise<RouteDayHint | null> {
+  if (!input.place) return null;
+  const profile = await getProfile(orgId);
+  if (profile.yardLat === null || profile.yardLng === null) return null;
+  const weekdays = workWeekdays(profile.workHours);
+  const rows = (await placedRecurringJobs(orgId)).filter((row) => row.job.id !== input.excludeJobId);
+  const loops = weekdays.map((weekday) => ({
+    weekday,
+    places: rows.filter((row) => row.job.recurrence?.weekday === weekday).map((row) => ({ lat: row.lat!, lng: row.lng! })),
+  }));
+  const best = nearestLoop({ lat: profile.yardLat, lng: profile.yardLng }, input.place, loops, driveSettingsOf(profile));
+  return best ? { ...best, label: loopLabel(best.weekday, language) } : null;
+}
+
+/**
+ * The lines to offer (`slotLines`) with the route day's best-ranked slot first, each of its lines saying so: "Tue,
+ * Nov 10, 10 AM with Carlos (+5 min driving; your Tue loop)". The rest keep their rank. Pure.
+ */
+export function routeDayLines(slots: Slot[], timeZone: string, language: Language, routeDay: Pick<RouteDayHint, "weekday" | "label">): string[] {
+  const onDay = (slot: Slot) => weekdayOf(slot.date) === routeDay.weekday;
+  const best = slots.find(onDay);
+  const ordered = best ? [best, ...slots.filter((s) => s !== best)] : slots;
+  return slotLines(ordered, timeZone, language, 3, (slot) => (onDay(slot) ? routeDay.label : null));
+}
 
 /** The business's open recurring jobs at placed addresses. */
 async function placedRecurringJobs(orgId: string) {

@@ -14,15 +14,18 @@ import {
   assignWeekdays,
   bearingFrom,
   cutArcs,
+  nearestLoop,
   planRouteDays,
   proposeRouteDays,
   recurringJobCount,
   routeDayCrewText,
   routeDayCustomerText,
+  routeDayFor,
+  routeDayLines,
   routeDaysReason,
   workWeekdays,
 } from "./route-days";
-import { bookVisit, getVisit, setWorkHours } from "./scheduling";
+import { bookVisit, findAvailability, getVisit, setWorkHours, type Slot } from "./scheduling";
 import { wallClock, weekdayOf } from "./scheduling-time";
 import { TEST_ORG, withTestDb } from "./test-db";
 
@@ -83,6 +86,41 @@ test("route days: the drafts say the new weekday and the first visit on it, with
     /^Hola, le escribe Ortega Lawn\. Pasamos su visita regular a los martes, a partir del 10 nov a las 9 a\.\s?m\. Avísenos si no le funciona\.$/,
   );
   assert.equal(routeDayCrewText({ title: "12 Oak St", to }, TZ, "en"), "12 Oak St moves to Tuesdays, from Tue, Nov 10, 9 AM–10 AM.");
+});
+
+test("route days: new recurring work goes on the loop it adds the least driving to", () => {
+  // Points miles apart, so the drives' rounding to 5 minutes doesn't decide it.
+  const north = [{ lat: 0.1, lng: 0 }, { lat: 0.2, lng: 0 }];
+  const east = [{ lat: 0, lng: 0.1 }];
+  const near = { lat: 0.15, lng: 0.001 };
+  assert.deepEqual(nearestLoop(yard, near, [{ weekday: 3, places: east }, { weekday: 1, places: north }]), { weekday: 1, addedDriveMinutes: 0 }, "on the way out north");
+  assert.equal(nearestLoop(yard, { lat: 0, lng: 0.12 }, [{ weekday: 1, places: north }, { weekday: 3, places: east }])?.weekday, 3);
+  assert.equal(nearestLoop(yard, { lat: 0.1, lng: 0.1 }, [{ weekday: 4, places: north.slice(0, 1) }, { weekday: 2, places: east }])?.weekday, 2, "a tie goes to the earlier weekday");
+  assert.equal(nearestLoop(yard, near, [{ weekday: 2, places: [] }]), null, "a day with no recurring stops yet isn't a loop");
+
+  const slot = (date: string, clock: string, added: number): Slot => {
+    const startAt = local(date, clock);
+    return {
+      date,
+      start: clock,
+      end: "",
+      startAt,
+      endAt: new Date(startAt.getTime() + 3_600_000),
+      offsetMinutes: -300,
+      crew: [{ memberId: "mem_carlos", name: "Carlos Reyes" }],
+      driveFromPreviousMinutes: 5,
+      driveToNextMinutes: 5,
+      driveEstimated: true,
+      addedDriveMinutes: added,
+      fits: true,
+    };
+  };
+  const ranked = [slot("2026-11-11", "09:00", 5), slot("2026-11-10", "13:00", 10), slot("2026-11-10", "10:00", 15)];
+  assert.deepEqual(routeDayLines(ranked, TZ, "en", { weekday: 2, label: "your Tue loop" }), [
+    "Tue, Nov 10, 1 PM with Carlos (+10 min driving; your Tue loop)",
+    "Wed, Nov 11, 9 AM with Carlos (+5 min driving)",
+    "Tue, Nov 10, 10 AM with Carlos (+15 min driving; your Tue loop)",
+  ]);
 });
 
 // ---------------------------------------------------------------------------------------------
@@ -186,4 +224,22 @@ withTestDb("route days: with fewer than two recurring stops placed, or no yard, 
   assert.match((await proposeRouteDays(owner, { now: NOW })).text, /^The yard's address isn't placed/);
   await updateProfile(TEST_ORG, { name: "Ortega Lawn", timeZone: TZ, address: "100 Bridge Rd, Tequesta, FL" }, owner.memberId);
   assert.equal((await proposeRouteDays(owner, { now: NOW })).text, "Route days need at least 2 recurring stops with a placed address; there are 0.");
+});
+
+withTestDb("route days: find_availability's route day for a new recurring customer is the weekday their neighbours are on", async () => {
+  const { owner, visits } = await mixedWeek();
+  const sam = await saveCustomer(TEST_ORG, { name: "Sam Lee", address: "412 Oak St" }, owner.memberId);
+  const found = await findAvailability(owner, { propertyId: sam.properties[0].id, from: "2026-11-09", days: 5 }, { now: NOW });
+  assert.equal(found.recurring, false, "new work, so the member says it repeats");
+  const routeDay = await routeDayFor(TEST_ORG, { place: found.place, excludeJobId: found.jobId }, "en");
+  assert.deepEqual(routeDay && [routeDay.weekday, routeDay.label], [2, "your Tue loop"], "412 Oak St's own loop");
+  const lines = routeDayLines(found.slots, found.timeZone, "en", routeDay!);
+  assert.match(lines[0], /^Tue, Nov 10, .* with Carlos \(.*your Tue loop\)$/);
+
+  // Recurring work of its own is placed among the others, itself left out.
+  const own = await findAvailability(owner, { jobId: visits.far.jobId, from: "2026-11-09", days: 5 }, { now: NOW });
+  assert.deepEqual([own.recurring, own.jobId], [true, visits.far.jobId]);
+  // Next to 7 Pine Ave, it adds 5 minutes to Tuesday's loop and as many to Thursday's (12 Oak St alone without it):
+  // a tie goes to the day with fewer stops.
+  assert.equal((await routeDayFor(TEST_ORG, { place: own.place, excludeJobId: own.jobId }, "es"))?.label, "tu ruta del jue");
 });
