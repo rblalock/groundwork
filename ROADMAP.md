@@ -29,21 +29,19 @@ quote page or sent to the thread by `make_post`. Still to do:
 
 ## Post-train an open-weight model on exported traces
 
-- **The dataset.** `npm run traces:export -- --org <slug> --redact` already writes one turn per JSONL
-  line: channel, model id, status, token counts, and the steps (tool calls with arguments, tool
-  results, reasoning, the reply). To make each line a training example, the export would add the
-  member's message and attachments from the conversation, and the instructions and tool schemas the
-  turn ran with.
-- **The filter.** Keep completed turns with no tool errors, and label them from the records they
-  touched: a quote the owner approved without a revision, a visit booked without a conflict, a
-  question the member answered. Drop turns whose quote was voided or corrected.
+The recipe is [docs/post-training.md](docs/post-training.md).
+
+- **The dataset.** Shipped: `npm run traces:dataset` and `npm run evals:capture` write each turn as a
+  redacted training example (instructions, tools, the member's message, calls, results, the reply).
+- **The filter.** Shipped: clean completed turns are kept and labelled from their quotes and visits;
+  voided or corrected quotes are dropped.
+- **How it is measured.** Shipped: `npm run scorecard -- --model <id> --base-url <url>` adds the tuned
+  model as a condition, judged by Muse Wonder.
 - **What we would tune.** An open-weight Llama model, supervised on these trajectories: which tool to
   call, its arguments (saved item ids, quantities in the trade's units, rule ids), the one numbered
   confirm or question, and never stating a price the calculator didn't return. Pricing stays in code
-  either way.
-- **How it is measured.** The tuned model runs as one more scorecard condition beside the baseline,
-  the pack on Muse Wonder, and the pack on Muse Spark: the same seeded business, the same evals, and
-  Muse Wonder as the judge, compared on pass rate, judge mean, completion, and cost per quote.
+  either way. Next: a few hundred real turns and an 8B LoRA run, about $20 at Together or Fireworks
+  list prices (500 examples of about 28,000 tokens, three epochs).
 
 ## Trades: what v1 leaves out
 

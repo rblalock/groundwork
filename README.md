@@ -224,20 +224,31 @@ npm run scorecard   # landscaping evals with and without the pack; writes docs/e
 npm run scorecard -- --spark         # and a third run of the pack on Muse Spark
 npm run scorecard -- --vertical pool # another pack's evals; writes docs/evals/scorecard-pool.md
 npm run traces:export -- --org <slug> --redact > traces.jsonl   # every turn's trace, one JSON line each
+npm run traces:dataset -- --org <slug> --out dataset.jsonl       # the turns as training examples, redacted
+npm run evals:capture -- --tag landscaping                       # a passing eval run's turns as examples
+npm run scorecard -- --model <id> --base-url <url>               # and a tuned model as one more condition
 npm run smoke:model # live check of the Meta Model API: text, tool call, structured output, fallback
 npm run sam:probe -- agents/assistant/evals/fixtures/yard-front.jpg lawn "mulch bed"   # SAM 3.1 on a photo
 ```
 
 `npm test` runs offline: `scripts/test-env.ts` switches every outside service to its fake and blanks
 real credentials. SAM tests decode a recorded stream in `test-fixtures/sam/`. `npm run test:db`,
-`npm run evals`, and `npm run scorecard` empty the tables of the database they point at, so give them
-a local database of their own, and never run them at the same time.
+`npm run evals`, `npm run evals:capture`, and `npm run scorecard` empty the tables of the database
+they point at, so give them a local database of their own, and never run them at the same time.
 
 The scorecard runs the evals tagged with a pack's id (`landscaping` unless `--vertical` names
 another) twice on the same seeded business: a baseline with `VERTICAL=none` and a run with the pack.
 The latest landscaping results are in [docs/evals/scorecard.md](docs/evals/scorecard.md). `traces:export` also takes `--since <ISO time>`
-and `--out <path>`; `--redact` blanks phones, emails, and addresses. `sam:probe` writes overlays to
-`/tmp/sam-probe/`. The yard photo the photo evals send is made by Muse Image:
+and `--out <path>`; `--redact` blanks phones, emails, and addresses.
+
+`traces:dataset` writes one fine-tuning example per completed turn: the system prompt it ran with, the
+member's message, the tool calls, results, and reply, and the tools it had, as chat-completions JSONL
+(`--format openai`) or Llama 3.x template text (`--format llama`), with customers' names, addresses,
+phones, and emails replaced. `evals:capture` writes the same from the evals that pass, and
+`scorecard -- --model` scores the tuned model. The recipe is in
+[docs/post-training.md](docs/post-training.md).
+
+`sam:probe` writes overlays to `/tmp/sam-probe/`. The yard photo the photo evals send is made by Muse Image:
 `node --env-file=.env.local node_modules/.bin/tsx agents/assistant/evals/fixtures/generate-yard-photo.ts`.
 
 ## Deploy

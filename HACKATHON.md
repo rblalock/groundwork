@@ -157,9 +157,10 @@ instructions carry. The scorecard file holds the current numbers and the failed 
 
 - Every assistant turn is recorded as one `turn_traces` row (`core/turn-traces.ts`), appended to as
   eve's stream events arrive: the business, conversation, member, channel (web, text, email, job),
-  model id, status, start and finish times, summed token counts, and the steps. Steps are model step
-  starts and ends with finish reasons and usage, tool calls with their inputs, tool results with
-  their outputs and error flags, reasoning text, and messages. Each value is capped at 32 KB and
+  model id, the trade pack and a hash of the instructions the turn started with, status, start and
+  finish times, summed token counts, and the steps. Steps are the member's message (with its files'
+  names), model step starts and ends with finish reasons and usage, tool calls with their inputs,
+  tool results with their outputs and error flags, reasoning text, and messages. Each value is capped at 32 KB and
   marked when cut. Traces are kept 180 days.
 - In the web chat, "Under the hood" under each reply opens to the turn's model and tokens, then each
   step's reasoning and tool calls with inputs and outputs. It is shown only to someone who can read
@@ -167,10 +168,11 @@ instructions carry. The scorecard file holds the current numbers and the failed 
 - `npm run traces:export -- --org <slug> [--since <ISO time>] [--redact] [--out <path>]` writes one
   business's traces as JSONL, one turn per line, oldest first. `--redact` blanks values under phone,
   email, and address keys, and phone numbers and emails in any text.
-- Why it exists: each line is a real turn on real work (the tool calls the model chose with their
-  arguments, what the tools returned, its reasoning, and its reply), which is the start of a dataset
-  for fine-tuning an open-weight model on this work later, measured with the same scorecard. See
-  [ROADMAP.md](ROADMAP.md).
+- `npm run traces:dataset` turns those turns into training examples (the instructions and tools each
+  turn ran with, the member's message, the calls, results, and reply, redacted and labelled from
+  what happened after), `npm run evals:capture` does the same for a passing eval run, and
+  `npm run scorecard -- --model <id> --base-url <url>` scores a tuned model beside Muse Wonder. The
+  recipe for fine-tuning an open-weight Llama on them is [docs/post-training.md](docs/post-training.md).
 
 ## Dispatch
 
