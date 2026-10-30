@@ -9,13 +9,16 @@ import { copyFor } from "@/lib/copy";
 import { textedFor, threadWithSession } from "@/lib/pages/assistant";
 import { pageMember } from "@/lib/page-session";
 
+const SAY_LIMIT = 500;
+
 /**
  * Home: the member's thread with the assistant, their texts and web turns together. It's one eve
  * session, started by their first text or, for a member who hasn't texted yet, by their first visit
  * here. What the assistant texted them on its own (nudges, notices, PDFs) isn't in the session; it
- * shows between.
+ * shows between. `?say=` puts words in the text box, unsent: a "Quote it again" link's.
  */
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<{ say?: string | string[] }> }) {
+  const { say } = await searchParams;
   const caller = await pageMember();
   const copy = copyFor(caller.language);
   const icon = <MessageSquareText size={18} />;
@@ -46,6 +49,7 @@ export default async function Page() {
       {/* Remounts if a new iMessage thread moves the member to another session. */}
       <AssistantChat
         conversationId={thread.id}
+        draft={typeof say === "string" ? say.slice(0, SAY_LIMIT) : undefined}
         key={thread.eveSessionId}
         language={caller.language}
         sessionId={thread.eveSessionId}

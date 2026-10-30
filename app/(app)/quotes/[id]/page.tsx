@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ExternalLink, FileText, Paperclip } from "lucide-react";
+import { ExternalLink, FileText, Paperclip, Repeat2 } from "lucide-react";
 import { Card, Crumb, PageBody, QuoteStatusPill, Table, Td, Th, ViewingNotice } from "@/components/pages/kit";
 import { JobsTable } from "@/components/pages/jobs";
 import { QuoteActions } from "@/components/pages/quote-actions";
@@ -37,6 +37,10 @@ import { JumpBar, type JumpSection } from "@/components/record/jump-bar";
 import { EmptyFold, RailFact, RecordColumns, RecordSection } from "@/components/record/layout";
 import { ProgressLine } from "@/components/record/progress-line";
 import { quoteProgress, shortWhen } from "@/lib/record-progress";
+
+// The kit's small secondary button, as plain classes: its Button is a client component.
+const AGAIN_LINK =
+  "inline-flex h-[27px] shrink-0 items-center gap-1.5 rounded-full bg-surface px-3 text-[13px] leading-none font-medium text-ink shadow-btn transition-colors hover:bg-inset";
 
 const IMAGE_NAME = /\.(jpe?g|png|gif|webp)$/i;
 
@@ -105,6 +109,11 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
   const openWork = work.find((job) => job.status === "open");
   const bookable = canAct && ["approved", "sent", "won"].includes(quote.status) && (openWork || !work.some((job) => job.status !== "cancelled"));
   const bookHref = bookable ? `/schedule?book=${openWork ? `job:${openWork.id}` : `quote:${quote.quoteId}`}` : undefined;
+  // A quote past its draft can be proposed again at today's prices, from the member's chat.
+  const repeatHref =
+    caller.memberId !== null && !["draft", "needs_owner"].includes(quote.status)
+      ? `/?say=${encodeURIComponent(q.quoteAgainSay(quote.title, quote.customerName))}`
+      : undefined;
 
   // Where it stands, from drafted to paid, naming the next visit while it's booked.
   const r = copy.record;
@@ -138,7 +147,17 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
     <>
       <OnScreen record={{ kind: "quote", id: quote.quoteId, label: quote.title }} />
       <PaperPage
-        actions={<AskAssistantButton label={copyFor(language).rail.ask} start={{ quoteId: quote.quoteId, reuse: true }} />}
+        actions={
+          <>
+            {repeatHref ? (
+              <Link className={AGAIN_LINK} href={repeatHref}>
+                <Repeat2 aria-hidden="true" className="size-3.5" />
+                {q.quoteAgain}
+              </Link>
+            ) : null}
+            <AskAssistantButton label={copyFor(language).rail.ask} start={{ quoteId: quote.quoteId, reuse: true }} />
+          </>
+        }
         title={<Crumb href="/quotes" parent={q.back}>{quote.title}</Crumb>}
       >
         <PageBody>

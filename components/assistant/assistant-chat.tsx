@@ -443,6 +443,8 @@ type AssistantChatProps = {
   onSessionEnded?: (content: ChatContent) => Promise<boolean>;
   /** Sent once as soon as the conversation opens: what an ended session couldn't take. */
   initialSend?: ChatContent;
+  /** In the text box when it opens, not sent: what a link like "Quote it again" puts there. */
+  draft?: string;
 };
 
 /** What one send carries: the text, or the text and its attached files. */
@@ -529,6 +531,7 @@ function ChatSession({
   onMessages,
   onSessionEnded,
   initialSend,
+  draft,
   initialEvents,
   endedWhen,
 }: AssistantChatProps & { initialEvents: readonly MessageStreamEvent[]; endedWhen: (status: number, code: string | undefined) => boolean }) {
@@ -769,6 +772,7 @@ function ChatSession({
                 }
                 attachLabel={all.assistant.attach}
                 hasFiles={attached.length > 0}
+                initialDraft={draft}
                 minimal
                 onAttach={readOnlyNote === undefined && attached.length < MAX_ATTACHED ? () => fileInput.current?.click() : undefined}
                 onSend={send}

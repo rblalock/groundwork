@@ -38,6 +38,8 @@ const en = {
   } as Record<QuoteStatus, string>,
   quotes: {
     title: "Quotes",
+    quoteAgain: "Quote it again",
+    quoteAgainSay: (title: string, customer: string | null) => `Quote ${title} again${customer ? ` for ${customer}` : ""}, same as last time.`,
     all: "All",
     filters: {
       draft: "Open drafts",
@@ -1220,6 +1222,8 @@ const es: PageCopy = {
   },
   quotes: {
     title: "Cotizaciones",
+    quoteAgain: "Cotizarla otra vez",
+    quoteAgainSay: (title: string, customer: string | null) => `Cotiza ${title} otra vez${customer ? ` para ${customer}` : ""}, igual que la última vez.`,
     all: "Todas",
     filters: {
       draft: "Borradores",

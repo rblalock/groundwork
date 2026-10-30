@@ -156,6 +156,7 @@ export default function PromptBar({
   hasFiles = false,
   sendLabel = "Send",
   attachLabel = "Attach files",
+  initialDraft = "",
 }: {
   variant?: string;
   /** the self-running walkthrough; turn off when embedding in a real surface */
@@ -178,9 +179,11 @@ export default function PromptBar({
   sendLabel?: string;
   /** The paperclip's label, for apps in another language. */
   attachLabel?: string;
+  /** Groundwork: words already in the text box when it opens, for the member to send or change. */
+  initialDraft?: string;
 }) {
   const pill = variant === "Pill";
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(initialDraft);
   const [dismissed, setDismissed] = useState(false);
   const [plusOpen, setPlusOpen] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
