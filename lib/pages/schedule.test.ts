@@ -71,11 +71,19 @@ withTestDb("schedule: everyone sees every lane; only owners and admins see the w
   assert.equal(week.canManage, true);
 
   const mine = await scheduleFor(crewA, { date: s.day });
-  assert.equal(mine.view, "day", "crew start on their day");
+  assert.equal(mine.view, "route", "crew start on their route when the day has visits");
+  assert.deepEqual(mine.plans.map((p) => [p.name, p.stops.map((stop) => stop.visitId)]), [["Sam Crew", [s.visit.visitId]]]);
   assert.deepEqual(mine.crew.map((c) => c.name), ["Pat Owner", "Sam Crew", "Lee Crew"]);
   assert.deepEqual(mine.visits.map((v) => v.visitId), [s.visit.visitId]);
   assert.deepEqual(mine.toSchedule, []);
   assert.equal(mine.canManage, false);
+  const idle = await scheduleFor(crewB, { date: s.day });
+  assert.deepEqual([idle.view, idle.plans], ["day", []], "else on their day");
+  assert.deepEqual((await scheduleFor(crewB, { view: "route", date: s.day })).plans, [], "crew see only their own route");
+  const routes = await scheduleFor(owner, { view: "route", date: s.day });
+  assert.deepEqual([routes.dates, routes.plans.map((p) => p.name)], [[s.day], ["Sam Crew"]]);
+  assert.equal(typeof routes.plans[0].stops[0].startAt, "string");
+  assert.deepEqual(week.plans, [], "only the route view carries plans");
   const theirs = await scheduleFor(crewB, { view: "week", date: s.day });
   assert.deepEqual(theirs.visits.map((v) => v.visitId), [s.visit.visitId], "a visit they're not on shows too");
   assert.deepEqual(theirs.crew.map((c) => c.name), ["Pat Owner", "Sam Crew", "Lee Crew"]);

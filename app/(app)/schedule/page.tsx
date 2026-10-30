@@ -27,8 +27,9 @@ async function bookTargetFor(orgId: string, book: string | undefined, canBook: b
 }
 
 /**
- * The schedule: everyone's visits by day or week for owners and admins, who book and move them here;
- * a crew member's own day for crew. Everything here can also be done by asking the assistant.
+ * The schedule: everyone's visits by day or week, and each crew member's route for a day, for owners and
+ * admins, who book and move them here; a crew member's own route (or day) for crew. Everything here can also
+ * be done by asking the assistant.
  */
 export default async function SchedulePage({ searchParams }: { searchParams: Promise<Search> }) {
   const caller = await pageMember();

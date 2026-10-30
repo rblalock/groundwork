@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { plansIn, type DayPlan, type PlanStop } from "../../core/day-plan";
 import { getProfile } from "../../core/profile";
 import {
   addTimeOff,
@@ -27,9 +28,10 @@ import { jobInvoicesFor } from "./invoices";
 
 // Who may see and do what on the Schedule page, through the same library the assistant's tools use.
 // Everyone sees the whole schedule and marks visits done. Owners and admins plan it; crew add
-// their own time off. A super admin's look-only view sees what an owner sees.
+// their own time off. A super admin's look-only view sees what an owner sees. The route view shows each
+// crew member's day as a route (`core/day-plan.ts`): everyone's to owners and admins, a crew member's own.
 
-export const SCHEDULE_VIEWS = ["day", "week"] as const;
+export const SCHEDULE_VIEWS = ["day", "week", "route"] as const;
 export type ScheduleView = (typeof SCHEDULE_VIEWS)[number];
 
 /** A visit as the page gets it: instants as ISO strings, so it crosses to the browser as is. */
@@ -39,6 +41,24 @@ export type CrewJson = Pick<CrewMember, "memberId" | "name" | "role" | "hours" |
 export type ToScheduleJson = (ToSchedule extends infer T ? (T extends { since: Date } ? Omit<T, "since"> & { since: string } : never) : never);
 
 export const visitJson = (v: VisitView): VisitJson => ({ ...v, startAt: v.startAt.toISOString(), endAt: v.endAt.toISOString() });
+
+type Instants<T, K extends keyof T> = Omit<T, K> & { [P in K]: null extends T[P] ? string | null : string };
+export type PlanStopJson = Instants<PlanStop, "plannedArriveAt" | "startAt" | "endAt" | "plannedLeaveAt">;
+export type DayPlanJson = Instants<Omit<DayPlan, "stops">, "leaveYardAt" | "backAtYardAt"> & { stops: PlanStopJson[] };
+
+const iso = (at: Date | null) => (at ? at.toISOString() : null);
+export const planJson = (plan: DayPlan): DayPlanJson => ({
+  ...plan,
+  leaveYardAt: iso(plan.leaveYardAt),
+  backAtYardAt: iso(plan.backAtYardAt),
+  stops: plan.stops.map((s) => ({
+    ...s,
+    plannedArriveAt: s.plannedArriveAt.toISOString(),
+    startAt: s.startAt.toISOString(),
+    endAt: s.endAt.toISOString(),
+    plannedLeaveAt: s.plannedLeaveAt.toISOString(),
+  })),
+});
 
 export type SchedulePage = {
   view: ScheduleView;
@@ -59,18 +79,27 @@ export type SchedulePage = {
   me: string | null;
   /** Each shown job's invoice, by job id: owners and admins only (crew get none). */
   invoices: Record<string, { invoiceId: string; label: string; status: string }>;
+  /** The route view's plans for the day: each crew member's with visits for owners and admins, a crew member's own. */
+  plans: DayPlanJson[];
 };
 
-/** The Schedule page's data for a day or a week: everyone's lanes. */
+const isView = (value: string | undefined): value is ScheduleView => SCHEDULE_VIEWS.includes(value as ScheduleView);
+
+/**
+ * The Schedule page's data for a day, a week, or a day's routes: everyone's lanes. Owners and admins start on
+ * the week; crew on their route when they have visits that day, else on the day.
+ */
 export async function scheduleFor(caller: AppCaller, input: { view?: string; date?: string; now?: Date }): Promise<SchedulePage> {
   const profile = await getProfile(caller.orgId);
   const timeZone = profile.timeZone;
   const today = wallClock(input.now ?? new Date(), timeZone).date;
-  const view: ScheduleView = input.view === "day" || input.view === "week" ? input.view : caller.role === "member" ? "day" : "week";
+  const asked = isView(input.view) ? input.view : caller.role === "member" ? null : "week";
   const date = input.date && isYmd(input.date) ? input.date : today;
-  const from = view === "day" ? date : weekStart(date);
-  const days = view === "day" ? 1 : 7;
+  const from = asked === "week" ? weekStart(date) : date;
+  const days = asked === "week" ? 7 : 1;
   const schedule = await readSchedule(caller, { from, days }, { now: input.now });
+  const plans = asked === "week" || asked === "day" ? [] : plansIn(caller, schedule, profile);
+  const view: ScheduleView = asked ?? (plans.length > 0 ? "route" : "day");
   const privileged = caller.role !== "member";
   return {
     view,
@@ -92,6 +121,7 @@ export async function scheduleFor(caller: AppCaller, input: { view?: string; dat
     canManage: privileged && caller.memberId !== null,
     me: caller.memberId,
     invoices: await jobInvoicesFor(caller, schedule.visits.map((v) => v.jobId)),
+    plans: view === "route" ? plans.map(planJson) : [],
   };
 }
 

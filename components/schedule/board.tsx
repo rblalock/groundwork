@@ -15,6 +15,7 @@ import type { SchedulePage, TimeOffJson, ToScheduleJson, VisitJson } from "@/lib
 import { localDateTime, shiftDate } from "@/lib/schedule-presentation";
 import { ErrorLine, inputClass } from "../pages/client-kit";
 import { DayGrid, WeekBoard, clockLabel, dayLabel, timeLabel } from "./calendar";
+import { RouteBoard } from "./route";
 import type { MoveRequest } from "./drag";
 import { FormDialog, HoursForm, TimeOffForm, VisitForm, toScheduleKey, useScheduleRequest, type VisitFormTarget } from "./forms";
 import { CreateInvoiceButton } from "../invoices/actions";
@@ -38,10 +39,11 @@ type Dialogs =
   | null;
 
 /**
- * The Schedule page: a day (crew lanes on a time grid) or a week (a row per crew member), work waiting
- * to be booked, and a visit's details beside the calendar. Owners and admins book, move, and cancel
- * here; crew see their own lane and mark their visits done. The view, day, and open visit live in the
- * URL, so a link opens the same thing.
+ * The Schedule page: a day (crew lanes on a time grid), a week (a row per crew member), or a day's routes
+ * (each crew member's stops in order, from the yard and back), work waiting to be booked, and a visit's
+ * details beside the calendar. Owners and admins book, move, and cancel here; crew see their own lane and
+ * route and mark their visits done. The view, day, and open visit live in the URL, so a link opens the
+ * same thing.
  */
 export function ScheduleBoard({
   page,
@@ -94,9 +96,11 @@ export function ScheduleBoard({
     if (selected || timeOff) panelRef.current?.focus();
   }, [selected?.visitId, timeOff?.id]);
 
-  const step = page.view === "day" ? 1 : 7;
+  // The route view is a day, and its details sit beside it like the day's.
+  const oneDay = page.view !== "week";
+  const step = oneDay ? 1 : 7;
   const heading =
-    page.view === "day"
+    oneDay
       ? dayLabel(page.date, language, { weekday: "long", month: "long", day: "numeric" })
       : `${dayLabel(page.dates[0], language, { month: "short", day: "numeric" })} – ${dayLabel(page.dates.at(-1)!, language, { month: "short", day: "numeric" })}`;
   const bookingDay = page.date < page.today ? page.today : page.date;
@@ -130,18 +134,18 @@ export function ScheduleBoard({
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-2">
         <SegmentedControl
-          onChange={(view) => go({ view: view === s.day ? "day" : "week", visit: null })}
-          options={[s.day, s.week] as const}
-          value={page.view === "day" ? s.day : s.week}
+          onChange={(view) => go({ view: view === s.day ? "day" : view === s.route ? "route" : "week", visit: null })}
+          options={[s.day, s.week, s.route] as const}
+          value={page.view === "day" ? s.day : page.view === "route" ? s.route : s.week}
         />
         <div className="flex items-center gap-1">
           <Button onClick={() => go({ date: page.today, visit: null })} size="sm">
             {s.today}
           </Button>
-          <Button aria-label={page.view === "day" ? s.previousDay : s.previousWeek} onClick={() => go({ date: shiftDate(page.date, -step), visit: null })} size="sm" variant="quiet">
+          <Button aria-label={oneDay ? s.previousDay : s.previousWeek} onClick={() => go({ date: shiftDate(page.date, -step), visit: null })} size="sm" variant="quiet">
             <ChevronLeft aria-hidden="true" className="size-4" />
           </Button>
-          <Button aria-label={page.view === "day" ? s.nextDay : s.nextWeek} onClick={() => go({ date: shiftDate(page.date, step), visit: null })} size="sm" variant="quiet">
+          <Button aria-label={oneDay ? s.nextDay : s.nextWeek} onClick={() => go({ date: shiftDate(page.date, step), visit: null })} size="sm" variant="quiet">
             <ChevronRight aria-hidden="true" className="size-4" />
           </Button>
           <label className="relative flex size-[27px] cursor-pointer items-center justify-center rounded-full text-ink hover:bg-hover" title={s.pickDate}>
@@ -193,19 +197,27 @@ export function ScheduleBoard({
       <div
         className={cn(
           "relative",
-          (selected || timeOff) && (page.view === "day" ? "grid items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_20rem]" : "min-h-[34rem]"),
+          (selected || timeOff) && (oneDay ? "grid items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_20rem]" : "min-h-[34rem]"),
         )}
       >
         <section className="min-w-0 overflow-hidden rounded-card bg-surface shadow-card">
-          {page.view === "day" ? <DayGrid date={page.date} {...shared} /> : <WeekBoard dates={page.dates} {...shared} />}
-          {empty ? <p className="border-t border-line px-4 py-3 text-[13px] text-ink-3">{page.view === "day" ? s.noVisitsDay : s.noVisitsWeek}</p> : null}
-          {page.canManage ? (
+          {page.view === "route" ? (
+            <RouteBoard language={language} onVisit={shared.onVisit} plans={page.plans} selectedId={selectedId} timeZone={page.timeZone} visits={page.visits} />
+          ) : page.view === "day" ? (
+            <DayGrid date={page.date} {...shared} />
+          ) : (
+            <WeekBoard dates={page.dates} {...shared} />
+          )}
+          {empty && page.view !== "route" ? (
+            <p className="border-t border-line px-4 py-3 text-[13px] text-ink-3">{page.view === "day" ? s.noVisitsDay : s.noVisitsWeek}</p>
+          ) : null}
+          {page.canManage && page.view !== "route" ? (
             <p className="hidden border-t border-line px-4 py-2.5 text-[12px] text-ink-3 [@media(pointer:fine)]:block">{s.drag.hint}</p>
           ) : null}
         </section>
 
         {selected ? (
-          <aside aria-label={selected.title} className={page.view === "day" ? SIDE_PANEL : PANEL} ref={panelRef} tabIndex={-1}>
+          <aside aria-label={selected.title} className={oneDay ? SIDE_PANEL : PANEL} ref={panelRef} tabIndex={-1}>
             <VisitDetail
               canManage={page.canManage}
               invoice={page.invoices[selected.jobId] ?? null}
@@ -219,7 +231,7 @@ export function ScheduleBoard({
             />
           </aside>
         ) : timeOff ? (
-          <aside aria-label={s.off} className={page.view === "day" ? SIDE_PANEL : PANEL} ref={panelRef} tabIndex={-1}>
+          <aside aria-label={s.off} className={oneDay ? SIDE_PANEL : PANEL} ref={panelRef} tabIndex={-1}>
             <TimeOffDetail block={timeOff} canRemove={page.canManage || timeOff.memberId === page.me} language={language} onClose={() => setTimeOff(null)} timeZone={page.timeZone} />
           </aside>
         ) : null}
