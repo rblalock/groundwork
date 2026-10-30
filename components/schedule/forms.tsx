@@ -78,10 +78,14 @@ export type VisitFormTarget =
   | { kind: "book"; work?: string }
   | { kind: "move"; visit: VisitJson };
 
+type Overrides = { allowOutsideHours?: boolean; allowMissingEquipment?: boolean };
+/** The refusals the owner can book past, and the flag that does it. */
+const OVERRIDES: Record<string, keyof Overrides> = { OUTSIDE_HOURS: "allowOutsideHours", MISSING_EQUIPMENT: "allowMissingEquipment" };
+
 /**
  * Book a visit (for won or approved work, more visits on open work, or new work) or move one. "Find
  * open times" asks the server for times everyone picked is free; booking checks again. A time outside
- * working hours is refused with the chance to book it anyway.
+ * working hours, or a crew who don't carry what the work needs, is refused with the chance to book it anyway.
  */
 export function VisitForm({
   target,
@@ -113,7 +117,8 @@ export function VisitForm({
   const [notes, setNotes] = useState(moving?.notes ?? "");
   const [tentative, setTentative] = useState(false);
   const [error, setError] = useState<string>();
-  const [outside, setOutside] = useState(false);
+  // A refusal the owner can book past, and what they've already said yes to.
+  const [overridable, setOverridable] = useState<{ flag: keyof Overrides; overrides: Overrides } | null>(null);
   const [slots, setSlots] = useState<SlotJson[] | null>(null);
   const durations = DURATIONS.includes(duration) ? DURATIONS : [...DURATIONS, duration].sort((a, b) => a - b);
 
@@ -132,11 +137,12 @@ export function VisitForm({
     else setError(result.error);
   }
 
-  async function submit(event: FormEvent, allowOutsideHours = false) {
+  async function submit(event: FormEvent, overrides: Overrides = {}) {
     event.preventDefault();
     setError(undefined);
-    setOutside(false);
+    setOverridable(null);
     const [kind, id] = work.split(":");
+    const { allowOutsideHours } = overrides;
     const body = moving
       ? { date, time, durationMinutes: duration, memberIds, notes, ...(allowOutsideHours ? { allowOutsideHours } : {}) }
       : {
@@ -147,12 +153,13 @@ export function VisitForm({
           durationMinutes: duration,
           ...(notes.trim() ? { notes: notes.trim() } : {}),
           ...(tentative ? { tentative } : {}),
-          ...(allowOutsideHours ? { allowOutsideHours } : {}),
+          ...overrides,
         };
     const result = await send<{ visit: VisitJson }>(moving ? `/api/schedule/visits/${moving.visitId}` : "/api/schedule/visits", moving ? "PATCH" : "POST", body);
     if (result.ok) return onDone(result.data.visit);
     setError(result.error);
-    setOutside(result.code === "OUTSIDE_HOURS");
+    const flag = result.code ? OVERRIDES[result.code] : undefined;
+    if (flag) setOverridable({ flag, overrides });
   }
 
   // A week of slots reads better grouped by day, a few per day.
@@ -246,9 +253,14 @@ export function VisitForm({
         </label>
       ) : null}
       <ErrorLine>{error}</ErrorLine>
-      {outside ? (
+      {overridable ? (
         <div>
-          <Button disabled={busy} onClick={(event) => void submit(event, true)} size="sm" type="button">
+          <Button
+            disabled={busy}
+            onClick={(event) => void submit(event, { ...overridable.overrides, [overridable.flag]: true })}
+            size="sm"
+            type="button"
+          >
             {f.bookAnyway}
           </Button>
         </div>

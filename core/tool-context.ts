@@ -130,6 +130,8 @@ const HINTS: Record<string, string> = {
   VISIT_IN_PAST: "That time has already passed. Ask for a time still to come.",
   OUTSIDE_HOURS: "That's outside the crew's working hours. Say whose hours and ask if they want it booked anyway; only if they say yes, pass allowOutsideHours.",
   CREW_BUSY: "Someone on the crew already has a visit then. Say which, and offer another time (find_availability) or other crew.",
+  MISSING_EQUIPMENT:
+    "The crew don't carry what the work needs. Say who lacks what in one line and offer the crew who carry it (find_availability without memberIds). Book them anyway with allowMissingEquipment only when the owner or an admin says so.",
   CREW_OFF: "Someone on the crew is off then. Say so and offer another time (find_availability) or other crew.",
   QUOTE_NOT_AGREED: "Only an approved, sent, or won quote can be scheduled. If the customer said yes, mark it won with set_quote_outcome first.",
   JOB_CLOSED: "That work is already completed or cancelled. Open new work for more visits.",

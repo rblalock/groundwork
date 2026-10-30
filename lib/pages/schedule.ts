@@ -150,6 +150,7 @@ export const bookSchema = z
     notes: z.string().max(4000).optional(),
     tentative: z.boolean().optional(),
     allowOutsideHours: z.boolean().optional(),
+    allowMissingEquipment: z.boolean().optional(),
   })
   .strict();
 

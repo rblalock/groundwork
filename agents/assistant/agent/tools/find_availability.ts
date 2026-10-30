@@ -5,7 +5,7 @@ import { plain, requireCaller, toolError } from "../../../../core/tool-context";
 
 export default defineTool({
   description:
-    "Find times a crew can take a visit of durationMinutes (default 60), inside their working hours and around their visits and time off. Advisory: it holds nothing, and book_visit checks again. Use it when the member asks when someone is free or when to fit a job in, or when a time they asked for is taken. With memberIds it's that crew; without, each member on their own. Pass reschedulingVisitId when moving that visit, so its own time counts as free. Pass the work (quoteId, jobId, or propertyId): the buffers are then the drive from the crew's stop before (or the yard) and on to the next stop (or back), and the code ranks the slots: those that keep the crew's day under the business's capacity first, then the least driving added to their day, then the earliest. Send `lines` as they are: two or three of the best, each with who and the minutes of driving it adds, and \"(day would be over capacity)\" when it doesn't fit. Never rank or work out minutes yourself. driveEstimated false means a place couldn't be placed and no drive was held; say so. Crew can only look up themselves.",
+    "Find times a crew can take a visit of durationMinutes (default 60), inside their working hours and around their visits and time off. Advisory: it holds nothing, and book_visit checks again. Use it when the member asks when someone is free or when to fit a job in, or when a time they asked for is taken. With memberIds it's that crew; without, each member on their own. Pass reschedulingVisitId when moving that visit, so its own time counts as free. Pass the work (quoteId, jobId, or propertyId): the buffers are then the drive from the crew's stop before (or the yard) and on to the next stop (or back), and the code ranks the slots: those that keep the crew's day under the business's capacity first, then the least driving added to their day, then the earliest. Send `lines` as they are: two or three of the best, each with who and the minutes of driving it adds, and \"(day would be over capacity)\" when it doesn't fit. Never rank or work out minutes yourself. driveEstimated false means a place couldn't be placed and no drive was held; say so. Equipment: needs is what the work's price book items need. Without memberIds, members who don't carry all of it are left out. When the crew named don't, missingEquipment says what they lack and carriedBy who carries it all: say so in one line and offer them instead. Crew can only look up themselves.",
   inputSchema: z.object({
     memberIds: z.array(z.string()).min(1).max(6).optional().describe("The crew, from read_business. Omit to look at each member on their own."),
     day: z.string().default("today").describe("The first day to look: YYYY-MM-DD, today, tomorrow, or a weekday name."),
@@ -39,6 +39,10 @@ export default defineTool({
         durationMinutes: found.durationMinutes,
         advisory: true,
         driveEstimated: found.driveEstimated,
+        ...(found.needs.length ? { needs: found.needs } : {}),
+        ...(found.missingEquipment.length
+          ? { missingEquipment: found.missingEquipment, carriedBy: found.carriedBy.map((c) => ({ memberId: c.memberId, name: c.name })) }
+          : {}),
         // The best for each crew and day, in rank order: what to offer.
         lines: slotLines(found.slots, found.timeZone, caller.language),
         // Best first.

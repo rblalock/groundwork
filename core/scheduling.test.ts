@@ -8,7 +8,10 @@ import { runOrgTick } from "./followups";
 import { setTransportForTests } from "./imessage";
 import { addPhone, createMember, recordInbound, type Caller } from "./members";
 import { driveMinutes, yardOf } from "./places";
-import { saveItems } from "./pricebook";
+import { findItemByName, saveItems, updateItem } from "./pricebook";
+import { updateTeamMember } from "./team";
+import findAvailabilityTool from "../agents/assistant/agent/tools/find_availability";
+import type { z } from "zod";
 import { getProfile, updateProfile } from "./profile";
 import { approveQuote, createQuote, setQuoteOutcome, type Poster } from "./quotes";
 import {
@@ -313,6 +316,46 @@ withTestDb("slots fit the route: least added driving before a far day, under the
   const unrouted = await ask();
   assert.ok(unrouted.slots.every((slot) => slot.addedDriveMinutes === null));
   assert.deepEqual(unrouted.slots.filter((slot) => slot.fits).map((slot) => slot.startAt.getTime()), unrouted.slots.filter((slot) => slot.fits).map((slot) => slot.startAt.getTime()).sort((a, b) => a - b));
+});
+
+withTestDb("equipment: only crew who carry what the work needs are offered, a named crew who don't hear it, and booking them needs the owner's say", async () => {
+  const s = await seed();
+  const quoted = (await findItemByName(TEST_ORG, "widget service"))!;
+  await updateItem(TEST_ORG, quoted.id, { equipment: ["Chipper", "trailer"] }, s.owner.memberId);
+  await updateTeamMember(s.owner, s.carlos.memberId, { equipment: ["Trailers"] });
+  await updateTeamMember(s.owner, s.ana.memberId, { equipment: ["chipper", "trailer", "60in mower"] });
+
+  // Nobody named: only those who carry it all.
+  const anyone = await findAvailability(s.owner, { from: "tuesday", days: 1, quoteId: s.quote.quoteId }, deps);
+  assert.deepEqual(anyone.needs, ["Chipper", "trailer"]);
+  assert.deepEqual([...new Set(anyone.slots.map((slot) => slot.crew[0].name))], ["Ana Crew"]);
+  assert.deepEqual(anyone.missingEquipment, []);
+
+  // Carlos named: his times still, what he lacks, and who carries it; nobody offered in his place.
+  const carlos = await findAvailability(s.owner, { memberIds: [s.carlos.memberId], from: "tuesday", days: 1, quoteId: s.quote.quoteId }, deps);
+  assert.ok(carlos.slots.length && carlos.slots.every((slot) => slot.crew.map((c) => c.name).join() === "Carlos Crew"));
+  assert.deepEqual(carlos.missingEquipment, ["Chipper"]);
+  assert.deepEqual(carlos.carriedBy.map((c) => c.name), ["Ana Crew"]);
+  const both = await findAvailability(s.owner, { memberIds: [s.carlos.memberId, s.ana.memberId], from: "tuesday", days: 1, quoteId: s.quote.quoteId }, deps);
+  assert.deepEqual([both.missingEquipment, both.carriedBy], [[], []], "between them they carry it");
+
+  // The tool says the same, with the lines to send.
+  const auth = { auth: { current: { authenticator: "photon-imessage", principalId: `member:${s.owner.memberId}`, attributes: { orgId: TEST_ORG, memberId: s.owner.memberId } } } };
+  const input = (findAvailabilityTool.inputSchema as z.ZodType).parse({ memberIds: [s.carlos.memberId], day: "tuesday", days: 1, quoteId: s.quote.quoteId });
+  const out = (await findAvailabilityTool.execute(input as never, { session: auth } as never)) as Record<string, any>;
+  assert.deepEqual([out.missingEquipment, out.carriedBy.map((c: { name: string }) => c.name)], [["Chipper"], ["Ana Crew"]]);
+  assert.match(out.lines[0], /^Tue, \w+ \d+, .+ with Carlos$/, "the tool runs on today's clock; no yard, so no minutes");
+
+  // Booking Carlos is refused, nothing is opened, and the owner saying so books him.
+  const book = (extra: Record<string, unknown> = {}) =>
+    bookVisit(s.owner, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "tuesday", time: "09:00", ...extra }, deps);
+  await assert.rejects(book(), /MISSING_EQUIPMENT: Carlos Crew doesn't carry Chipper, which the work needs/);
+  assert.deepEqual((await toSchedule(TEST_ORG)).map((t) => t.kind), ["quote"], "the refused booking opened no work");
+  assert.equal((await book({ allowMissingEquipment: true })).visit.crew[0].name, "Carlos Crew");
+  assert.ok(await bookVisit(s.owner, { quoteId: s.quote.quoteId, memberIds: [s.ana.memberId], day: "tuesday", time: "13:00" }, deps));
+
+  // Work with no quote needs nothing.
+  assert.ok(await bookVisit(s.owner, { title: "Shed", memberIds: [s.carlos.memberId], day: "wednesday", time: "09:00" }, deps));
 });
 
 withTestDb("availability over the clocks changing: no slot in the gap, both of the repeated hour", async () => {

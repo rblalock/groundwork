@@ -7,7 +7,7 @@ import { isEmailTurn, plain, requireCaller, toolError } from "../../../../core/t
 export default defineTool({
   approval: privilegedOnly("book visits"),
   description:
-    "Book a visit: when the work happens and who goes. For a quote (quoteId: approved, sent, or won; its work is opened the first time), more visits on existing work (jobId), or new work with no quote (title, and customerId and propertyId when known). Owners and admins only. day is as the member said it (YYYY-MM-DD, today, tomorrow, or a weekday name like tuesday) and time is 24-hour HH:MM, both in the business's time zone: the code works out the date, so never compute it yourself. memberIds come from read_business. durationMinutes defaults to 60. Leave the buffers out unless the member gives them: the code holds the drive in from the crew's stop before (or the yard) and out to the next (or back); driveEstimated false means a place couldn't be placed, so no drive was held. tentative pencils it in. The crew booked get a text; customers never do. Reply with confirmText.",
+    "Book a visit: when the work happens and who goes. For a quote (quoteId: approved, sent, or won; its work is opened the first time), more visits on existing work (jobId), or new work with no quote (title, and customerId and propertyId when known). Owners and admins only. day is as the member said it (YYYY-MM-DD, today, tomorrow, or a weekday name like tuesday) and time is 24-hour HH:MM, both in the business's time zone: the code works out the date, so never compute it yourself. memberIds come from read_business. durationMinutes defaults to 60. Leave the buffers out unless the member gives them: the code holds the drive in from the crew's stop before (or the yard) and out to the next (or back); driveEstimated false means a place couldn't be placed, so no drive was held. A crew who don't carry what the work's price book items need is refused (MISSING_EQUIPMENT). tentative pencils it in. The crew booked get a text; customers never do. Reply with confirmText.",
   inputSchema: z.object({
     quoteId: z.string().optional(),
     jobId: z.string().optional(),
@@ -23,6 +23,10 @@ export default defineTool({
     notes: z.string().max(4000).optional().describe("Notes for the crew on this visit."),
     tentative: z.boolean().optional(),
     allowOutsideHours: z.boolean().optional().describe("Only after the member confirms they want it outside the crew's hours."),
+    allowMissingEquipment: z
+      .boolean()
+      .optional()
+      .describe("Only when the owner or an admin says the crew goes anyway without what the work needs (\"Carlos will borrow the chipper\")."),
     offsetMinutes: z.number().int().optional().describe("Only for a time the clocks repeat, from the AMBIGUOUS_TIME error."),
   }),
   async execute({ notes, ...input }, ctx) {

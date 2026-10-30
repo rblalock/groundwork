@@ -13,7 +13,9 @@ import {
   checklistItems,
   customers,
   members,
+  pricebookItems,
   properties,
+  quoteRevisions,
   quotes,
   serviceJobs,
   visitCrew,
@@ -21,6 +23,7 @@ import {
   visits,
 } from "../schema/schema";
 import { db, newId, type Db, type Tx } from "./db";
+import { carriesAll, equipmentUnion, missingEquipment } from "./equipment";
 import { recordEvent } from "./events";
 import { isLanguage, type Language } from "./language";
 import { isPrivileged, type Caller, type Member } from "./members";
@@ -112,7 +115,15 @@ const languageOf = (member: Pick<Member, "language">): Language => (isLanguage(m
 // ---------------------------------------------------------------------------------------------
 // Crew and hours
 
-export type CrewMember = { memberId: string; name: string; role: Member["role"]; hours: WorkingInterval[]; ownHours: boolean };
+export type CrewMember = {
+  memberId: string;
+  name: string;
+  role: Member["role"];
+  hours: WorkingInterval[];
+  ownHours: boolean;
+  /** What their truck carries. */
+  equipment: string[];
+};
 
 /** The business's active members with the hours each works: their own, or the business's. */
 export async function scheduleCrew(orgId: string, executor: Db | Tx = db()): Promise<CrewMember[]> {
@@ -128,6 +139,7 @@ export async function scheduleCrew(orgId: string, executor: Db | Tx = db()): Pro
     role: m.role,
     hours: m.workHours ?? profile.workHours,
     ownHours: m.workHours !== null,
+    equipment: m.equipment,
   }));
 }
 
@@ -418,6 +430,26 @@ async function workPlace(
   return null;
 }
 
+/**
+ * What the work needs: everything its quote's items need (`core/equipment.ts`), from the quote's current lines
+ * as its checklist is. Work without a quote, and lines without an item, need nothing.
+ */
+async function equipmentNeeded(orgId: string, quoteId: string | null | undefined, executor: Db | Tx): Promise<string[]> {
+  if (!quoteId) return [];
+  const [revision] = await executor
+    .select({ lines: quoteRevisions.lines })
+    .from(quotes)
+    .innerJoin(quoteRevisions, and(eq(quoteRevisions.orgId, quotes.orgId), eq(quoteRevisions.id, quotes.currentRevisionId)))
+    .where(and(eq(quotes.orgId, orgId), eq(quotes.id, quoteId)));
+  const itemIds = [...new Set((revision?.lines ?? []).flatMap((line) => (line.itemId ? [line.itemId] : [])))];
+  if (!itemIds.length) return [];
+  const items = await executor
+    .select({ id: pricebookItems.id, equipment: pricebookItems.equipment })
+    .from(pricebookItems)
+    .where(and(eq(pricebookItems.orgId, orgId), inArray(pricebookItems.id, itemIds)));
+  return equipmentUnion(itemIds.map((id) => items.find((item) => item.id === id)?.equipment ?? []));
+}
+
 type Buffers = { bufferBeforeMinutes: number; bufferAfterMinutes: number; driveEstimated: boolean };
 
 /**
@@ -523,6 +555,11 @@ export function rankSlots<T extends Pick<Slot, "fits" | "addedDriveMinutes" | "s
  * steps inside each one's working hours, around their visits and time off. Advisory: it holds nothing, and
  * booking checks again. With `memberIds` it's that crew; without, each active member on their own.
  *
+ * Equipment: the work (its quote, or its job's, or the moved visit's) needs what its items need. Without
+ * `memberIds`, members who don't carry all of it are left out. A crew named who don't carry it still get their
+ * slots, with `missingEquipment` saying what they lack and `carriedBy` who carries it all; nobody is offered in
+ * their place.
+ *
  * The buffers not given are the drive to the work's property (`propertyId`, else the job's or quote's, else
  * the visit being moved's) from each one's stop before it that day or the yard, and on to the next stop or back.
  * When a place is unknown or unplaced, they fall back to the default and `driveEstimated` is false.
@@ -548,12 +585,25 @@ export async function findAvailability(
     order?: "route" | "time";
   },
   deps?: { now?: Date },
-): Promise<{ timeZone: string; durationMinutes: number; slots: Slot[]; driveEstimated: boolean; advisory: true }> {
+): Promise<{
+  timeZone: string;
+  durationMinutes: number;
+  slots: Slot[];
+  driveEstimated: boolean;
+  /** What the work needs; empty when nothing. */
+  needs: string[];
+  /** What the crew named don't carry between them; empty when they carry it all, or nobody was named. */
+  missingEquipment: string[];
+  /** With `missingEquipment`: the members who each carry all the work needs. */
+  carriedBy: CrewRef[];
+  advisory: true;
+}> {
   const { orgId } = actor;
   const now = deps?.now ?? new Date();
   const profile = await getProfileWith(orgId, db());
   const timeZone = profile.timeZone;
-  const crews: CrewMember[][] = input.memberIds ? [await crewFor(orgId, input.memberIds, db())] : (await scheduleCrew(orgId, db())).map((member) => [member]);
+  const named = input.memberIds ? await crewFor(orgId, input.memberIds, db()) : null;
+  const team = await scheduleCrew(orgId, db());
   const duration = clampDuration(input.durationMinutes);
   const given = {
     before: input.bufferBeforeMinutes === undefined ? undefined : clampBuffer(input.bufferBeforeMinutes),
@@ -572,6 +622,11 @@ export async function findAvailability(
     (await workPlace(orgId, input, db())) ??
     (moving?.propertyId ? { propertyId: moving.propertyId, place: moving.place } : null);
   const target = work?.place ?? null;
+  const jobId = input.jobId ?? moving?.jobId;
+  const job = !input.quoteId && jobId ? await jobRow(orgId, jobId, db()) : null;
+  const needs = await equipmentNeeded(orgId, input.quoteId ?? job?.quoteId ?? moving?.quoteId, db());
+  const lacking = named ? missingEquipment(needs, named.map((m) => m.equipment)) : [];
+  const crews: CrewMember[][] = named ? [named] : team.filter((m) => carriesAll(needs, [m.equipment])).map((m) => [m]);
   const yard = yardOf(profile);
   const settings = driveSettingsOf(profile);
   // Insertion math needs both ends of the day placed; without them, slots go in time order.
@@ -643,7 +698,8 @@ export async function findAvailability(
   const ordered = input.order === "time" ? [...found].sort((a, b) => a.startAt.getTime() - b.startAt.getTime()) : rankSlots(found, byDrive);
   const slots = ordered.slice(0, limit);
   const driveEstimated = slots.length ? slots.every((slot) => slot.driveEstimated) : target !== null && yard !== null;
-  return { timeZone, durationMinutes: duration, slots, driveEstimated, advisory: true };
+  const carriedBy = lacking.length ? team.filter((m) => carriesAll(needs, [m.equipment])).map(({ memberId, name }) => ({ memberId, name })) : [];
+  return { timeZone, durationMinutes: duration, slots, driveEstimated, needs, missingEquipment: lacking, carriedBy, advisory: true };
 }
 
 /** The first names of a crew, as `confirmText` says them: "Carlos", "Carlos and Ana". */
@@ -972,6 +1028,8 @@ export type BookVisitInput = JobInput & {
   silent?: boolean;
   /** The owner means it: book outside the crew's working hours. */
   allowOutsideHours?: boolean;
+  /** The owner means it: book a crew who don't carry what the work needs ("Carlos will borrow the chipper"). */
+  allowMissingEquipment?: boolean;
 };
 
 export type BookingResult = {
@@ -984,8 +1042,9 @@ export type BookingResult = {
 };
 
 /**
- * Books a visit, owners and admins only. Refuses a past time, a time outside the crew's hours (unless
- * `allowOutsideHours`), and one over their other visits or time off. Texts each crew member booked,
+ * Books a visit, owners and admins only. Refuses a past time, a crew who don't carry what the work needs (unless
+ * `allowMissingEquipment`), a time outside the crew's hours (unless `allowOutsideHours`), and one over their
+ * other visits or time off. Texts each crew member booked,
  * other than whoever booked it. The buffers not given are the drives in and out (`findAvailability`), to
  * the property given or the work's.
  */
@@ -1012,6 +1071,14 @@ export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps
       job = found;
     } else {
       ({ job, created: jobCreated } = await ensureJob(actor, input, tx, now));
+    }
+    if (!input.allowMissingEquipment) {
+      const lacking = missingEquipment(await equipmentNeeded(orgId, job.quoteId, tx), crew.map((c) => c.equipment));
+      if (lacking.length) {
+        const names = crew.map((c) => c.name);
+        const who = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)} don't` : `${names[0]} doesn't`;
+        throw new Error(`MISSING_EQUIPMENT: ${who} carry ${lacking.join(", ")}, which the work needs`);
+      }
     }
     const work = await workPlace(orgId, { propertyId: input.propertyId ?? job.propertyId ?? undefined }, tx);
     const crewStops = await crewStopsOn(orgId, crew, wallClock(startAt, timeZone).date, timeZone, tx);
