@@ -940,8 +940,11 @@ export const followups = pgTable(
     status: followupStatus("status").notNull().default("pending"),
     sentMessageId: text("sent_message_id"),
     /** What a `notice` says, and whether it asks the member to approve `quoteId`. */
-    /** A notice's text; `conversationId` is the email thread it's a reply from, dropped once its member opens that thread. */
-    payload: jsonb("payload").$type<{ text: string; asksApproval: boolean; conversationId?: string } | null>(),
+    /**
+     * A notice's text; `conversationId` is the email thread it's a reply from, dropped once its member opens that thread;
+     * `proposalId` is the proposal it asks about, cancelled once that's decided or over (`core/proposals.ts`).
+     */
+    payload: jsonb("payload").$type<{ text: string; asksApproval: boolean; conversationId?: string; proposalId?: string } | null>(),
     createdAt: createdAt(),
   },
   (t) => [index("followups_org_due_idx").on(t.orgId, t.status, t.dueAt)],

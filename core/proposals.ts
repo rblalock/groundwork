@@ -6,10 +6,10 @@
 // transaction; the stops that still hold move through the code `reschedule_visit` uses, and the crew are texted
 // as they are for any move. Nothing here reaches a customer: each stop's customer text is a draft the owner
 // forwards. Every time, choice, and check is made here; the assistant only relays the texts.
-import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
-import { customers, members, proposals } from "../schema/schema";
+import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { customers, followups, members, proposals } from "../schema/schema";
 import type { ProposalItem } from "../schema/types";
-import { db, newId, type Tx } from "./db";
+import { db, newId, type Db, type Tx } from "./db";
 import type { DayPlan, PlanStop } from "./day-plan";
 import { isLanguage, type Language } from "./language";
 import { isPrivileged, privilegedMembers } from "./members";
@@ -409,7 +409,7 @@ export async function sendProposal(orgId: string, proposal: Proposal, deps?: Dep
       const result = await (deps?.post ?? postToMember)(orgId, owner.id, { text }, "proactive", { now, profile });
       if (result.posted) sent.push(owner.name);
       else if (result.reason === "quiet_hours" && proposal.kind === "move_weather") {
-        await queueNotice({ orgId, memberId: owner.id, quoteId: null, payload: { text, asksApproval: false }, now });
+        await queueNotice({ orgId, memberId: owner.id, quoteId: null, payload: { text, asksApproval: false, proposalId: proposal.id }, now });
       }
     } catch (error) {
       console.error("proposals: the owner's text failed", { orgId, proposalId: proposal.id, error });
@@ -418,7 +418,26 @@ export async function sendProposal(orgId: string, proposal: Proposal, deps?: Dep
   return sent;
 }
 
-/** Marks open proposals whose day is over expired, for one business; returns how many. */
+/**
+ * Cancels the owners' texts about these proposals still queued behind quiet hours: once a proposal is decided or
+ * over, a text asking about it would be answered about another.
+ */
+async function cancelQueuedTexts(executor: Db | Tx, orgId: string, proposalIds: string[]): Promise<void> {
+  if (!proposalIds.length) return;
+  await executor
+    .update(followups)
+    .set({ status: "cancelled" })
+    .where(
+      and(
+        eq(followups.orgId, orgId),
+        eq(followups.kind, "notice"),
+        eq(followups.status, "pending"),
+        inArray(sql`${followups.payload}->>'proposalId'`, proposalIds),
+      ),
+    );
+}
+
+/** Marks open proposals whose day is over expired, for one business, and cancels their queued texts; returns how many. */
 export async function expireProposals(orgId: string, now: Date = new Date()): Promise<number> {
   const today = wallClock(now, (await getProfile(orgId)).timeZone).date;
   const rows = await db()
@@ -426,6 +445,7 @@ export async function expireProposals(orgId: string, now: Date = new Date()): Pr
     .set({ status: "expired", decidedAt: now })
     .where(and(eq(proposals.orgId, orgId), eq(proposals.status, "open"), lt(proposals.date, today)))
     .returning({ id: proposals.id });
+  await cancelQueuedTexts(db(), orgId, rows.map((row) => row.id));
   return rows.length;
 }
 
@@ -583,6 +603,7 @@ export async function applyProposal(actor: Actor, input: { proposalId?: string; 
       .set({ status: "applied", decidedAt: now, decidedByMemberId: actor.memberId, appliedItemIds: moved.map((m) => m.item.id) })
       .where(and(eq(proposals.orgId, orgId), eq(proposals.id, proposal.id)))
       .returning();
+    await cancelQueuedTexts(tx, orgId, [proposal.id]);
     return { proposal: decided, moved, skipped, timeZone };
   });
   const notified: string[] = [];
@@ -637,6 +658,7 @@ export async function dropProposal(actor: Actor, input: { proposalId?: string },
       .set({ status: "dropped", decidedAt: now, decidedByMemberId: actor.memberId })
       .where(and(eq(proposals.orgId, actor.orgId), eq(proposals.id, open.id), eq(proposals.status, "open")))
       .returning();
+    await cancelQueuedTexts(tx, actor.orgId, [open.id]);
     return dropped;
   });
   const n = proposal.items.length;

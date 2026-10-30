@@ -247,8 +247,12 @@ withTestDb("weather check: held by quiet hours, the owners' text is queued for t
   assert.equal(queued.length, 1);
   assert.match(queued[0].payload?.text ?? "", /^Rain likely tomorrow 10 AM–2 PM \(70%\)/);
   assert.equal(queued[0].dueAt.toISOString(), local("07:00").toISOString(), "when quiet hours end");
+  assert.equal(queued[0].payload?.proposalId, checked.proposal.id);
 
+  // Dropped on the web that night: the queued text would ask about a proposal that's gone, so it's cancelled.
   await dropProposal(owner, {}, { now: local("21:05", TODAY) });
+  const [cancelled] = await db().select().from(followups).where(eq(followups.id, queued[0].id));
+  assert.equal(cancelled.status, "cancelled");
   assert.equal(await proposeWeatherMoves(TEST_ORG, local("22:00", TODAY)), null);
   assert.deepEqual(await sendProposal(TEST_ORG, checked.proposal, { now: local("09:00", TODAY), post }), ["Pat Ortega"], "sendable as any proposal");
 });
