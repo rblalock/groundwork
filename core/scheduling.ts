@@ -6,7 +6,7 @@
 // Who may do what: owners and admins book, move, and cancel visits, open and close jobs, set hours, and
 // add anyone's time off. Everyone reads the whole schedule and marks visits done; crew add or remove
 // their own time off. Booking someone sends them a heads-up text (never a customer: they don't text us).
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import {
   busyBlocks,
   businessProfile,
@@ -26,14 +26,15 @@ import { db, newId, type Db, type Tx } from "./db";
 import { carriesAll, equipmentUnion, missingEquipment } from "./equipment";
 import { recordEvent } from "./events";
 import { isLanguage, type Language } from "./language";
-import { isPrivileged, type Caller, type Member } from "./members";
+import { isPrivileged, privilegedMembers, type Caller, type Member } from "./members";
 import { planDay, type DayPlan } from "./day-plan";
 import { crewAddedDrive, crewDrives, driveSettingsOf, legsAround, placeOf, yardOf, type Leg, type Place, type Stop } from "./places";
 import { getProfileWith, type Profile } from "./profile";
 import { crewChecklist, type CrewChecklist } from "./checklist";
 import type { Poster } from "./quotes";
-import { everyOf, recurrenceText, type Recurrence, type Recurring } from "./recurrence";
+import { everyOf, nextOccurrenceFrom, recurrenceText, type Recurrence, type Recurring } from "./recurrence";
 import {
+  clockMinutes,
   dayText,
   intervalsOverlap,
   localTimeInstants,
@@ -1157,6 +1158,8 @@ export type BookVisitInput = JobInput & {
   allowOutsideHours?: boolean;
   /** The owner means it: book a crew who don't carry what the work needs ("Carlos will borrow the chipper"). */
   allowMissingEquipment?: boolean;
+  /** Recurring work's next visit (`rollForward`): refused with `NEXT_ALREADY_BOOKED` when the job has one open already. */
+  nextOfRecurring?: boolean;
 };
 
 export type BookingResult = {
@@ -1200,6 +1203,14 @@ export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps
     } else {
       ({ job, created: jobCreated } = await ensureJob(actor, input, tx, now));
     }
+    if (input.nextOfRecurring) {
+      const [open] = await tx
+        .select({ id: visits.id })
+        .from(visits)
+        .where(and(eq(visits.orgId, orgId), eq(visits.jobId, job.id), inArray(visits.status, OPEN_VISIT)))
+        .limit(1);
+      if (open) throw new Error("NEXT_ALREADY_BOOKED");
+    }
     if (!input.allowMissingEquipment) await ensureCrewCarries(orgId, job.quoteId, crew, tx);
     const work = await workPlace(orgId, { propertyId: input.propertyId ?? job.propertyId ?? undefined }, tx);
     const crewStops = await crewStopsOn(orgId, crew, wallClock(startAt, timeZone).date, timeZone, tx);
@@ -1228,10 +1239,11 @@ export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps
       updatedAt: now,
     });
     await tx.insert(visitCrew).values(crew.map((c) => ({ orgId, visitId: id, memberId: c.memberId })));
-    // Work made recurring here, or recurring with no visit yet, repeats from this one.
+    // Work made recurring here, or recurring with no visit yet, repeats from this one; one only pencilled in
+    // isn't the time agreed yet.
     const recurrence = input.recurring
       ? fromVisit({ every: everyOf(input.recurring) }, { startAt, endAt }, timeZone)
-      : job.recurrence && job.recurrence.weekday === undefined
+      : job.recurrence && job.recurrence.weekday === undefined && !input.tentative
         ? fromVisit(job.recurrence, { startAt, endAt }, timeZone)
         : null;
     await tx
@@ -1384,13 +1396,14 @@ export async function tellMoved(actor: Actor, previous: VisitView, timeZone: str
 /**
  * Marks a visit done, cancels it, or confirms one pencilled in. Anyone on the team marks a visit done
  * once its day has come (someone may finish another crew's job); everything else is for owners and admins. A cancelled visit's crew
- * get a text. Returns how many visits the job still has open, so the member can be asked about closing it.
+ * get a text. Recurring work done gets its next visit (`rollForward`), returned as `nextVisit`. Returns how many
+ * visits the job still has open, so the member can be asked about closing it.
  */
 export async function changeVisitStatus(
   actor: Actor,
   input: { visitId: string; status: "completed" | "cancelled" | "scheduled"; reason?: string; visitNotes?: string },
   deps?: Deps,
-): Promise<{ visit: VisitView; openVisitsOnJob: number; notified: string[] }> {
+): Promise<{ visit: VisitView; openVisitsOnJob: number; notified: string[]; nextVisit: VisitView | null }> {
   const { orgId } = actor;
   const now = deps?.now ?? new Date();
   if (input.status !== "completed") requirePrivileged(actor);
@@ -1421,6 +1434,14 @@ export async function changeVisitStatus(
     return tz;
   });
   const visit = (await getVisit(actor, input.visitId)) as VisitView;
+  // Recurring work books its next visit as one is done; a failure never fails marking it done.
+  const nextVisit =
+    input.status === "completed"
+      ? await rollForward(orgId, visit.jobId, deps).catch((error: unknown) => {
+          console.error("scheduling: the recurring work's next visit wasn't booked", { orgId, jobId: visit.jobId, error });
+          return null;
+        })
+      : null;
   const [open] = await db()
     .select({ n: sql<number>`count(*)::int` })
     .from(visits)
@@ -1429,7 +1450,7 @@ export async function changeVisitStatus(
     input.status === "cancelled"
       ? await tellCrew(actor, visit.crew.map((c) => c.memberId), (lang) => crewText.cancelled(actor.name, visit, timeZone, lang), deps)
       : [];
-  return { visit, openVisitsOnJob: open.n, notified };
+  return { visit, openVisitsOnJob: open.n, notified, nextVisit };
 }
 
 /** Crew change only visits they're on; owners and admins any. Throws `NOT_ON_VISIT`. */
@@ -1551,6 +1572,117 @@ export async function closeServiceJob(
     cancelledVisits: outcome.cancelled,
     notified: [...new Set(notified)],
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Recurring work
+
+/**
+ * Where recurring work's next visit lands among one day's slots and the days after (`findAvailability`'s): the
+ * first day that has a slot that fits, at its usual clock when that's free, else the clock nearest it that day
+ * (the earlier on a tie). Pure; null when no day has one.
+ */
+export function recurringSlot(slots: Slot[], date: string, time: string): Slot | null {
+  const fitting = slots.filter((s) => s.fits && s.date >= date);
+  const day = fitting.map((s) => s.date).sort()[0];
+  if (!day) return null;
+  const wanted = clockMinutes(time);
+  const away = (slot: Slot) => Math.abs(clockMinutes(slot.start) - wanted);
+  return fitting.filter((s) => s.date === day).sort((a, b) => away(a) - away(b) || a.startAt.getTime() - b.startAt.getTime())[0];
+}
+
+/** How many days past the date it falls on a recurring visit may land, when its crew can't take that day. */
+const RECURRING_LATER_DAYS = 6;
+
+/**
+ * Books recurring work's next visit when it has none open: after its latest visit (done, or cancelled to skip
+ * one), on the recurrence's weekday and clock (`nextOccurrenceFrom`), for its length, with that visit's crew still
+ * on the team. A day they can't take (time off, a full day) moves it to the first one after that can, through
+ * `recurringSlot`. It goes through `bookVisit`, booked by the business's first owner or admin, with no crew text:
+ * the morning route has it. Returns the visit, or null when there's nothing to book or nowhere to put it.
+ */
+export async function rollForward(orgId: string, jobId: string, deps?: Deps): Promise<VisitView | null> {
+  const now = deps?.now ?? new Date();
+  const job = await jobRow(orgId, jobId, db());
+  if (!job || job.status !== "open" || !job.recurrence) return null;
+  const booked = await loadVisitViews(orgId, [eq(visits.jobId, jobId)]);
+  const last = booked.at(-1);
+  if (!last || booked.some((v) => OPEN_VISIT.includes(v.status))) return null;
+  const team = await scheduleCrew(orgId);
+  const crew = last.crew.filter((c) => team.some((m) => m.memberId === c.memberId));
+  const [booker] = await privilegedMembers(orgId);
+  if (!crew.length || !booker) return null;
+  const { timeZone } = await getProfileWith(orgId, db());
+  const next = nextOccurrenceFrom(job.recurrence, last.startAt, timeZone, now);
+  const durationMinutes = job.recurrence.durationMinutes ?? Math.round((last.endAt.getTime() - last.startAt.getTime()) / MINUTE);
+  const viewer: Viewer = { orgId, memberId: null, role: "owner" };
+  let slot: Slot | null = null;
+  for (let d = 0; d <= RECURRING_LATER_DAYS && !slot; d++) {
+    const found = await findAvailability(
+      viewer,
+      { memberIds: crew.map((c) => c.memberId), from: addDays(next.date, d), days: 1, durationMinutes, jobId, limit: 100, order: "time" },
+      { now },
+    );
+    slot = recurringSlot(found.slots, next.date, next.time);
+  }
+  if (!slot) {
+    console.info("scheduling: recurring work has no room for its next visit", { orgId, jobId, date: next.date });
+    return null;
+  }
+  const actor: Actor = { orgId, memberId: booker.id, role: booker.role, name: booker.name, language: languageOf(booker) };
+  try {
+    const result = await bookVisit(
+      actor,
+      {
+        jobId,
+        memberIds: crew.map((c) => c.memberId),
+        day: slot.date,
+        time: slot.start,
+        offsetMinutes: slot.offsetMinutes,
+        durationMinutes,
+        silent: true,
+        nextOfRecurring: true,
+      },
+      deps,
+    );
+    return result.visit;
+  } catch (error) {
+    if (error instanceof Error && error.message === "NEXT_ALREADY_BOOKED") return null;
+    throw error;
+  }
+}
+
+/**
+ * The hourly safety net: each of the business's open recurring jobs with no visit open gets its next one
+ * (`rollForward`), so work skipped by a cancelled visit, or done without being marked through the schedule, still
+ * comes round. One that fails is logged and the rest still run. Returns how many were booked.
+ */
+export async function rollForwardDue(orgId: string, deps?: Deps): Promise<number> {
+  const due = await db()
+    .select({ id: serviceJobs.id })
+    .from(serviceJobs)
+    .where(
+      and(
+        eq(serviceJobs.orgId, orgId),
+        eq(serviceJobs.status, "open"),
+        isNotNull(serviceJobs.recurrence),
+        notExists(
+          db()
+            .select({ id: visits.id })
+            .from(visits)
+            .where(and(eq(visits.orgId, orgId), eq(visits.jobId, serviceJobs.id), inArray(visits.status, OPEN_VISIT))),
+        ),
+      ),
+    );
+  let count = 0;
+  for (const { id } of due) {
+    try {
+      if (await rollForward(orgId, id, deps)) count++;
+    } catch (error) {
+      console.error("scheduling: the recurring work's next visit wasn't booked", { orgId, jobId: id, error });
+    }
+  }
+  return count;
 }
 
 // ---------------------------------------------------------------------------------------------

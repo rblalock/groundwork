@@ -3,7 +3,7 @@ import { z } from "zod";
 import { privilegedOnly } from "../../../../core/policies";
 import { getProfile } from "../../../../core/profile";
 import { createServiceJob, jobRecurrenceText } from "../../../../core/scheduling";
-import { plain, requireCaller, toolError } from "../../../../core/tool-context";
+import { isEmailTurn, plain, requireCaller, toolError } from "../../../../core/tool-context";
 import { recurringSchema } from "../../../../core/tool-schemas";
 
 export default defineTool({
@@ -21,7 +21,9 @@ export default defineTool({
   async execute(input, ctx) {
     try {
       const caller = await requireCaller(ctx);
-      const { job, created } = await createServiceJob(caller, input);
+      // From a forwarded email, how the work repeats waits for the member's own turn: on a quote's work it
+      // would change a record.
+      const { job, created } = await createServiceJob(caller, { ...input, ...(isEmailTurn(ctx.session.auth.current) ? { recurring: undefined } : {}) });
       const recurring = jobRecurrenceText(job, (await getProfile(caller.orgId)).timeZone, caller.language);
       return plain({
         created,

@@ -146,7 +146,7 @@ withTestDb("runHourlyTick sends a due nudge once and schedules the weekly one", 
   assert.equal(due.length, 1);
   assert.equal(due[0].quote.title, "4512 Palm Ave");
 
-  assert.deepEqual(await runHourlyTick(DUE), { nudges: 1, mornings: 0, notices: 0 });
+  assert.deepEqual(await runHourlyTick(DUE), { nudges: 1, mornings: 0, notices: 0, nextVisits: 0 });
   assert.equal(sent.length, 1);
   assert.match(sent[0].text, /^4512 Palm Ave \(\$392\) was approved 3 days ago/);
   assert.equal(sent[0].threadId, "thread:+13055550100");
@@ -161,7 +161,7 @@ withTestDb("runHourlyTick sends a due nudge once and schedules the weekly one", 
   assert.equal(log.quoteId, quoteId);
   assert.equal(log.asksApproval, true, "a 👍 on a nudge is an ok for its quote");
 
-  assert.deepEqual(await runHourlyTick(DUE), { nudges: 0, mornings: 0, notices: 0 });
+  assert.deepEqual(await runHourlyTick(DUE), { nudges: 0, mornings: 0, notices: 0, nextVisits: 0 });
   assert.equal(sent.length, 1);
   const weekly = await runHourlyTick(new Date("2026-10-30T15:00:00Z"));
   assert.equal(weekly.nudges, 1);
@@ -172,20 +172,20 @@ withTestDb("a nudge due in quiet hours stays pending and goes out at the next ti
   install();
   const { quoteId } = await seedApproved();
   const night = new Date("2026-10-24T03:00:00Z"); // 23:00 in New York
-  assert.deepEqual(await runHourlyTick(night), { nudges: 0, mornings: 0, notices: 0 });
+  assert.deepEqual(await runHourlyTick(night), { nudges: 0, mornings: 0, notices: 0, nextVisits: 0 });
   assert.equal(sent.length, 0);
   const [row] = await db().select().from(followups).where(eq(followups.quoteId, quoteId));
   assert.equal(row.status, "pending");
-  assert.deepEqual(await runHourlyTick(new Date("2026-10-24T11:00:00Z")), { nudges: 1, mornings: 0, notices: 0 });
+  assert.deepEqual(await runHourlyTick(new Date("2026-10-24T11:00:00Z")), { nudges: 1, mornings: 0, notices: 0, nextVisits: 0 });
 });
 
 withTestDb("runHourlyTick posts the morning line once per local day", async () => {
   install();
   await seedApproved();
   const eight = new Date("2026-10-21T12:00:00Z"); // 08:00 in New York
-  assert.deepEqual(await runHourlyTick(new Date("2026-10-21T11:00:00Z")), { nudges: 0, mornings: 0, notices: 0 });
-  assert.deepEqual(await runHourlyTick(eight), { nudges: 0, mornings: 1, notices: 0 });
-  assert.deepEqual(await runHourlyTick(new Date("2026-10-21T12:30:00Z")), { nudges: 0, mornings: 0, notices: 0 });
+  assert.deepEqual(await runHourlyTick(new Date("2026-10-21T11:00:00Z")), { nudges: 0, mornings: 0, notices: 0, nextVisits: 0 });
+  assert.deepEqual(await runHourlyTick(eight), { nudges: 0, mornings: 1, notices: 0, nextVisits: 0 });
+  assert.deepEqual(await runHourlyTick(new Date("2026-10-21T12:30:00Z")), { nudges: 0, mornings: 0, notices: 0, nextVisits: 0 });
   assert.equal(sent.length, 1);
   assert.equal(sent[0].text, "Good morning. 1 quote waiting on customers.");
   // The next local day gets its own line.
@@ -197,7 +197,7 @@ withTestDb("the morning line is silent on quiet days and counts the owner's queu
   const owner = await person("Pat", "owner", "+13055550100");
   const crew = await person("Carlos", "member", "+13055550142");
   const eight = new Date("2026-10-21T12:00:00Z");
-  assert.deepEqual(await runHourlyTick(eight), { nudges: 0, mornings: 0, notices: 0 });
+  assert.deepEqual(await runHourlyTick(eight), { nudges: 0, mornings: 0, notices: 0, nextVisits: 0 });
   assert.equal(sent.length, 0);
 
   const [widget] = await saveItems(
@@ -223,7 +223,7 @@ withTestDb("nudges for a quote marked won are cancelled", async () => {
   const { owner, quoteId } = await seedApproved();
   await setQuoteOutcome(quoteId, "won", owner, { now: DUE });
   assert.equal((await dueNudges(TEST_ORG, DUE)).length, 0);
-  assert.deepEqual(await runHourlyTick(DUE), { nudges: 0, mornings: 0, notices: 0 });
+  assert.deepEqual(await runHourlyTick(DUE), { nudges: 0, mornings: 0, notices: 0, nextVisits: 0 });
   assert.equal(sent.length, 0);
   const [row] = await db().select().from(followups).where(eq(followups.quoteId, quoteId));
   assert.equal(row.status, "cancelled");
@@ -234,7 +234,7 @@ withTestDb("a removed member's nudge is cancelled, not retried", async () => {
   const { owner, quoteId } = await seedApproved();
   await person("Dana", "owner", "+13055550177"); // keep an active owner so removal is allowed
   await removeMember(TEST_ORG, owner.memberId);
-  assert.deepEqual(await runHourlyTick(DUE), { nudges: 0, mornings: 0, notices: 0 });
+  assert.deepEqual(await runHourlyTick(DUE), { nudges: 0, mornings: 0, notices: 0, nextVisits: 0 });
   const [row] = await db().select().from(followups).where(eq(followups.quoteId, quoteId));
   assert.equal(row.status, "cancelled");
 });
@@ -270,8 +270,8 @@ withTestDb("a crew-draft notice held by quiet hours is queued and goes out at 07
   assert.equal(queued.dueAt.toISOString(), SEVEN.toISOString());
   assert.match(queued.payload?.text ?? "", /^Carlos drafted \$70 for 12 Elm St/);
 
-  assert.deepEqual(await runHourlyTick(new Date("2026-10-21T10:00:00Z")), { nudges: 0, mornings: 0, notices: 0 });
-  assert.deepEqual(await runHourlyTick(SEVEN), { nudges: 0, mornings: 0, notices: 1 });
+  assert.deepEqual(await runHourlyTick(new Date("2026-10-21T10:00:00Z")), { nudges: 0, mornings: 0, notices: 0, nextVisits: 0 });
+  assert.deepEqual(await runHourlyTick(SEVEN), { nudges: 0, mornings: 0, notices: 1, nextVisits: 0 });
   assert.deepEqual(sent, [{ threadId: "thread:+13055550100", text: queued.payload?.text }]);
   const [log] = await db().select().from(messages).where(eq(messages.kind, "proactive"));
   assert.equal(log.quoteId, quoteId);

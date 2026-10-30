@@ -6,7 +6,18 @@ import { db } from "./db";
 import { addPhone, createMember, recordInbound, type Caller } from "./members";
 import { updateProfile } from "./profile";
 import type { Poster } from "./quotes";
-import { bookVisit, createServiceJob, getServiceJob, jobRecurrenceText, setRecurrence, visitForTool } from "./scheduling";
+import {
+  addTimeOff,
+  bookVisit,
+  changeVisitStatus,
+  createServiceJob,
+  getServiceJob,
+  jobRecurrenceText,
+  rollForward,
+  rollForwardDue,
+  setRecurrence,
+  visitForTool,
+} from "./scheduling";
 import { TEST_ORG, withTestDb } from "./test-db";
 
 const TZ = "America/New_York";
@@ -67,4 +78,51 @@ withTestDb("recurring work: opened monthly with no visit, its first visit sets t
   await bookVisit(owner, { jobId: job.id, memberIds: [crew.memberId], day: "2026-11-11", time: "10:00" }, { now: NOW, post });
   assert.deepEqual(await recurrenceOf(job.id), { every: "month", weekday: 3, time: "10:00", durationMinutes: 60 });
   assert.equal(jobRecurrenceText((await getServiceJob(owner, job.id))!, TZ, "en"), "Every month on the 2nd Wednesday at 10 AM");
+});
+
+const whenOf = (visit: { startAt: Date } | null) => (visit ? visit.startAt.toISOString() : null);
+
+withTestDb("recurring work: a visit done books the next with the same crew and time, silently, past a day the crew are off", async () => {
+  const { owner, crew, maria, posts, post } = await business();
+  const first = await bookVisit(
+    owner,
+    { title: "412 Oak St", customerId: maria.id, propertyId: maria.properties[0].id, memberIds: [crew.memberId], day: "2026-11-10", time: "09:00", durationMinutes: 45, recurring: "weekly" },
+    { now: NOW, post },
+  );
+  posts.length = 0;
+  const done = await changeVisitStatus(crew, { visitId: first.visit.visitId, status: "completed" }, { now: local("2026-11-10", "10:00"), post });
+  assert.equal(whenOf(done.nextVisit), local("2026-11-17", "09:00").toISOString(), "a week on, 9 AM");
+  assert.deepEqual(done.nextVisit?.crew.map((c) => c.memberId), [crew.memberId]);
+  assert.equal(Math.round((done.nextVisit!.endAt.getTime() - done.nextVisit!.startAt.getTime()) / 60_000), 45);
+  assert.equal(done.openVisitsOnJob, 1, "so nobody is asked whether the work is finished");
+  assert.deepEqual(posts, [], "nobody is texted: the morning route has it");
+  assert.equal(await rollForward(TEST_ORG, first.visit.jobId, { now: local("2026-11-10", "10:05") }), null, "one open visit at a time");
+
+  // Carlos is off Tuesday the 24th, so that week's visit is Wednesday at 9.
+  await addTimeOff(owner, { memberId: crew.memberId, day: "2026-11-24", reason: "Dentist" }, { now: NOW });
+  const second = await changeVisitStatus(crew, { visitId: done.nextVisit!.visitId, status: "completed" }, { now: local("2026-11-17", "10:00"), post });
+  assert.equal(whenOf(second.nextVisit), local("2026-11-25", "09:00").toISOString());
+  assert.deepEqual(posts, []);
+
+  // Cancelled to skip a week, the hourly safety net books the one after; the weekday is still Tuesday.
+  const skipped = await changeVisitStatus(owner, { visitId: second.nextVisit!.visitId, status: "cancelled" }, { now: local("2026-11-18", "08:00"), post });
+  assert.equal(skipped.nextVisit, null);
+  assert.equal(await rollForwardDue(TEST_ORG, { now: local("2026-11-18", "09:00") }), 1);
+  const job = await getServiceJob(owner, first.visit.jobId);
+  const open = job!.visits.filter((v) => v.status === "scheduled");
+  assert.deepEqual(open.map(whenOf), [local("2026-12-01", "09:00").toISOString()]);
+  assert.equal(await rollForwardDue(TEST_ORG, { now: local("2026-11-18", "10:00") }), 0, "once");
+
+  // Stopped, the work isn't booked again.
+  await setRecurrence(owner, { jobId: first.visit.jobId, recurring: "none" }, { now: NOW });
+  const last = await changeVisitStatus(crew, { visitId: open[0].visitId, status: "completed" }, { now: local("2026-12-01", "10:00"), post });
+  assert.equal(last.nextVisit, null);
+  assert.equal(last.openVisitsOnJob, 0);
+});
+
+withTestDb("recurring work: monthly comes round on the same weekday of the month", async () => {
+  const { owner, crew, post } = await business();
+  const booked = await bookVisit(owner, { title: "4 Elm Rd", memberIds: [crew.memberId], day: "2026-11-11", time: "10:00", recurring: "monthly" }, { now: NOW, post });
+  const done = await changeVisitStatus(owner, { visitId: booked.visit.visitId, status: "completed" }, { now: local("2026-11-11", "12:00"), post });
+  assert.equal(whenOf(done.nextVisit), local("2026-12-09", "10:00").toISOString(), "the 2nd Wednesday of December");
 });

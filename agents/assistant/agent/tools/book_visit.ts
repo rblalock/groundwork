@@ -34,10 +34,15 @@ export default defineTool({
   async execute({ notes, ...input }, ctx) {
     try {
       const caller = await requireCaller(ctx);
-      // From a forwarded email, a visit is only pencilled in, and no crew are texted: the email's words
-      // mustn't reach or dispatch anyone but the member, who confirms it in a turn of their own.
+      // From a forwarded email, a visit is only pencilled in, no crew are texted, and the work isn't made
+      // recurring: the email's words mustn't reach or dispatch anyone but the member, who confirms it in a turn
+      // of their own.
       const fromEmail = isEmailTurn(ctx.session.auth.current);
-      const booked = await bookVisit(caller, { ...input, visitNotes: notes, ...(fromEmail ? { tentative: true, silent: true } : {}) });
+      const booked = await bookVisit(caller, {
+        ...input,
+        visitNotes: notes,
+        ...(fromEmail ? { tentative: true, silent: true, recurring: undefined } : {}),
+      });
       return plain({
         visit: visitForTool(booked.visit, booked.timeZone, caller.language),
         workOpened: booked.jobCreated,

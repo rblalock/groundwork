@@ -62,7 +62,8 @@ const CONDITIONAL: Record<string, string> = {
 
 /** Changed on an email's turn so nothing reaches anyone but the member. */
 const ADJUSTED: Record<string, string> = {
-  book_visit: "only pencils a visit in, and texts no crew",
+  book_visit: "only pencils a visit in, texts no crew, and doesn't make the work recurring",
+  create_service_job: "new work to schedule, without making it recurring",
 };
 
 /** Never refused for coming from an email. */
@@ -70,7 +71,6 @@ const ALLOWED: Record<string, string> = {
   add_time_off: "creates a new time-off block",
   attach_work_photos: "adds only photos the member texted the line, never an email's",
   create_quote: "a new draft quote",
-  create_service_job: "new work to schedule",
   find_availability: "reads",
   find_customer: "reads",
   get_invoice: "reads",

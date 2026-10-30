@@ -15,7 +15,7 @@ import { postToMember } from "./outbound";
 import { getProfile, type Profile } from "./profile";
 import { loadSummary, type QuoteSummary } from "./quotes";
 import { timeText } from "./scheduling-time";
-import { visitsOnDay, type VisitView } from "./scheduling";
+import { rollForwardDue, visitsOnDay, type VisitView } from "./scheduling";
 import { localParts, nextAllowedTime } from "./time";
 
 export type Followup = typeof followups.$inferSelect;
@@ -520,23 +520,25 @@ async function sendInvoiceNudges(orgId: string, now: Date, profile: Profile): Pr
   return sent;
 }
 
-export type TickCounts = { nudges: number; mornings: number; notices: number };
+export type TickCounts = { nudges: number; mornings: number; notices: number; nextVisits: number };
 
 /**
  * One business's pass of the hourly schedule, in its own time zone and quiet hours: notices held back
- * by quiet hours, due nudges, then the morning line when it is 8 o'clock there.
+ * by quiet hours, due nudges, recurring work's next visits when one is missing (`rollForwardDue`), then the
+ * morning line when it is 8 o'clock there, which has them.
  */
 export async function runOrgTick(orgId: string, now: Date = new Date()): Promise<TickCounts> {
   const profile = await getProfile(orgId);
   const notices = await sendDueNotices(orgId, now, profile);
   const nudges = (await sendDueNudges(orgId, now, profile)) + (await sendInvoiceNudges(orgId, now, profile));
+  const nextVisits = await rollForwardDue(orgId, { now });
   const mornings = await sendMorningLines(orgId, now, profile);
-  return { nudges, mornings, notices };
+  return { nudges, mornings, notices, nextVisits };
 }
 
 /** One pass of the hourly schedule over every business. One that fails is logged and the rest still run. */
 export async function runHourlyTick(now: Date = new Date()): Promise<TickCounts> {
-  const totals: TickCounts = { nudges: 0, mornings: 0, notices: 0 };
+  const totals: TickCounts = { nudges: 0, mornings: 0, notices: 0, nextVisits: 0 };
   for (const org of await listOrganizations()) {
     // A paused business gets no nudges or morning line; its follow-ups wait until it's resumed.
     if (org.suspended) continue;
@@ -545,6 +547,7 @@ export async function runHourlyTick(now: Date = new Date()): Promise<TickCounts>
       totals.nudges += counts.nudges;
       totals.mornings += counts.mornings;
       totals.notices += counts.notices;
+      totals.nextVisits += counts.nextVisits;
     } catch (error) {
       console.error("followups: hourly tick failed for a business", { orgId: org.id, error });
     }
