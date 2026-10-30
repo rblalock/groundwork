@@ -205,5 +205,6 @@ payment end to end.
 ## Email intake in the demo
 
 Members can forward an email to their business's AgentMail inbox, and the sender is verified (DKIM
-and DMARC) before the assistant acts on it. Next: add a forwarded customer email to the demo flow,
-from intake to quote.
+and DMARC) before the assistant acts on it. The flow is described in HACKATHON.md's demo (step 11)
+and runs locally on `AGENTMAIL_FAKE`. Still to do: an AgentMail inbox on the production business, so
+the recorded demo can show a real forwarded email from intake to quote.

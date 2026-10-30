@@ -58,6 +58,18 @@ What a judge sees, in order. The demo business is LOX Landscape Co, its owner is
    picks up where the web chat left off. A member's web chat and iMessage thread are one agent
    session, so the quote, the customer, and the context carry over. Replies to texts go out by
    iMessage; replies to web turns stay on the web.
+10. **The crew's day.** The Schedule page's Route view shows each crew's day as a route with the
+    drive between stops and a map; crew text "next" for the next stop with its maps link and
+    checklist, "on site", and "done". "Running 30 late" re-plans the day from now, and when the day
+    would end past the workday the owner gets a numbered proposal to move the last stops, with
+    customer texts as drafts. "What's open Monday for mulch at 412 Oak St?" ranks open times by the
+    driving they add and the crew who carry what the job needs.
+11. **A forwarded email.** A member forwards a customer's email ("can you quote the back yard?") to
+    the business's inbox. The sender is verified (DKIM and DMARC), the assistant saves the customer
+    from the forward, drafts the quote or asks for what's missing, and texts the member one to three
+    lines on what it did. Approving or sending anything from an email is refused; the member's text
+    does that. Locally `AGENTMAIL_FAKE=1` stands in for the inbox; the production business needs its
+    AgentMail inbox keys set.
 
 ## How it uses Meta's stack
 
