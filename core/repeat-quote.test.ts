@@ -134,7 +134,7 @@ test("the summary numbers the lines and says then, today, what changed, and what
     ].join("\n"),
   );
   const ready = repeatSummaryText({ ...args, lines: lines.slice(0, 1), rules: [], preview: { state: "ready", totalCents: 15000 }, lastTimeOverrideCents: null, status: "lost" }, "es");
-  assert.equal(ready, ["Igual que 412 Oak St (Apr 12, perdida) para Maria Alvarez:", "1. Lawn mowing, 1 visit", "Antes $450; hoy $150.", "¿La cotizo?"].join("\n"));
+  assert.equal(ready, ["Igual que 412 Oak St (Apr 12, perdida) para Maria Alvarez:", "1. Lawn mowing, 1 visit", "", "Antes $450; hoy $150.", "¿La cotizo?"].join("\n"));
 });
 
 test("the date reads in the business's time zone, with the year only when it isn't this year", () => {
