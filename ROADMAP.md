@@ -110,7 +110,7 @@ owner approves anything that moves a customer. Done in the order below; each ste
   Shipped: a plan per crew member per day (leave the yard, each stop's drive in, planned arrival and
   finish, back at the yard, driving and on-site minutes, load against a day capacity the owner sets) in
   booked order, with a shorter order suggested when it saves 10 minutes or more; the crew's morning
-  text is the route, and `read_schedule` returns it. Maps links and gate notes are still to come.
+  text is the route, and `read_schedule` returns it; "next" by text gives the stop's maps link, notes, and checklist.
 - **Slots that fit the route.** `find_availability` offers the cheapest insertion into each crew's
   day (least added driving), inside working hours and under a day capacity (jobs plus driving fill no
   more than a set share of the day, so there is room for the unexpected), before it offers an empty

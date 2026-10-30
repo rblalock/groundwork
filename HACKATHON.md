@@ -158,6 +158,22 @@ assertions.
   for fine-tuning an open-weight model on this work later, measured with the same scorecard. See
   [ROADMAP.md](ROADMAP.md).
 
+## Dispatch
+
+The schedule is a route, not a list of times. Every property and the business's yard is placed when
+its address is saved (US Census geocoder, no key), and a drive between two places is straight-line
+distance times a road factor at a town speed, rounded to five minutes: honest to the quarter hour
+with no routing service. From that the code builds each crew's day (leave the yard, each stop with
+its drive in, back at the yard, load against a capacity the owner sets), ranks open slots by the
+driving they add, matches the equipment a job needs to what a truck carries, re-plans the day when a
+crew texts "on site" or "running 30 late", and, when the day would end past the workday plus a
+grace, writes the owner a numbered proposal to move the last stops to another crew today or the
+customer's next open day. The evening before rain or heat does the same for weather-sensitive work
+(api.weather.gov, no key). Recurring work rolls forward on its own and is grouped into one loop per
+weekday by bearing from the yard. Crew text "next", "on site", and "done"; the owner sees the day
+as a route on the schedule page, with a map of straight lines. The rules decide, the model explains,
+and nothing reaches a customer because a rule fired: customer texts are drafts the owner forwards.
+
 ## Architecture
 
 1. Next.js 16 App Router and React 19: the member app, its API routes, and the customer pages
