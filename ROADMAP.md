@@ -122,7 +122,7 @@ owner approves anything that moves a customer. Done in the order below; each ste
   last, marked; its lines say who and the minutes. Price book items and members list equipment (by text,
   on the price book page, and on the Team page); members who lack it aren't offered, a named crew who
   lack it hear what, and `book_visit` refuses them unless the owner says to book anyway.
-- **Running long.** `start_job` and `close_job` already time the work. When a stop passes its
+- **Running long.** `start_visit` and `change_visit_status` time the work. When a stop passes its
   planned finish by a set number of minutes, or the crew texts that it will, the rest of the day
   re-plans from now. When the projected return runs past the end of the workday by more than a
   grace, the assistant proposes moving the crew's last unstarted stops: to another crew today when
