@@ -244,6 +244,9 @@ export function DayGrid({ date, ...shared }: Shared & { date: string }) {
                     {entry.clockChange ? " ·  ±1h" : ""}
                   </span>
                   {!short && visit.customerName ? <span className="block truncate opacity-70">{visit.customerName}</span> : null}
+                  {!short && visit.checklist ? (
+                    <span className="block truncate tabular-nums opacity-70">{copy.checklistDone(visit.checklist.done, visit.checklist.total)}</span>
+                  ) : null}
                 </button>
               );
             })}

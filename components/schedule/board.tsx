@@ -496,6 +496,7 @@ function VisitDetail({
       </div>
       <Link className="block text-[13px] font-medium text-accent-ink hover:underline" href={`/work/${visit.jobId}`}>
         {d.work}: {s.workStatus[visit.jobStatus]}
+        {visit.checklist ? ` · ${s.checklistDone(visit.checklist.done, visit.checklist.total)}` : ""}
       </Link>
       {invoice ? (
         <Link className="flex items-center gap-2 text-[13px] font-medium text-accent-ink hover:underline" href={`/invoices/${invoice.invoiceId}`}>

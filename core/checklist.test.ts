@@ -6,14 +6,14 @@ import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { pricedPhotos } from "../schema/schema";
 import type { PricedRegion } from "../schema/types";
-import { checklistCounts, checklistText, ensureChecklist, itemsFromLines, itemText, tickChecklist, visitToComplete } from "./checklist";
+import { checklistCounts, checklistFor, checklistText, ensureChecklist, itemsFromLines, itemText, tickChecklist, visitToComplete } from "./checklist";
 import { saveCustomer } from "./customers";
 import { db } from "./db";
 import { addPhone, createMember, recordInbound, type Caller } from "./members";
 import { saveItems } from "./pricebook";
 import { updateProfile } from "./profile";
 import { approveQuote, createQuote, setQuoteOutcome, type Poster } from "./quotes";
-import { bookVisit, getVisit } from "./scheduling";
+import { bookVisit, getVisit, readSchedule, visitForTool } from "./scheduling";
 import { TEST_ORG, withTestDb } from "./test-db";
 
 const NY = "America/New_York";
@@ -152,12 +152,21 @@ async function seed() {
   return { pat, carlos, quote };
 }
 
-withTestDb("the list is made from the quote, and the last tick marks today's visit done", async () => {
+withTestDb("booked crew get the checklist and the priced photo, and the last tick marks today's visit done", async () => {
   const s = await seed();
   const booked = await bookVisit(s.pat, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "today", time: "09:00" }, { now: MONDAY_7AM, post });
+  assert.deepEqual(posts, [
+    {
+      memberId: s.carlos.memberId,
+      text: "Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards (outlined in the photo)\n2. Bed edging, 40 linear feet",
+      file: "priced-photo.png",
+    },
+  ]);
+  assert.doesNotMatch(posts[0].text, /\$/, "no prices to the crew");
+  assert.deepEqual(booked.visit.checklist, { done: 0, total: 2 });
   const { jobId } = booked.visit;
-  const items = await ensureChecklist(TEST_ORG, jobId);
-  assert.equal((await ensureChecklist(TEST_ORG, jobId)).length, 2, "made once");
+  const items = await checklistFor(TEST_ORG, jobId);
+  assert.equal((await ensureChecklist(TEST_ORG, jobId)).length, 2, "made once, at the booking");
   assert.deepEqual(items.map((item) => item.located), [true, false]);
 
   const deps = { now: MONDAY_11AM, post };
@@ -165,6 +174,8 @@ withTestDb("the list is made from the quote, and the last tick marks today's vis
   assert.equal(first.allDone, false);
   assert.equal(first.visitCompleted, null);
   assert.equal(first.items[0].doneByName, "Carlos Reyes");
+  const schedule = await readSchedule(s.carlos, { from: "today", days: 1 }, { now: MONDAY_11AM });
+  assert.deepEqual(visitForTool(schedule.visits[0], NY, "en").checklist, { done: 1, total: 2 });
 
   // Pat ticks both: the first keeps Carlos as who did it.
   const last = await tickChecklist(s.pat, { jobId, itemIds: items.map((item) => item.itemId) }, deps);
@@ -190,7 +201,7 @@ withTestDb("the list is made from the quote, and the last tick marks today's vis
 withTestDb("a finished list never marks a visit on a later day done", async () => {
   const s = await seed();
   const booked = await bookVisit(s.pat, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "tomorrow", time: "09:00" }, { now: MONDAY_7AM, post });
-  const items = await ensureChecklist(TEST_ORG, booked.visit.jobId);
+  const items = await checklistFor(TEST_ORG, booked.visit.jobId);
   const done = await tickChecklist(s.carlos, { jobId: booked.visit.jobId, itemIds: items.map((item) => item.itemId) }, { now: MONDAY_11AM, post });
   assert.equal(done.allDone, true);
   assert.equal(done.visitCompleted, null);

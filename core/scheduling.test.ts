@@ -80,7 +80,7 @@ withTestDb("a won quote is booked: one job, a visit at the local time, and the c
   assert.equal(booked.visit.customerName, "Ada Sample");
   assert.equal(booked.visit.status, "scheduled");
   assert.deepEqual(booked.visit.crew.map((c) => c.name), ["Carlos Crew"]);
-  assert.deepEqual(texts, [{ memberId: s.carlos.memberId, text: "Pat Owner booked you for 12 Oak St: Tue, Oct 20, 9 AM–10 AM." }]);
+  assert.deepEqual(texts, [{ memberId: s.carlos.memberId, text: "Pat Owner booked you for 12 Oak St: Tue, Oct 20, 9 AM–10 AM.\n\n1. widget service, 10 widgets" }]);
   assert.deepEqual(await toSchedule(TEST_ORG), []);
 
   // A second visit on the same quote goes on the same job; booking yourself sends you nothing.
@@ -235,7 +235,7 @@ withTestDb("moving a visit keeps what isn't said, skips its own time, and tells 
   const swapped = await rescheduleVisit(s.owner, { visitId: visit.visitId, memberIds: [s.ana.memberId], reason: "Carlos is out" }, deps);
   assert.deepEqual(swapped.visit.crew.map((c) => c.name), ["Ana Crew"]);
   assert.deepEqual(texts.map((t) => t.text), [
-    "Pat Owner booked you for 12 Oak St: Tue, Oct 20, 9:30 AM–11:30 AM.",
+    "Pat Owner booked you for 12 Oak St: Tue, Oct 20, 9:30 AM–11:30 AM.\n\n1. widget service, 10 widgets",
     "Pat Owner took you off 12 Oak St (Tue, Oct 20, 9:30 AM).",
   ]);
   const history = await db().select().from(visitRevisions).where(eq(visitRevisions.visitId, visit.visitId));

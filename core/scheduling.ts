@@ -10,6 +10,7 @@ import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notExists, or, sql, ty
 import {
   busyBlocks,
   businessProfile,
+  checklistItems,
   customers,
   members,
   properties,
@@ -24,6 +25,7 @@ import { recordEvent } from "./events";
 import { isLanguage, type Language } from "./language";
 import { isPrivileged, type Caller, type Member } from "./members";
 import { getProfileWith } from "./profile";
+import type { CrewChecklist } from "./checklist";
 import type { Poster } from "./quotes";
 import {
   dayText,
@@ -73,6 +75,8 @@ export type VisitView = {
   status: VisitStatus;
   notes: string | null;
   revision: number;
+  /** How much of the work's checklist is ticked; null when it has none. */
+  checklist: { done: number; total: number } | null;
 };
 
 type Deps = { now?: Date; post?: Poster };
@@ -199,6 +203,17 @@ async function crewOf(orgId: string, visitIds: string[], executor: Db | Tx): Pro
   return out;
 }
 
+/** Each job's checklist, as how many items are ticked of how many; jobs with none are left out. */
+async function checklistCounts(orgId: string, jobIds: string[], executor: Db | Tx): Promise<Map<string, { done: number; total: number }>> {
+  if (jobIds.length === 0) return new Map();
+  const rows = await executor
+    .select({ jobId: checklistItems.jobId, done: sql<number>`count(${checklistItems.doneAt})::int`, total: sql<number>`count(*)::int` })
+    .from(checklistItems)
+    .where(and(eq(checklistItems.orgId, orgId), inArray(checklistItems.jobId, [...new Set(jobIds)])))
+    .groupBy(checklistItems.jobId);
+  return new Map(rows.map((row) => [row.jobId, { done: row.done, total: row.total }]));
+}
+
 /** Visits matching `where`, earliest first, with their job, customer, address, and crew. */
 async function loadVisitViews(orgId: string, where: SQL[], executor: Db | Tx = db(), limit = 500): Promise<VisitView[]> {
   const rows = await visitQuery(executor, orgId)
@@ -206,6 +221,7 @@ async function loadVisitViews(orgId: string, where: SQL[], executor: Db | Tx = d
     .orderBy(asc(visits.startAt), asc(visits.id))
     .limit(limit);
   const crew = await crewOf(orgId, rows.map((r) => r.visit.id), executor);
+  const checklists = await checklistCounts(orgId, rows.map((r) => r.job.id), executor);
   return rows.map(({ visit, job, customerName, address }) => ({
     visitId: visit.id,
     jobId: job.id,
@@ -223,6 +239,7 @@ async function loadVisitViews(orgId: string, where: SQL[], executor: Db | Tx = d
     status: visit.status,
     notes: visit.notes,
     revision: visit.revision,
+    checklist: checklists.get(job.id) ?? null,
   }));
 }
 
@@ -771,8 +788,11 @@ export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps
     await saveRevision(tx, actor, id, "booked", null);
     return { id, jobCreated, timeZone };
   });
+  const brief = await crewBrief(orgId, result.id);
   const visit = (await getVisit(actor, result.id)) as VisitView;
-  const notified = input.silent ? [] : await tellCrew(actor, visit.crew.map((c) => c.memberId), (lang) => crewText.booked(actor.name, visit, result.timeZone, lang), deps);
+  const notified = input.silent
+    ? []
+    : await tellCrew(actor, visit.crew.map((c) => c.memberId), (lang) => withChecklist(crewText.booked(actor.name, visit, result.timeZone, lang), brief, lang), deps, brief);
   return { visit, jobCreated: result.jobCreated, timeZone: result.timeZone, notified };
 }
 
@@ -860,14 +880,15 @@ export async function rescheduleVisit(actor: Actor, input: RescheduleInput, deps
   });
   const visit = (await getVisit(actor, input.visitId)) as VisitView;
   const now_ = visit.crew.map((c) => c.memberId);
+  const joined = now_.filter((id) => !previous.crew.some((c) => c.memberId === id));
+  // Crew new on the visit get its checklist and priced photo, as a booking would send them.
+  const brief = joined.length ? await crewBrief(orgId, input.visitId) : null;
   const moved = previous.startAt.getTime() !== visit.startAt.getTime() || previous.endAt.getTime() !== visit.endAt.getTime();
+  const text = (lang: Language) =>
+    previous.crew.some((c) => now_.includes(c.memberId)) && moved ? crewText.moved(actor.name, visit, result.timeZone, lang) : crewText.booked(actor.name, visit, result.timeZone, lang);
   const notified = [
-    ...(await tellCrew(
-      actor,
-      now_.filter((id) => moved || !previous.crew.some((c) => c.memberId === id)),
-      (lang) => (previous.crew.some((c) => now_.includes(c.memberId)) && moved ? crewText.moved(actor.name, visit, result.timeZone, lang) : crewText.booked(actor.name, visit, result.timeZone, lang)),
-      deps,
-    )),
+    ...(await tellCrew(actor, joined, (lang) => withChecklist(text(lang), brief, lang), deps, brief)),
+    ...(moved ? await tellCrew(actor, now_.filter((id) => !joined.includes(id)), text, deps) : []),
     ...(await tellCrew(
       actor,
       previous.crew.map((c) => c.memberId).filter((id) => !now_.includes(id)),
@@ -1097,6 +1118,23 @@ const crewText = {
       : `${by} cancelled ${v.title} on ${dayText(wallClock(v.startAt, tz).date, lang)}, ${timeText(v.startAt, tz, lang)}.`,
 };
 
+/** The work's checklist for crew booked on a visit, made first if need be; null without one, or when it can't be read. */
+async function crewBrief(orgId: string, visitId: string): Promise<CrewChecklist | null> {
+  const [row] = await db().select({ jobId: visits.jobId }).from(visits).where(and(eq(visits.orgId, orgId), eq(visits.id, visitId)));
+  if (!row) return null;
+  try {
+    // Imported here: the checklist module imports this one.
+    const { crewChecklist } = await import("./checklist");
+    return await crewChecklist(orgId, row.jobId);
+  } catch (error) {
+    console.error("scheduling: the visit's checklist was left off the crew text", error);
+    return null;
+  }
+}
+
+/** The booking line, then the work's checklist under it. */
+const withChecklist = (line: string, brief: CrewChecklist | null, lang: Language) => (brief ? `${line}\n\n${brief.lines(lang)}` : line);
+
 /** The posting the quotes service uses; resolved lazily so the module graph has no cycle. */
 const defaultPost: Poster = async (orgId, memberId, payload, kind) => {
   const { postToMember } = await import("./outbound");
@@ -1105,10 +1143,17 @@ const defaultPost: Poster = async (orgId, memberId, payload, kind) => {
 
 /**
  * Texts crew members about a change to their schedule, each in their language, never the one who made
- * it. Held back by quiet hours, it's queued for when they end. A failed text never fails the change.
- * Returns the names of who got it now or will then.
+ * it. `attach` adds a file (the work's priced photo). Held back by quiet hours, the text is queued for
+ * when they end, without the file. A failed text never fails the change. Returns the names of who got it
+ * now or will then.
  */
-async function tellCrew(actor: Actor, memberIds: string[], text: (language: Language) => string, deps?: Deps): Promise<string[]> {
+async function tellCrew(
+  actor: Actor,
+  memberIds: string[],
+  text: (language: Language) => string,
+  deps?: Deps,
+  attach?: Pick<CrewChecklist, "file" | "fileUrl"> | null,
+): Promise<string[]> {
   const out: string[] = [];
   const ids = [...new Set(memberIds)].filter((id) => id !== actor.memberId);
   if (ids.length === 0) return out;
@@ -1119,7 +1164,8 @@ async function tellCrew(actor: Actor, memberIds: string[], text: (language: Lang
   for (const member of rows) {
     const body = text(languageOf(member));
     try {
-      const result = await (deps?.post ?? defaultPost)(actor.orgId, member.id, { text: body }, "proactive");
+      const file = attach?.file ? { file: attach.file, fileUrl: attach.fileUrl ?? undefined } : {};
+      const result = await (deps?.post ?? defaultPost)(actor.orgId, member.id, { text: body, ...file }, "proactive");
       if (result.posted) {
         out.push(member.name);
       } else if (result.reason === "quiet_hours") {
@@ -1150,6 +1196,7 @@ export function visitForTool(visit: VisitView, timeZone: string, language: Langu
     end: wallClock(visit.endAt, timeZone).time,
     status: visit.status,
     notes: visit.notes,
+    ...(visit.checklist ? { checklist: visit.checklist } : {}),
     line: visitLine(visit, timeZone, language),
   };
 }
