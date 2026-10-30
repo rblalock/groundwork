@@ -4,16 +4,13 @@ What comes after the hackathon build, roughly in order.
 
 ## Priced photo editor: what v1 leaves out
 
-v1 is on the quote page: every object SAM found is kept with its outline, hover and tap put an
-outline on a line, and "find in photo" asks SAM again inside a drawn box for any phrase. Edits save
-on `priced_photos` and the photo is redrawn without SAM. Still to do:
+v1 is on the quote page, opened from the chat's quote card and the price guide too: every object SAM
+found is kept with its outline, hover and tap put an outline on a line, "find in photo" asks SAM
+again inside a drawn box for any phrase, and "draw" outlines by hand what SAM never finds. Edits
+save on `priced_photos` and the photo is redrawn without SAM. Still to do:
 
 - **Point and box prompts.** v1 sends a noun phrase and keeps what lands in the box. If the SAM
   endpoint takes point or box prompts, "find it here" gets more precise with no phrase at all.
-- **Draw it by hand.** A rough polygon for the thing SAM never finds, kept as a candidate like the
-  rest.
-- **Edit from the chat card and the price guide**, not only the quote page, and let a crew member
-  fix a finished-job photo from their phone before it's saved to the customer.
 - **Split and merge.** Cut one outline in two (the left and right hedge) or join two into one line
   object, so counts per piece match what was quoted.
 
