@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { workPhotos } from "../../schema/schema";
 import type { PricedBox, PricedPhotoEditorState } from "../../schema/types";
-import { beforeAfterFor, pairOf, renderBeforeAfter, type BeforeAfter } from "../../core/before-after";
+import { BEFORE_AFTER_DRAWING, beforeAfterFor, pairOf, renderBeforeAfter, type BeforeAfter } from "../../core/before-after";
 import { readStoredFile } from "../../core/blob";
 import { db } from "../../core/db";
 import { quoteDeposits } from "../../core/invoices";
@@ -24,7 +24,7 @@ import {
 import type { Assignment } from "../../core/priced-photo-select";
 import { customerLinkFor } from "../../core/quote-link";
 import { quoteTimeline, type TimelineEntry } from "../../core/quote-timeline";
-import { POST_FORMATS, postLines, socialCaption, socialPostFor, type PostFormat } from "../../core/social-post";
+import { POST_FORMATS, postLines, SOCIAL_POST_DRAWING, socialCaption, socialPostFor, type PostFormat } from "../../core/social-post";
 import {
   approveQuote,
   countQuotes,
@@ -185,11 +185,18 @@ export const pricedPhotoHref = (photo: Pick<PricedPhoto, "id" | "quoteId" | "cre
   `/api/quotes/${encodeURIComponent(photo.quoteId)}/priced/${encodeURIComponent(photo.id)}?v=${Math.max(photo.createdAt.getTime(), photo.editedAt?.getTime() ?? 0)}`;
 
 /**
+ * A before-and-after's or a post's version as its address carries it: the pair's version and the
+ * drawing's, so a photo made again or a change to how it's drawn is a new address.
+ */
+const beforeAfterVersion = (version: number) => `${version}.${BEFORE_AFTER_DRAWING}`;
+const socialPostVersion = (version: number) => `${version}.${SOCIAL_POST_DRAWING}`;
+
+/**
  * Where the app serves a quote's before-and-after, plain or with `outlines`; the version changes when
- * either photo is made again or edited.
+ * either photo is made again or edited, or the drawing changes.
  */
 export const beforeAfterHref = (pair: Pick<BeforeAfter, "quoteId" | "version">, options: { outlines?: boolean } = {}) =>
-  `/api/quotes/${encodeURIComponent(pair.quoteId)}/before-after?v=${pair.version}${options.outlines ? "&outlines=1" : ""}`;
+  `/api/quotes/${encodeURIComponent(pair.quoteId)}/before-after?v=${beforeAfterVersion(pair.version)}${options.outlines ? "&outlines=1" : ""}`;
 
 const flag = z.enum(["0", "1"]).transform((value) => value === "1");
 
@@ -198,7 +205,7 @@ export const beforeAfterQuery = z.object({ v: z.string().optional(), outlines: f
 
 /** Where the app serves a quote's social post in one format, with or without the line asking for the next job. */
 export const socialPostHref = (pair: Pick<BeforeAfter, "quoteId" | "version">, options: { format: PostFormat; cta: boolean }) =>
-  `/api/quotes/${encodeURIComponent(pair.quoteId)}/post?v=${pair.version}&format=${options.format}&cta=${options.cta ? 1 : 0}`;
+  `/api/quotes/${encodeURIComponent(pair.quoteId)}/post?v=${socialPostVersion(pair.version)}&format=${options.format}&cta=${options.cta ? 1 : 0}`;
 
 /** The social post route's query: a square unless `format=story`, and the line asking for the next job unless `cta=0`. */
 export const socialPostQuery = z.object({ v: z.string().optional(), format: z.enum(POST_FORMATS).default("square"), cta: flag.default(true) });
@@ -323,7 +330,7 @@ export async function pricedPhotoFile(caller: AppCaller, quoteId: string, priced
  * The quote's before-and-after, drawn for anyone who may see the quote, in their language and with the
  * total. A 404 when it has no pair, or when either photo can't be read anymore.
  */
-export async function beforeAfterFile(caller: AppCaller, quoteId: string, options: { outlines?: boolean } = {}): Promise<StoredFile & { version: number }> {
+export async function beforeAfterFile(caller: AppCaller, quoteId: string, options: { outlines?: boolean } = {}): Promise<StoredFile & { version: string }> {
   await assertVisible(caller, quoteId);
   const pair = await beforeAfterFor(caller.orgId, quoteId);
   if (!pair) throw notFound();
@@ -331,21 +338,21 @@ export async function beforeAfterFile(caller: AppCaller, quoteId: string, option
     console.error("before and after: drawing failed", { quoteId, error });
     throw notFound();
   });
-  return { bytes: drawn.png, contentType: "image/png", filename: `before-after-${quoteId}.png`, version: pair.version };
+  return { bytes: drawn.png, contentType: "image/png", filename: `before-after-${quoteId}.png`, version: beforeAfterVersion(pair.version) };
 }
 
 /**
  * The quote's social post, drawn for anyone who may see the quote, in their language. A 404 when it has
  * no before-and-after, or when either photo can't be read anymore.
  */
-export async function socialPostFile(caller: AppCaller, quoteId: string, options: { format: PostFormat; cta: boolean }): Promise<StoredFile & { version: number }> {
+export async function socialPostFile(caller: AppCaller, quoteId: string, options: { format: PostFormat; cta: boolean }): Promise<StoredFile & { version: string }> {
   await assertVisible(caller, quoteId);
   const post = await socialPostFor(caller.orgId, quoteId, { ...options, language: caller.language }).catch((error: unknown) => {
     console.error("social post: drawing failed", { quoteId, error });
     throw notFound();
   });
   if (!post) throw notFound();
-  return { bytes: post.png, contentType: "image/png", filename: `before-after-${options.format}.png`, version: post.pair.version };
+  return { bytes: post.png, contentType: "image/png", filename: `before-after-${options.format}.png`, version: socialPostVersion(post.pair.version) };
 }
 
 /** Makes (or makes again) the quote's priced photo from its latest photo, as the assistant's price_photo does. */

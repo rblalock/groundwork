@@ -17,6 +17,9 @@ export type PostFormat = (typeof POST_FORMATS)[number];
 /** Who the post is from. Only the name, a way to reach them, and the logo: never the address. */
 export type PostBusiness = { name: string; phone: string | null; email: string | null; logo?: PdfLogo | null };
 
+/** How the post is drawn: bump it when the drawing changes, so copies cached at the old address are left behind. */
+export const SOCIAL_POST_DRAWING = 1;
+
 /** The image sizes the networks take: 1080 square for a feed, 1080 by 1920 for a story. */
 export const POST_SIZES: Record<PostFormat, { width: number; height: number }> = {
   square: { width: 1080, height: 1080 },

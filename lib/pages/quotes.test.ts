@@ -12,11 +12,13 @@ import { test } from "node:test";
 import { eq, inArray, sql } from "drizzle-orm";
 import sharp from "sharp";
 import { messages, pricedPhotos, quotes as quotesTable } from "../../schema/schema";
+import { BEFORE_AFTER_DRAWING } from "../../core/before-after";
 import { storeInboundAttachment } from "../../core/blob";
 import { saveCustomer } from "../../core/customers";
 import { db, newId } from "../../core/db";
 import { saveItems } from "../../core/pricebook";
 import { createQuote, linkRecentAttachments, quoteCursor, type Poster } from "../../core/quotes";
+import { SOCIAL_POST_DRAWING } from "../../core/social-post";
 import { TEST_ORG, withTestDb } from "../../core/test-db";
 import { POST as approveRoute } from "../../app/api/quotes/[id]/approve/route";
 import { POST as outcomeRoute } from "../../app/api/quotes/[id]/outcome/route";
@@ -248,8 +250,8 @@ test("quotes: a page cursor is a quote's change time and id, anything else is th
 
 test("quotes: the before-and-after is plain unless outlines=1, and each has its own address", () => {
   const pair = { quoteId: "quo_a", version: 42 };
-  assert.equal(beforeAfterHref(pair), "/api/quotes/quo_a/before-after?v=42");
-  assert.equal(beforeAfterHref(pair, { outlines: true }), "/api/quotes/quo_a/before-after?v=42&outlines=1");
+  assert.equal(beforeAfterHref(pair), `/api/quotes/quo_a/before-after?v=42.${BEFORE_AFTER_DRAWING}`, "the drawing's version is in the address");
+  assert.equal(beforeAfterHref(pair, { outlines: true }), `/api/quotes/quo_a/before-after?v=42.${BEFORE_AFTER_DRAWING}&outlines=1`);
   assert.deepEqual(beforeAfterQuery.parse({ v: "42" }), { v: "42" });
   assert.deepEqual(beforeAfterQuery.parse({ v: "42", outlines: "1" }), { v: "42", outlines: true });
   assert.deepEqual(beforeAfterQuery.parse({ outlines: "0" }), { outlines: false });
@@ -257,7 +259,7 @@ test("quotes: the before-and-after is plain unless outlines=1, and each has its 
 });
 
 test("quotes: the social post is a square with the call to action unless asked otherwise", () => {
-  assert.equal(socialPostHref({ quoteId: "quo_a", version: 42 }, { format: "story", cta: false }), "/api/quotes/quo_a/post?v=42&format=story&cta=0");
+  assert.equal(socialPostHref({ quoteId: "quo_a", version: 42 }, { format: "story", cta: false }), `/api/quotes/quo_a/post?v=42.${SOCIAL_POST_DRAWING}&format=story&cta=0`);
   assert.deepEqual(socialPostQuery.parse({}), { format: "square", cta: true });
   assert.deepEqual(socialPostQuery.parse({ v: "42", format: "story", cta: "0" }), { v: "42", format: "story", cta: false });
   for (const bad of [{ format: "tall" }, { cta: "yes" }, { format: "" }]) assert.throws(() => socialPostQuery.parse(bad), { name: "ZodError" }, JSON.stringify(bad));
@@ -294,13 +296,15 @@ withTestDb("quotes: the social post is served to anyone on the team once the quo
   const { socialPost } = await quoteFor(await appCaller(crewHeaders), s.ownerQuote.quoteId);
   assert.ok(socialPost);
   assert.match(socialPost.captions.withoutCta, /^Before and after: widget service\.$/);
-  const version = after.createdAt.getTime();
+  const version = `${after.createdAt.getTime()}.${SOCIAL_POST_DRAWING}`;
   assert.equal(socialPost.images.story.withoutCta, `/api/quotes/${s.ownerQuote.quoteId}/post?v=${version}&format=story&cta=0`);
 
   const story = await get(s.ownerQuote.quoteId, `?v=${version}&format=story&cta=0`);
   assert.equal(story.status, 200);
   assert.equal(story.headers.get("content-type"), "image/png");
   assert.match(story.headers.get("cache-control") ?? "", /immutable/);
+  const older = await get(s.ownerQuote.quoteId, `?v=${after.createdAt.getTime()}&format=story&cta=0`);
+  assert.equal(older.headers.get("cache-control"), "no-store", "an address from before the drawing's version isn't cached");
   const size = await sharp(Buffer.from(await story.arrayBuffer())).metadata();
   assert.deepEqual([size.width, size.height], [1080, 1920]);
   assert.equal((await get(s.ownerQuote.quoteId, "")).headers.get("cache-control"), "no-store", "a square, never cached without its version");

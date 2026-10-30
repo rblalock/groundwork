@@ -44,6 +44,9 @@ export async function beforeAfterFor(orgId: string, quoteId: string): Promise<Be
 // ---------------------------------------------------------------------------------------------
 // Drawing
 
+/** How the before-and-after is drawn: bump it when the drawing changes, so copies cached at the old address are left behind. */
+export const BEFORE_AFTER_DRAWING = 2;
+
 /** The composite's long side stays within this. */
 export const BEFORE_AFTER_MAX = 2048;
 /** Between the two photos. */
