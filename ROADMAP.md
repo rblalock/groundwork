@@ -155,6 +155,13 @@ owner approves anything that moves a customer. Done in the order below; each ste
   heat by hour for the yard's grid point. A day with a high chance of rain over a mowing route gets
   a proposal the evening before, with the next dry day per customer. Thresholds are business
   settings the owner can change by text, with sensible defaults, not constants in code.
+  Shipped: the hourly forecast for the yard's grid point (cached, fail-soft, `WEATHER_FAKE` locally).
+  Price book items can be weather-sensitive (by text or on the price book page). Each evening, 15
+  hours before the workday by default, tomorrow's stops with that work are read against the
+  rain and heat limits (60% and 95°F, settings by text and in Settings); the ones at risk become one
+  proposal for the business, each to its own crew's next later slot that fits and is dry in the
+  forecast (past its reach counts as dry), texted to the owners (queued past quiet hours) and on the
+  Schedule page, applied like the others. `read_schedule` and the Route view show each day's line.
 - **The board.** The schedule page shows each crew's day as a route: the stops in order with drive
   legs between them, the running total against capacity, and what is at risk. A map comes after the
   list works; the list with honest minutes is the product, the map is the picture of it.

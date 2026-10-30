@@ -70,6 +70,14 @@ Ave → Carlos tomorrow 8:15 AM. Reply the numbers to keep, 'all', or 'no'.") an
 Schedule page. Applying it re-checks every stop in one transaction, moves the ones that still hold,
 and texts the crew; the customer texts come back as drafts for the owner to forward.
 
+The weather comes from api.weather.gov for the yard, by the hour. A price book item rain or heat calls
+off is weather-sensitive (the landscaping pack marks mowing, sod, mulch, edging, and cleanup). The
+evening before (15 hours before the workday starts, 5 PM for an 8 AM start), tomorrow's stops doing
+that work are read against the owner's limits, 60% rain and 95°F unless changed by text or in
+Settings, and those at risk become one proposal for the business: each to its own crew's next dry day
+with room ("Rain likely tomorrow 10 AM–2 PM (70%) over 3 lawn mowing stops. Move 3 stops to a dry
+day?"), decided like any other. `read_schedule` and the Route view show the day's forecast in one line.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 
