@@ -12,6 +12,7 @@ import { MAX_DRAWN_POINTS, MAX_PROMPT_POINTS, SELECTED_PHRASE } from "@/core/pri
 import {
   applyAssignment,
   assignmentsOf,
+  boxAnswer,
   closesAt,
   editedAgo,
   PricedPhotoError,
@@ -439,9 +440,12 @@ export function PricedPhotoEditor({
         setFinding((current) => (current ? { ...current, busy: false, points: [], answer: null, replace: null, message: e.nothingInBox } : current));
         return;
       }
-      const added = candidateIds.find((id) => !before.has(id)) ?? null;
-      setFinding((current) => (current ? { ...current, busy: false, points, answer: candidateIds, replace: added, message: found ? e.found(found) : e.foundSame } : current));
-      if (found && lineIndex !== null) setHighlight(lineIndex);
+      // "Outlined already" only when nothing new came back: everything SAM found was kept before the ask.
+      const answer = boxAnswer(before, candidateIds, found);
+      setFinding((current) =>
+        current ? { ...current, busy: false, points, answer: candidateIds, replace: answer.added, message: answer.same ? e.foundSame : e.found(answer.found) } : current,
+      );
+      if (answer.found && lineIndex !== null) setHighlight(lineIndex);
     } catch {
       setFinding((current) => (current ? { ...current, busy: false, message: e.findFailed } : current));
     }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyAssignment, assignmentsOf, closesAt, pricedPhotoEditHref, sketchPath, type PricedCandidate, type PricedRegion } from "./priced-photo-editor";
+import { applyAssignment, assignmentsOf, boxAnswer, closesAt, pricedPhotoEditHref, sketchPath, type PricedCandidate, type PricedRegion } from "./priced-photo-editor";
 
 const candidate = (id: string, overrides: Partial<PricedCandidate> = {}): PricedCandidate => ({
   id,
@@ -92,4 +92,24 @@ test("the outline being drawn follows the pointer, and closes on its first point
   assert.equal(closesAt(points, { x: 14, y: 13 }, 5), true);
   assert.equal(closesAt(points, { x: 20, y: 10 }, 5), false);
   assert.equal(closesAt(points.slice(0, 2), { x: 10, y: 10 }, 5), false, "two points don't close");
+});
+
+test("boxAnswer says outlined already only when everything found was kept before the ask", () => {
+  const before = new Set(["a", "b"]);
+  assert.deepEqual(boxAnswer(before, ["a"], 0), { added: null, found: 0, same: true });
+  assert.deepEqual(boxAnswer(before, ["a", "b"], 0), { added: null, found: 0, same: true });
+});
+
+test("boxAnswer counts a new outline as found, the first new one to ask again in place of", () => {
+  const before = new Set(["a"]);
+  assert.deepEqual(boxAnswer(before, ["n1"], 1), { added: "n1", found: 1, same: false });
+  assert.deepEqual(boxAnswer(before, ["a", "n1"], 1), { added: "n1", found: 1, same: false });
+  // A count of none from the server doesn't hide an outline the photo didn't keep before.
+  assert.deepEqual(boxAnswer(before, ["n1"], 0), { added: "n1", found: 1, same: false });
+  // And the server's count stands when it says more than the ids do.
+  assert.deepEqual(boxAnswer(before, ["a"], 1), { added: null, found: 1, same: false });
+});
+
+test("boxAnswer with nothing found is neither new nor outlined already", () => {
+  assert.deepEqual(boxAnswer(new Set(["a"]), [], 0), { added: null, found: 0, same: false });
 });

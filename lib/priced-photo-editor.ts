@@ -108,6 +108,18 @@ export function applyAssignment(regions: PricedRegion[], candidates: PricedCandi
 }
 
 /**
+ * What a boxed ask brought back, against the candidates the photo kept before it: `added`, the first one
+ * new to the photo (the one a tap off it asks again in place of), `found`, how many are new, and `same`,
+ * whether everything SAM found was kept already, the only time to say it's outlined already. New is what
+ * the server counted or an id not kept before, whichever says more.
+ */
+export function boxAnswer(before: ReadonlySet<string>, candidateIds: string[], found: number): { added: string | null; found: number; same: boolean } {
+  const fresh = candidateIds.filter((id) => !before.has(id));
+  const count = Math.max(found, fresh.length);
+  return { added: fresh[0] ?? null, found: count, same: candidateIds.length > 0 && count === 0 };
+}
+
+/**
  * The outline being drawn, as an SVG path: through each point, then to where the pointer is (`at`), and
  * back to the first point once it's `closed`. Empty with no point yet.
  */
