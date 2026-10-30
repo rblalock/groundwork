@@ -23,9 +23,6 @@ import { CreateInvoiceButton } from "../invoices/actions";
 import { InvoiceStatusPill } from "../invoices/kit";
 import type { InvoiceStatus } from "@/core/invoices";
 
-const PANEL =
-  "absolute top-3 right-3 z-30 max-h-[calc(100%-1.5rem)] w-80 max-w-[calc(100%-1.5rem)] overflow-y-auto rounded-card bg-surface p-4 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.35)] ring-1 ring-line outline-none focus-visible:outline-none focus-visible:ring-line";
-
 const SIDE_PANEL = "rounded-card bg-surface p-4 shadow-card outline-none focus-visible:outline-none";
 
 const STATUS_TONE = { proposed: "orange", scheduled: "accent", completed: "green", cancelled: "neutral" } as const;
@@ -199,11 +196,14 @@ export function ScheduleBoard({
         />
       ) : null}
 
-      {/* A day's details sit beside its lanes; a week's float over its right edge, so the week keeps its width. */}
+      {/*
+        The details sit beside the calendar where there's room, else below it, so every day stays in reach. Beside
+        a week, its days narrow (4.5rem at least) so all seven still fit without scrolling sideways.
+      */}
       <div
         className={cn(
-          "relative",
-          (selected || timeOff) && (oneDay ? "grid items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_20rem]" : "min-h-[34rem]"),
+          (selected || timeOff) && "grid items-start gap-4 @5xl:grid-cols-[minmax(0,1fr)_20rem]",
+          (selected || timeOff) && !oneDay && "@5xl:[--week-day:4.5rem]",
         )}
       >
         <section className="min-w-0 overflow-hidden rounded-card bg-surface shadow-card">
@@ -233,7 +233,7 @@ export function ScheduleBoard({
         </section>
 
         {selected ? (
-          <aside aria-label={selected.title} className={oneDay ? SIDE_PANEL : PANEL} ref={panelRef} tabIndex={-1}>
+          <aside aria-label={selected.title} className={SIDE_PANEL} ref={panelRef} tabIndex={-1}>
             <VisitDetail
               canManage={page.canManage}
               invoice={page.invoices[selected.jobId] ?? null}
@@ -247,7 +247,7 @@ export function ScheduleBoard({
             />
           </aside>
         ) : timeOff ? (
-          <aside aria-label={s.off} className={oneDay ? SIDE_PANEL : PANEL} ref={panelRef} tabIndex={-1}>
+          <aside aria-label={s.off} className={SIDE_PANEL} ref={panelRef} tabIndex={-1}>
             <TimeOffDetail block={timeOff} canRemove={page.canManage || timeOff.memberId === page.me} language={language} onClose={() => setTimeOff(null)} timeZone={page.timeZone} />
           </aside>
         ) : null}

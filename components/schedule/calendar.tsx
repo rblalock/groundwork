@@ -273,8 +273,12 @@ export function DayGrid({ date, ...shared }: Shared & { date: string }) {
 export function WeekBoard({ dates, ...shared }: Shared & { dates: string[] }) {
   const { timeZone, today, language, crew, visits, timeOff, selectedId, onVisit, onTimeOff, onMove, pending } = shared;
   const copy = pageCopyFor(language).schedule;
-  // The names column narrows on a phone, so more of the week shows beside it.
-  const grid: CSSProperties = { gridTemplateColumns: `var(--names) repeat(${dates.length}, minmax(0, 1fr))`, minWidth: `calc(var(--names) + ${dates.length * 7.25}rem)` };
+  // The names column narrows on a phone, so more of the week shows beside it. A day is 7.25rem at least, or
+  // `--week-day` when the board sets it (narrower, with a visit's details beside the week).
+  const grid: CSSProperties = {
+    gridTemplateColumns: `var(--names) repeat(${dates.length}, minmax(0, 1fr))`,
+    minWidth: `calc(var(--names) + ${dates.length} * var(--week-day, 7.25rem))`,
+  };
   // Dragging keeps the visit's time of day: it moves to the day and person under the pointer.
   const { target, dragging, bind } = useVisitDrag({
     enabled: Boolean(onMove),
