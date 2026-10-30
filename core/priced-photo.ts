@@ -355,10 +355,10 @@ async function findSource(orgId: string, quoteId: string, asked: PricedPhotoSour
   return photo ? { kind: "quote_attachment", id: photo.id, url: photo.url } : null;
 }
 
-type Photo = { bytes: Uint8Array; width: number; height: number };
+export type Photo = { bytes: Uint8Array; width: number; height: number };
 
 /** The stored photo upright, scaled down to `MAX_SIDE`, as a JPEG; null when it has no bytes (fake://) or isn't an image. */
-async function preparePhoto(url: string): Promise<Photo | null> {
+export async function preparePhoto(url: string): Promise<Photo | null> {
   try {
     const stored = await readStoredFile(url);
     if (!stored) return null;
@@ -380,7 +380,7 @@ const boxKey = (box: PricedBox) => `${box.left},${box.top},${box.right},${box.bo
  * candidate, or (on a photo made before candidates were kept) by a candidate of the line's phrase with
  * the same box. An object with neither is drawn as its box.
  */
-function maskPaths(regions: PricedRegion[], candidates: PricedCandidate[]): Map<string, string[]> {
+export function maskPaths(regions: PricedRegion[], candidates: PricedCandidate[]): Map<string, string[]> {
   const byId = new Map(candidates.map((c) => [c.id, c.svgPath]));
   const paths = new Map<string, string[]>();
   for (const region of regions) {
@@ -400,7 +400,8 @@ const FILL_OPACITY = 0.35;
 const LARGE_SHARE = 0.2;
 const LARGE_FILL_OPACITY = 0.15;
 const OUTLINE_PX = 3;
-const PILL = "#111111";
+export const PILL = "#111111";
+const lineColor = (region: PricedRegion) => PALETTE[region.lineIndex % PALETTE.length];
 
 const COPY: Record<Language, { notLocated: string; total: string }> = {
   en: { notLocated: "not located", total: "Total" },
@@ -432,10 +433,10 @@ async function labelFont(): Promise<string> {
 const escapeMarkup = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const quantityText = (quantity: number) => String(Number(quantity.toFixed(2)));
 
-type Text = { input: Buffer; width: number; height: number };
+export type Text = { input: Buffer; width: number; height: number };
 
 /** White (or `color`) text on clear, wrapped at `maxWidth`. */
-async function textImage(text: string, px: number, maxWidth: number, color = "#ffffff"): Promise<Text> {
+export async function textImage(text: string, px: number, maxWidth: number, color = "#ffffff"): Promise<Text> {
   const { data, info } = await sharp({
     text: {
       text: `<span foreground="${color}">${escapeMarkup(text)}</span>`,
@@ -461,6 +462,43 @@ type Rect = { x: number; y: number; width: number; height: number };
 const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
 
 /**
+ * Each kept object once, as SVG, filled and outlined in the first line's color that kept it; each other
+ * line that kept it adds a dashed outline in its own color. A mask over a large share of the photo (a
+ * whole lawn) is filled lighter, so the yard still looks like itself. `svgPaths` as `renderOverlay` takes it.
+ */
+export function maskShapes(regions: PricedRegion[], svgPaths: Map<string, string[]>, width: number, height: number): string[] {
+  const objects = new Map<string, { d: string; areaPx: number; colors: string[] }>();
+  for (const region of regions) {
+    const paths = svgPaths.get(String(region.lineIndex)) ?? [];
+    region.objects.forEach((object, i) => {
+      const key = boxKey(object.box);
+      const { left, top, right, bottom } = object.box;
+      const drawn = objects.get(key) ?? {
+        d: paths[i] || `M${left} ${top}L${right} ${top}L${right} ${bottom}L${left} ${bottom}Z`,
+        areaPx: object.areaPx,
+        colors: [],
+      };
+      drawn.colors.push(lineColor(region));
+      objects.set(key, drawn);
+    });
+  }
+  const shapes: string[] = [];
+  for (const { d, areaPx, colors } of objects.values()) {
+    const fill = areaPx > width * height * LARGE_SHARE ? LARGE_FILL_OPACITY : FILL_OPACITY;
+    shapes.push(
+      `<path d="${d}" fill="${colors[0]}" fill-opacity="${fill}" fill-rule="evenodd" stroke="${colors[0]}" stroke-width="${OUTLINE_PX}" stroke-linejoin="round"/>`,
+      ...colors
+        .slice(1)
+        .map(
+          (other, i) =>
+            `<path d="${d}" fill="none" stroke="${other}" stroke-width="${OUTLINE_PX}" stroke-dasharray="${OUTLINE_PX * 4} ${OUTLINE_PX * 4}" stroke-dashoffset="${i * OUTLINE_PX * 2}" stroke-linejoin="round"/>`,
+        ),
+    );
+  }
+  return shapes;
+}
+
+/**
  * Draws the regions on the photo and a legend under it. Each object a line kept is filled and
  * outlined in the line's color (dashed for a second line on the same object); each line is labeled
  * once, centered on its largest object, and lines that kept the same object share one label of stacked rows. `svgPaths` holds each region's mask outlines
@@ -482,39 +520,8 @@ export async function renderOverlay(
   const px = Math.round(Math.min(30, Math.max(16, (20 * width) / 1024)));
   const pad = Math.round(px * 0.5);
   const rowHeight = Math.round(px * 1.5);
-  const color = (region: PricedRegion) => PALETTE[region.lineIndex % PALETTE.length];
 
-  // Masks: each kept object once, filled and outlined in the first line's color that kept it; each
-  // other line that kept it adds a dashed outline in its own color. A mask over a large share of the
-  // photo (a whole lawn) is filled lighter, so the yard still looks like itself.
-  const objects = new Map<string, { d: string; areaPx: number; colors: string[] }>();
-  for (const region of regions) {
-    const paths = svgPaths.get(String(region.lineIndex)) ?? [];
-    region.objects.forEach((object, i) => {
-      const key = boxKey(object.box);
-      const { left, top, right, bottom } = object.box;
-      const drawn = objects.get(key) ?? {
-        d: paths[i] || `M${left} ${top}L${right} ${top}L${right} ${bottom}L${left} ${bottom}Z`,
-        areaPx: object.areaPx,
-        colors: [],
-      };
-      drawn.colors.push(color(region));
-      objects.set(key, drawn);
-    });
-  }
-  const shapes: string[] = [];
-  for (const { d, areaPx, colors } of objects.values()) {
-    const fill = areaPx > width * height * LARGE_SHARE ? LARGE_FILL_OPACITY : FILL_OPACITY;
-    shapes.push(
-      `<path d="${d}" fill="${colors[0]}" fill-opacity="${fill}" fill-rule="evenodd" stroke="${colors[0]}" stroke-width="${OUTLINE_PX}" stroke-linejoin="round"/>`,
-      ...colors
-        .slice(1)
-        .map(
-          (other, i) =>
-            `<path d="${d}" fill="none" stroke="${other}" stroke-width="${OUTLINE_PX}" stroke-dasharray="${OUTLINE_PX * 4} ${OUTLINE_PX * 4}" stroke-dashoffset="${i * OUTLINE_PX * 2}" stroke-linejoin="round"/>`,
-        ),
-    );
-  }
+  const shapes = maskShapes(regions, svgPaths, width, height);
 
   // Labels: one per line on its largest object, stacked where lines share it, placed top down.
   const groups = new Map<string, { box: PricedRegion["objects"][number]["box"]; area: number; regions: PricedRegion[] }>();
@@ -557,7 +564,7 @@ export async function renderOverlay(
     rows.forEach((row, i) => {
       const top = rect.y + pad + tops[i];
       const middle = top + Math.round(lineHeight / 2);
-      shapes.push(`<circle cx="${rect.x + pad + dot / 2}" cy="${middle}" r="${dot / 2}" fill="${color(group.regions[i])}"/>`);
+      shapes.push(`<circle cx="${rect.x + pad + dot / 2}" cy="${middle}" r="${dot / 2}" fill="${lineColor(group.regions[i])}"/>`);
       texts.push({ input: row.input, left: rect.x + pad + dot + pad, top });
     });
   }
@@ -584,7 +591,7 @@ export async function renderOverlay(
     const middle = top + Math.round(lineHeight / 2);
     const x = pad * 2;
     shapes.push(
-      `<rect x="${x}" y="${middle - swatch / 2}" width="${swatch}" height="${swatch}" rx="3" fill="${color(region)}" fill-opacity="${region.located ? 1 : 0.35}"/>`,
+      `<rect x="${x}" y="${middle - swatch / 2}" width="${swatch}" height="${swatch}" rx="3" fill="${lineColor(region)}" fill-opacity="${region.located ? 1 : 0.35}"/>`,
     );
     texts.push({ input: label.input, left: textLeft, top });
     if (note && beside) texts.push({ input: note.input, left: textLeft + label.width + pad, top });
