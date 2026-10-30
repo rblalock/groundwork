@@ -1,6 +1,7 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { privilegedOnly } from "../../../../core/policies";
+import { recurrenceText } from "../../../../core/recurrence";
 import { bookVisit, confirmText, visitForTool } from "../../../../core/scheduling";
 import { isEmailTurn, plain, requireCaller, toolError } from "../../../../core/tool-context";
 import { recurringSchema } from "../../../../core/tool-schemas";
@@ -49,7 +50,8 @@ export default defineTool({
         buffers: { beforeMinutes: booked.visit.bufferBeforeMinutes, afterMinutes: booked.visit.bufferAfterMinutes },
         driveEstimated: booked.driveEstimated ?? false,
         crewTexted: booked.notified,
-        confirmText: confirmText("booked", booked.visit, booked.timeZone, caller.language),
+        // Recurring work says so in the confirmation, so the member hears what they set up.
+        confirmText: `${confirmText("booked", booked.visit, booked.timeZone, caller.language)}${booked.visit.recurrence ? ` ${recurrenceText(booked.visit.recurrence, caller.language)}.` : ""}`,
       });
     } catch (error) {
       return toolError(error);

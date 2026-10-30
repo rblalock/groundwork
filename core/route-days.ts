@@ -106,7 +106,10 @@ export type RouteDay<T extends RouteJob = RouteJob> = { weekday: number; jobs: T
 
 /** The business's route days: each weekday's arc of recurring jobs (`cutArcs`, `assignWeekdays`), in weekday order. Pure. */
 export function planRouteDays<T extends RouteJob>(yard: Point, jobs: T[], weekdays: number[]): Array<RouteDay<T>> {
-  const arcs = cutArcs(yard, jobs, weekdays.length);
+  // As many loops as the recurring work already spans (its distinct weekdays, at least one), never more than the
+  // days worked: four jobs on two days become two loops, not four single stops.
+  const used = new Set(jobs.map((job) => job.weekday).filter((day): day is number => day !== null));
+  const arcs = cutArcs(yard, jobs, Math.min(weekdays.length, Math.max(1, used.size)));
   const days = assignWeekdays(arcs, weekdays);
   return arcs.map((arc, i) => ({ weekday: days[i], jobs: arc })).sort((a, b) => a.weekday - b.weekday);
 }

@@ -60,11 +60,9 @@ function ProposalRow({ proposal, language, canManage }: { proposal: ProposalJson
       false,
     );
     setPending(null);
-    if (result.ok) {
-      setOutcome(result.data);
-      // The grid shows the moved stops at once; the card stays to show what happened.
-      router.refresh();
-    } else setError(result.error);
+    // The card stays to show what happened and the drafts to forward; the schedule refreshes when it's dismissed.
+    if (result.ok) setOutcome(result.data);
+    else setError(result.error);
   };
 
   if (outcome) {
