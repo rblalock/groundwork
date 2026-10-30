@@ -132,7 +132,8 @@ a local agent and a seeded database. Each eval asserts on tool calls and records
 total in cents is right) and asks the judge questions scored 0 to 1, some with a gate. The landscaping set
 in `agents/assistant/evals/landscaping/` covers quantity interviews, trade vocabulary, the rush,
 slope, and haul-away rules, the minimum charge, never inventing a price, photo requests and
-descriptions, sod by the square foot, the priced photo, and quote-approve-book in three messages.
+descriptions, sod by the square foot, the priced photo, quote-approve-book in three messages, the
+crew checklist, a repeat quote, and the social post.
 
 ```bash
 npm run evals                         # every eval, no trade pack
@@ -147,9 +148,10 @@ instruction overlay; the pack run (`VERTICAL=landscaping`) adds it. It reports p
 end-to-end completion, quotes made, tokens, estimated cost, and cost per quote, per condition and per
 eval, in [docs/evals/scorecard.md](docs/evals/scorecard.md) and `scorecard.json`.
 
-Latest run (Muse Wonder as agent and judge): baseline 85% pass (11/13), judge mean 0.86; pack 92%
-pass (12/13), judge mean 0.98. The scorecard file holds the current numbers and the failed
-assertions.
+Latest run (Muse Wonder as agent and judge, 17 evals, 2026-10-30): baseline 88% pass (15/17), judge
+mean 0.84; pack 94% pass (16/17), judge mean 0.91. The pack's one miss was the social post eval's judge
+question on a reply that passes on its own; the baseline's were the two photo evals, which the pack
+instructions carry. The scorecard file holds the current numbers and the failed assertions.
 
 ## Traces
 
