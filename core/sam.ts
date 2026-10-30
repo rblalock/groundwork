@@ -1,10 +1,13 @@
 // SAM 3.1 segmentation: one noun phrase and one image per call, streamed back as server-sent events
 // and decoded with @meta-sam/parser. Several phrases in one call do not work, so `segmentMany` runs
-// one call per phrase in parallel. scripts/sam-probe.ts prints what a call returns.
+// one call per phrase in parallel. Instead of a phrase, a call can name one object by a box and points
+// (`segmentObjects`). scripts/sam-probe.ts prints what a call returns.
 import {
+  buildObjectPrompt,
   decodeMaskToRaster,
   decodeMaskToSVGPath,
   formats,
+  ObjectPromptError,
   recordsOfKind,
   type ImageSegmentationResult,
   type ResponseStreamOutcome,
@@ -32,8 +35,11 @@ const TIMEOUT_MS = 30_000;
 const imageUrl = (image: SamImage): string =>
   "url" in image ? image.url : `data:${image.mimeType};base64,${Buffer.from(image.bytes).toString("base64")}`;
 
-/** Sends one phrase and one image, and returns the raw event stream as text. Throws `SAM_FAILED` on an HTTP error. */
-export async function requestSam(image: SamImage, phrase: string, opts: { signal?: AbortSignal } = {}): Promise<string> {
+/**
+ * Sends one image with one noun phrase or one object prompt (`objectPrompt`), and returns the raw event
+ * stream as text. Throws `SAM_FAILED` on an HTTP error.
+ */
+export async function requestSam(image: SamImage, text: string, opts: { signal?: AbortSignal } = {}): Promise<string> {
   const base = process.env.MODEL_BASE_URL?.trim() || "https://api.meta.ai/v1";
   const timeout = AbortSignal.timeout(TIMEOUT_MS);
   const res = await fetch(`${base}/responses`, {
@@ -42,7 +48,7 @@ export async function requestSam(image: SamImage, phrase: string, opts: { signal
     body: JSON.stringify({
       model: SAM_MODEL,
       stream: true,
-      input: [{ role: "user", content: [{ type: "input_text", text: phrase }, { type: "input_image", image_url: imageUrl(image) }] }],
+      input: [{ role: "user", content: [{ type: "input_text", text }, { type: "input_image", image_url: imageUrl(image) }] }],
       metadata: { mask_encoding: "lossless", include_confidence: "true" },
     }),
     signal: opts.signal ? AbortSignal.any([opts.signal, timeout]) : timeout,
@@ -119,9 +125,41 @@ export function parseSamStream(sseText: string, size: SamSize): SamObject[] {
 
 type SegmentOptions = { signal?: AbortSignal; size: SamSize };
 
+/** The id an object prompt names its one object by, which the objects found come back under. */
+export const PROMPTED_OBJECT = 1;
+
+/** What names one object instead of a phrase: a box around it, and points on it (or, `negative`, off it). Image pixels, `right` and `bottom` exclusive. */
+export type SamPrompt = { box?: SamObject["box"]; points?: Array<{ x: number; y: number; negative?: boolean }> };
+
 /**
- * Finds the objects one noun phrase names in the image, which is `size` pixels. `images` is what the
- * call was billed for: its `images_processed`, or 1 when the stream left it out.
+ * The `input_text` that names one object on a photo of `size`: the box widened to whole pixels, each
+ * point rounded down to the pixel it's in, and both kept inside the photo. Throws `BAD_PROMPT` for a
+ * prompt with no box and no points, or a box with nothing of the photo inside it.
+ */
+export function objectPrompt(prompt: SamPrompt, size: SamSize): string {
+  const clamp = (value: number, max: number) => Math.min(Math.max(value, 0), max);
+  const box = prompt.box && {
+    left: clamp(Math.floor(prompt.box.left), size.width),
+    top: clamp(Math.floor(prompt.box.top), size.height),
+    right: clamp(Math.ceil(prompt.box.right), size.width),
+    bottom: clamp(Math.ceil(prompt.box.bottom), size.height),
+  };
+  const points = (prompt.points ?? []).map(({ x, y, negative }) => ({
+    x: clamp(Math.floor(x), size.width - 1),
+    y: clamp(Math.floor(y), size.height - 1),
+    label: negative ? ("negative" as const) : ("positive" as const),
+  }));
+  try {
+    return buildObjectPrompt({ size, objects: [{ id: PROMPTED_OBJECT, prompts: [{ box, points }] }] });
+  } catch (error) {
+    if (error instanceof ObjectPromptError) throw new Error(`BAD_PROMPT: ${error.code}`);
+    throw error;
+  }
+}
+
+/**
+ * Finds the objects one noun phrase (or one object prompt) names in the image, which is `size` pixels.
+ * `images` is what the call was billed for: its `images_processed`, or 1 when the stream left it out.
  */
 export async function segment(image: SamImage, phrase: string, opts: SegmentOptions): Promise<{ objects: SamObject[]; images: number; ms: number }> {
   const started = Date.now();
@@ -129,6 +167,14 @@ export async function segment(image: SamImage, phrase: string, opts: SegmentOpti
   const processed = usage?.images_processed;
   const images = typeof processed === "number" && Number.isInteger(processed) && processed >= 0 ? processed : 1;
   return { objects: samObjects(result, opts.size), images, ms: Date.now() - started };
+}
+
+/**
+ * Finds the one object a box and points name in the image (`objectPrompt`), in one call billed like
+ * `segment`'s. Throws `BAD_PROMPT` before any call for a prompt that names nothing.
+ */
+export async function segmentObjects(image: SamImage, prompt: SamPrompt, opts: SegmentOptions): Promise<{ objects: SamObject[]; images: number; ms: number }> {
+  return segment(image, objectPrompt(prompt, opts.size), opts);
 }
 
 /**
