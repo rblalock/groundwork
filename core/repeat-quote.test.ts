@@ -121,9 +121,10 @@ test("the summary numbers the lines and says then, today, what changed, and what
     [
       "Same as 412 Oak St (Apr 12) for Maria Alvarez:",
       "1. Lawn mowing, 1 visit",
-      "2. Mulch in the front beds, 3 cubic yard",
-      "3. Bed edging, 40 linear foot",
+      "2. Mulch in the front beds, 3 cubic yards",
+      "3. Bed edging, 40 linear feet",
       "4. Gate repair, 1 job",
+      "",
       "Then $450; today $365 so far (Mulch in the front beds $95 → $100/cubic yard).",
       "Bed edging isn't in the price book now; it stays unpriced for the owner.",
       "Gate repair has no saved price; it stays unpriced for the owner.",

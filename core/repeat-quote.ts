@@ -11,6 +11,7 @@ import { localeFor, type Language } from "./language";
 import type { Caller } from "./members";
 import { formatCents } from "./money";
 import { getProfileWith } from "./profile";
+import { pluralUnit } from "./units";
 import { listQuotes, previewQuote, type CreateQuoteInput, type Quote, type ToolLine } from "./quotes";
 
 /** same: today's price matches. repriced: it changed. retired: the item left the price book. unpriced: never in it. */
@@ -166,7 +167,7 @@ export function repeatSummaryText(args: SummaryArgs, language: Language): string
   const money = (cents: number) => formatCents(cents, language, { concise: true });
   const status = args.status ? STATUS[language][args.status] : undefined;
   const items = args.lines.map((line, index) => {
-    const unit = oneLine(line.unitLabel);
+    const unit = pluralUnit(line.quantity, oneLine(line.unitLabel), language);
     return `${index + 1}. ${oneLine(line.name)}, ${quantityText(line.quantity)}${unit ? ` ${unit}` : ""}`;
   });
   const changes = args.lines
@@ -185,6 +186,7 @@ export function repeatSummaryText(args: SummaryArgs, language: Language): string
   return [
     copy.head(oneLine(args.title), status ? `${args.date}, ${status}` : args.date, args.customerName ? oneLine(args.customerName) : null),
     ...items,
+    "",
     copy.totals(money(args.thenTotalCents), today, changes),
     ...args.lines.filter((line) => line.change === "retired").map((line) => copy.retired(oneLine(line.name))),
     ...args.lines.filter((line) => line.change === "unpriced").map((line) => copy.unpriced(oneLine(line.name))),
