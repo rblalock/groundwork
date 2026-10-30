@@ -44,7 +44,11 @@ const STAGE_RESERVE = "22rem";
 const TAP_BOX = 0.15;
 /** A tap this close to an outline's first point, in screen pixels, closes it. */
 const CLOSE_REACH = 16;
-type Hover = { id: string; x: number; y: number; flipX: boolean; flipY: boolean };
+/** The hover label's widest, the most it takes below the pointer, and its gap from the pointer, in screen pixels. */
+const LABEL_WIDTH = 224;
+const LABEL_HEIGHT = 48;
+const LABEL_GAP = 12;
+type Hover = { id: string; x: number; y: number; flipX: boolean; flipY: boolean; maxWidth: number };
 /** The outline whose lines are showing, where its list hangs (in % of the photo), and the lines' order when it opened. */
 type Picked = { id: string; x: number; y: number; order: number[]; keyboard: boolean };
 /**
@@ -244,7 +248,12 @@ export function PricedPhotoEditor({
     const rect = stageRef.current!.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
-    setHover({ id: candidate.id, x, y, flipX: x > rect.width * 0.6, flipY: y > rect.height * 0.75 });
+    // Left of the pointer when it doesn't fit to the right, above when it doesn't fit below; never past the photo's edge.
+    const right = rect.width - x - LABEL_GAP;
+    const left = x - LABEL_GAP;
+    const flipX = right < LABEL_WIDTH && left > right;
+    const flipY = rect.height - y - LABEL_GAP < LABEL_HEIGHT && y > rect.height / 2;
+    setHover({ id: candidate.id, x, y, flipX, flipY, maxWidth: Math.max(Math.min(LABEL_WIDTH, flipX ? left : right), 0) });
   }
 
   function startFind(lineIndex: number | null) {
@@ -559,7 +568,8 @@ export function PricedPhotoEditor({
             style={{
               left: hover.x,
               top: hover.y,
-              transform: `translate(${hover.flipX ? "calc(-100% - 12px)" : "12px"}, ${hover.flipY ? "calc(-100% - 12px)" : "12px"})`,
+              maxWidth: hover.maxWidth,
+              transform: `translate(${hover.flipX ? `calc(-100% - ${LABEL_GAP}px)` : `${LABEL_GAP}px`}, ${hover.flipY ? `calc(-100% - ${LABEL_GAP}px)` : `${LABEL_GAP}px`})`,
             }}
             text={linesText(hover.id)}
           />
@@ -955,11 +965,16 @@ function NotItMark({ point }: { point: Point }) {
   );
 }
 
+/**
+ * Its own width, not what's left of the photo past its left edge, so near the right edge it doesn't
+ * squeeze into a column. Spans, not paragraphs: the kit's `p { text-wrap: pretty }` is outside any layer
+ * and would undo `truncate`.
+ */
 function HoverLabel({ text, phrase, style }: { text: string; phrase: string; style: CSSProperties }) {
   return (
-    <div className="pointer-events-none absolute z-10 max-w-56 rounded-md bg-black/80 px-2 py-1 text-[12px] leading-snug text-white shadow-md" style={style}>
-      <p className="truncate font-medium">{text}</p>
-      {phrase ? <p className="truncate text-white/70">{phrase}</p> : null}
+    <div className="pointer-events-none absolute z-10 w-max max-w-56 rounded-md bg-black/80 px-2 py-1 text-[12px] leading-snug whitespace-nowrap text-white shadow-md" style={style}>
+      <span className="block truncate font-medium">{text}</span>
+      {phrase ? <span className="block truncate text-white/70">{phrase}</span> : null}
     </div>
   );
 }
