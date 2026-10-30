@@ -12,7 +12,7 @@ import { ErrorLine } from "../pages/client-kit";
 import { useScheduleRequest } from "./forms";
 
 /**
- * Open proposals to move stops off a day running long, or off a day rain or heat is likely, above the schedule: each stop with a box to keep it, and
+ * Open proposals to move stops off a day running long, off a day rain or heat is likely, or onto their area's route day, above the schedule: each stop with a box to keep it, and
  * Apply or Drop. Applying re-checks every stop on the server; what moved, what didn't, and the customer drafts to
  * forward show here until dismissed. Owners and admins only; a look-only view sees them without the buttons.
  */
@@ -44,9 +44,11 @@ function ProposalRow({ proposal, language, canManage }: { proposal: ProposalJson
   const [error, setError] = useState<string>();
   const [outcome, setOutcome] = useState<ProposalOutcomeJson | null>(null);
   const heading =
-    proposal.kind === "move_weather"
-      ? s.moveWeather(proposal.items.length, dayText(proposal.date, language))
-      : s.move(proposal.items.length, proposal.memberName ?? "");
+    proposal.kind === "route_days"
+      ? s.routeDays(proposal.items.length)
+      : proposal.kind === "move_weather"
+        ? s.moveWeather(proposal.items.length, dayText(proposal.date, language))
+        : s.move(proposal.items.length, proposal.memberName ?? "");
 
   const decide = async (action: "apply" | "drop") => {
     setError(undefined);
@@ -91,7 +93,7 @@ function ProposalRow({ proposal, language, canManage }: { proposal: ProposalJson
     <li className="space-y-2.5 px-4 py-3">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <StatusPill className="shrink-0" dot tone="orange">
-          {proposal.kind === "move_weather" ? heading : s.move(proposal.items.length, (proposal.memberName ?? "").split(/\s+/)[0])}
+          {proposal.kind === "move_stops" ? s.move(proposal.items.length, (proposal.memberName ?? "").split(/\s+/)[0]) : heading}
         </StatusPill>
         <p className="min-w-0 text-[13px] text-ink-2">{proposal.reason}.</p>
       </div>
@@ -133,5 +135,35 @@ function ProposalRow({ proposal, language, canManage }: { proposal: ProposalJson
       ) : null}
       <ErrorLine>{error}</ErrorLine>
     </li>
+  );
+}
+
+/**
+ * The owner's way to ask for route days (`core/route-days.ts`), near the proposals: the proposal lands on the card
+ * above; when there's none, the code's line on why shows here. Owners and admins, with 3 or more recurring jobs.
+ */
+export function PlanRouteDays({ count, language }: { count: number; language: Language }) {
+  const copy = pageCopyFor(language);
+  const s = copy.schedule.proposals;
+  const { send, busy } = useScheduleRequest(copy.common.failed);
+  const [note, setNote] = useState<string>();
+  const [error, setError] = useState<string>();
+
+  const plan = async () => {
+    setError(undefined);
+    setNote(undefined);
+    const result = await send<{ proposed: boolean; text: string }>("/api/schedule/route-days", "POST", {});
+    if (!result.ok) setError(result.error);
+    else if (!result.data.proposed) setNote(result.data.text);
+  };
+
+  return (
+    <section className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-card bg-surface px-4 py-2.5 shadow-card">
+      <p className="min-w-0 flex-1 text-[12px] text-ink-3">{note ?? s.planHelp(count)}</p>
+      <Button disabled={busy} onClick={plan} size="sm" variant="quiet">
+        {busy ? s.planning : s.plan}
+      </Button>
+      <ErrorLine>{error}</ErrorLine>
+    </section>
   );
 }

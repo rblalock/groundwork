@@ -15,7 +15,7 @@ import type { SchedulePage, TimeOffJson, ToScheduleJson, VisitJson } from "@/lib
 import { localDateTime, shiftDate } from "@/lib/schedule-presentation";
 import { ErrorLine, inputClass } from "../pages/client-kit";
 import { DayGrid, WeekBoard, clockLabel, dayLabel, timeLabel } from "./calendar";
-import { ProposalsCard } from "./proposals";
+import { PlanRouteDays, ProposalsCard } from "./proposals";
 import { RouteBoard } from "./route";
 import type { MoveRequest } from "./drag";
 import { FormDialog, HoursForm, TimeOffForm, VisitForm, toScheduleKey, useScheduleRequest, type VisitFormTarget } from "./forms";
@@ -41,7 +41,8 @@ type Dialogs =
 
 /**
  * The Schedule page: a day (crew lanes on a time grid), a week (a row per crew member), or a day's routes
- * (each crew member's stops in order, from the yard and back), proposals to move stops off a day running long,
+ * (each crew member's stops in order, from the yard and back), proposals to move stops off a day running long
+ * (and, with recurring work, a way to ask for route days),
  * work waiting to be booked, and a visit's
  * details beside the calendar. Owners and admins book, move, and cancel here; crew see their own lane and
  * route and mark their visits done. The view, day, and open visit live in the URL, so a link opens the
@@ -188,6 +189,7 @@ export function ScheduleBoard({
       </div>
 
       {page.proposals.length > 0 ? <ProposalsCard canManage={page.canManage} language={language} proposals={page.proposals} /> : null}
+      {page.canManage && page.recurringJobs >= 3 ? <PlanRouteDays count={page.recurringJobs} language={language} /> : null}
 
       {page.toSchedule.length > 0 ? (
         <ToScheduleList

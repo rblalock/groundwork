@@ -1667,6 +1667,28 @@ export async function rollForward(orgId: string, jobId: string, deps?: Deps): Pr
   }
 }
 
+/** Each job's next open visit not yet started, by job: the one a route day would move (`core/route-days.ts`). */
+export async function nextOpenVisits(orgId: string, jobIds: string[], now: Date): Promise<Map<string, VisitView>> {
+  if (!jobIds.length) return new Map();
+  const open = await loadVisitViews(orgId, [inArray(visits.jobId, [...new Set(jobIds)]), inArray(visits.status, OPEN_VISIT), gt(visits.startAt, now), isNull(visits.startedAt)]);
+  const out = new Map<string, VisitView>();
+  for (const visit of open) if (!out.has(visit.jobId)) out.set(visit.jobId, visit);
+  return out;
+}
+
+/**
+ * Puts recurring work on another weekday and clock, from the date and time its next visit moved to (a route day
+ * applied, `core/route-days.ts`), inside the caller's transaction. Work that doesn't repeat is left as it is.
+ */
+export async function setRecurringDay(tx: Tx, orgId: string, jobId: string, at: { date: string; time: string }, now: Date): Promise<void> {
+  const job = await jobRow(orgId, jobId, tx);
+  if (!job?.recurrence) return;
+  await tx
+    .update(serviceJobs)
+    .set({ recurrence: { ...job.recurrence, weekday: weekdayOf(at.date), time: at.time }, updatedAt: now })
+    .where(and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.id, jobId)));
+}
+
 /**
  * The hourly safety net: each of the business's open recurring jobs with no visit open gets its next one
  * (`rollForward`), so work skipped by a cancelled visit, or done without being marked through the schedule, still

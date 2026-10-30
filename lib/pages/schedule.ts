@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { plansIn, type DayPlan, type PlanStop, type Replan } from "../../core/day-plan";
 import { getProfile } from "../../core/profile";
+import { proposeRouteDays, recurringJobCount } from "../../core/route-days";
 import { applyProposal, dropProposal, itemLine, linesFrom, openProposals, summaryText, type Proposal } from "../../core/proposals";
 import {
   addTimeOff,
@@ -111,13 +112,15 @@ export type SchedulePage = {
   proposals: ProposalJson[];
   /** The route view's day's weather in one line (`core/weather.ts`), when the forecast reaches it; else null. */
   weather: string | null;
+  /** Open recurring jobs at placed addresses, for planning route days (`core/route-days.ts`); owners and admins only, else 0. */
+  recurringJobs: number;
 };
 
 /** A proposal as the Schedule page's card shows it: each stop's line, and the drafts that go with it. */
 export type ProposalJson = {
   proposalId: string;
   kind: Proposal["kind"];
-  /** The crew member whose day it moves stops off; null for a weather one, which is the business's. */
+  /** The crew member whose day it moves stops off; null for a weather or route-day one, which is the business's. */
   memberName: string | null;
   date: string;
   reason: string;
@@ -167,6 +170,7 @@ export async function scheduleFor(caller: AppCaller, input: { view?: string; dat
     proposals: privileged ? await proposalsFor(caller, input.now) : [],
     // The strip sits under the day's own heading, so the line's day word ("Tomorrow:") is dropped.
     weather: weather[0]?.line.replace(/^[^:]*: /, "") ?? null,
+    recurringJobs: privileged ? await recurringJobCount(caller.orgId) : 0,
   };
 }
 
@@ -182,7 +186,7 @@ async function proposalsFor(caller: AppCaller, now?: Date): Promise<ProposalJson
       id: item.id,
       title: item.title,
       customerName: item.customerName,
-      line: itemLine(item, linesFrom(p), open.timeZone, caller.language),
+      line: itemLine(item, linesFrom(p), open.timeZone, caller.language, p.kind),
       crewText: item.crewText,
       customerText: item.customerText,
     })),
@@ -350,6 +354,20 @@ export async function proposalFromApp(caller: AppCaller, proposalId: string, inp
       skipped: applied.skipped,
       customerTexts: applied.customerTexts,
     };
+  } catch (error) {
+    scheduleRefusal(caller, error);
+  }
+}
+
+/**
+ * An owner or admin asks for route days, as `plan_route_days` does: a proposal on the card once there's one, and
+ * the code's line either way (why there's none, when there isn't).
+ */
+export async function routeDaysFromApp(caller: AppCaller): Promise<{ proposed: boolean; text: string }> {
+  const actor = privilegedActor(caller);
+  try {
+    const { proposal, text } = await proposeRouteDays(actor);
+    return { proposed: proposal !== null, text };
   } catch (error) {
     scheduleRefusal(caller, error);
   }

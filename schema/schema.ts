@@ -98,7 +98,7 @@ export const conversationStatus = pgEnum("conversation_status", ["active", "runn
 export const serviceJobStatus = pgEnum("service_job_status", ["open", "completed", "cancelled"]);
 /** `proposed` is pencilled in and still holds the time; `scheduled` is booked. */
 export const visitStatus = pgEnum("visit_status", ["proposed", "scheduled", "completed", "cancelled"]);
-export const proposalKind = pgEnum("proposal_kind", ["move_stops", "move_weather"]);
+export const proposalKind = pgEnum("proposal_kind", ["move_stops", "move_weather", "route_days"]);
 export const proposalStatus = pgEnum("proposal_status", ["open", "applied", "dropped", "expired"]);
 /**
  * `draft` until it's issued (lines editable); `sent` once issued, with its lines frozen; then
@@ -1212,11 +1212,12 @@ export const visitRevisions = pgTable(
 
 /**
  * A change the code proposes and the owner decides (`core/proposals.ts`): moving a crew member's last stops off a
- * day that runs past its end (`move_stops`, with its `member_id`), or the business's weather-sensitive stops off a
- * day rain or heat is likely (`move_weather`, `core/weather-check.ts`; no member). `date` is that day, local;
- * `reason` is one line the code wrote. Nothing in `items` happens until an owner or admin applies them;
- * `applied_item_ids` are the ones that moved. One open proposal per member and day, and one weather proposal per
- * business and day ever; an open one expires once its day is over.
+ * day that runs past its end (`move_stops`, with its `member_id`), the business's weather-sensitive stops off a
+ * day rain or heat is likely (`move_weather`, `core/weather-check.ts`; no member), or its recurring work onto the
+ * weekday its area gets (`route_days`, `core/route-days.ts`; no member, `date` the day an owner asked for it).
+ * `date` is that day, local; `reason` is one line the code wrote. Nothing in `items` happens until an owner or
+ * admin applies them; `applied_item_ids` are the ones that moved. One open proposal per member and day, and one
+ * weather proposal per business and day ever; an open one expires once its day is over.
  */
 export const proposals = pgTable(
   "proposals",
@@ -1237,7 +1238,7 @@ export const proposals = pgTable(
   (t) => [
     index("proposals_org_status_idx").on(t.orgId, t.status, t.date),
     uniqueIndex("proposals_open_member_day_idx").on(t.orgId, t.kind, t.memberId, t.date).where(sql`${t.status} = 'open'`),
-    uniqueIndex("proposals_business_day_idx").on(t.orgId, t.kind, t.date).where(sql`${t.memberId} is null`),
+    uniqueIndex("proposals_business_day_idx").on(t.orgId, t.kind, t.date).where(sql`${t.memberId} is null and ${t.kind} = 'move_weather'`),
   ],
 );
 

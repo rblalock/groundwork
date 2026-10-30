@@ -7,7 +7,7 @@ import { plain, refuseFromEmail, requireCaller, toolError } from "../../../../co
 export default defineTool({
   approval: privilegedOnly("drop a proposal to move stops"),
   description:
-    "Drop a proposal to move stops (a day running long, or the weather): \"no\", \"leave it\", or \"keep the day as is\" after a proposal text. Nothing moves and nobody is texted. proposalId is from read_schedule's proposals; leave it out when only one is open. Owners and admins only. Reply with summaryText as it is.",
+    "Drop a proposal to move stops (a day running long, the weather, or route days): \"no\", \"leave it\", or \"keep the day as is\" after a proposal text. Nothing moves and nobody is texted. proposalId is from read_schedule's proposals; leave it out when only one is open. Owners and admins only. Reply with summaryText as it is.",
   inputSchema: z.object({ proposalId: z.string().optional() }),
   async execute({ proposalId }, ctx) {
     try {

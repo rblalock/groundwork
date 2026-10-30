@@ -22,6 +22,7 @@ const GATED: Record<string, string> = {
   drop_proposal: "decides a proposal on record",
   email_quote: "sends to the customer",
   merge_customers: "changes customers on record",
+  plan_route_days: "puts a proposal to move booked visits to the owners",
   record_payment: "money",
   remove_member: "team",
   remove_payment: "money",

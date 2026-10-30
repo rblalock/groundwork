@@ -137,6 +137,11 @@ export const toolLabels: Record<string, ToolLabel> = {
     detail: "Each stop is checked again before it moves. The crew get a text; customer texts are drafts to forward.",
   },
   drop_proposal: { active: "Dropping the proposal", done: "Dropped the proposal", detail: "Nothing moves." },
+  plan_route_days: {
+    active: "Planning route days",
+    done: "Planned route days",
+    detail: "Recurring work grouped by area, a loop a weekday. Nothing moves until the proposal is applied.",
+  },
   read_checklist: { active: "Reading the checklist", done: "Read the checklist" },
   tick_checklist: {
     active: "Ticking the checklist",
@@ -336,6 +341,11 @@ export const toolLabelsEs: Record<string, ToolLabel> = {
     detail: "Cada parada se revisa otra vez antes de moverla. El equipo recibe un mensaje; los textos a clientes son borradores para reenviar.",
   },
   drop_proposal: { active: "Descartando la propuesta", done: "Descarté la propuesta", detail: "Nada se mueve." },
+  plan_route_days: {
+    active: "Planeando los días de ruta",
+    done: "Planeé los días de ruta",
+    detail: "El trabajo recurrente agrupado por zona, una ruta por día. Nada se mueve hasta aplicar la propuesta.",
+  },
   read_checklist: { active: "Leyendo la lista", done: "Leí la lista" },
   tick_checklist: {
     active: "Marcando la lista",

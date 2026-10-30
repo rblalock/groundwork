@@ -1,8 +1,10 @@
-// Proposals: a change the code works out and an owner or admin decides. Two kinds. `move_stops`: a crew member's
+// Proposals: a change the code works out and an owner or admin decides. Three kinds. `move_stops`: a crew member's
 // day re-planned from now runs past its end plus the grace (`core/running-long.ts`), so the code picks their last
 // stops not yet started and where each could go. `move_weather`: rain or heat is likely over tomorrow's
-// weather-sensitive stops (`core/weather-check.ts`), so each moves to its crew's next dry day with room. Either
-// way the owners get it as a numbered confirm by text and on the Schedule page. Nothing moves until they apply it, and applying re-checks every stop in one
+// weather-sensitive stops (`core/weather-check.ts`), so each moves to its crew's next dry day with room.
+// `route_days`: an owner asked which weekday each area's recurring work gets (`core/route-days.ts`), so each job
+// whose day changes has its next visit moved to its new weekday next week, and applying it moves the work's
+// weekday too. Each way the owners get it as a numbered confirm by text and on the Schedule page. Nothing moves until they apply it, and applying re-checks every stop in one
 // transaction; the stops that still hold move through the code `reschedule_visit` uses, and the crew are texted
 // as they are for any move. Nothing here reaches a customer: each stop's customer text is a draft the owner
 // forwards. Every time, choice, and check is made here; the assistant only relays the texts.
@@ -18,7 +20,18 @@ import { driveMinutes, driveSettingsOf, yardOf, type DriveSettings, type Place }
 import { queueNotice } from "./followups";
 import { getProfile, getProfileWith } from "./profile";
 import type { Poster } from "./quotes";
-import { findAvailability, getVisit, lockSchedule, moveVisitIn, tellMoved, type Actor, type Slot, type Viewer, type VisitView } from "./scheduling";
+import {
+  findAvailability,
+  getVisit,
+  lockSchedule,
+  moveVisitIn,
+  setRecurringDay,
+  tellMoved,
+  type Actor,
+  type Slot,
+  type Viewer,
+  type VisitView,
+} from "./scheduling";
 import { dayText, intervalsOverlap, timeText, wallClock, type Interval } from "./scheduling-time";
 import { addDays } from "./time";
 
@@ -137,13 +150,15 @@ export function pickSlot(
 // ---------------------------------------------------------------------------------------------
 // Words
 
+/** A date's weekday, short: "Mon"; "lun". */
+export const weekdayWord = (date: string, language: Language) =>
+  new Intl.DateTimeFormat(language === "es" ? "es-US" : "en-US", { timeZone: "UTC", weekday: "short" }).format(new Date(`${date}T12:00:00Z`));
+
 /** "today", "tomorrow", a weekday within the week ("Mon"), else the date ("Mon, Nov 16"), from the crew's day. */
 export function dayWord(date: string, from: string, language: Language): string {
   if (date === from) return language === "es" ? "hoy" : "today";
   if (date === addDays(from, 1)) return language === "es" ? "mañana" : "tomorrow";
-  if (date > from && date < addDays(from, 7)) {
-    return new Intl.DateTimeFormat(language === "es" ? "es-US" : "en-US", { timeZone: "UTC", weekday: "short" }).format(new Date(`${date}T12:00:00Z`));
-  }
+  if (date > from && date < addDays(from, 7)) return weekdayWord(date, language);
   return dayText(date, language);
 }
 
@@ -171,9 +186,18 @@ export function proposalReason(plan: DayPlan, timeZone: string, language: Langua
   return `${name} is running ${minutes} min late${at ? ` at ${at}` : ""}${when ? `; the day would end at ${when}` : ""}`;
 }
 
-/** A stop's move as the owner reads it: "40 Pine Ave → Pat today 2:30 PM". */
-export function itemLine(item: ProposalItem, from: string, timeZone: string, language: Language): string {
-  return `${item.title} → ${namesText(item.to.names, language)} ${dayWord(item.to.date, from, language)} ${timeText(new Date(item.to.startAt), timeZone, language)}`;
+/**
+ * A stop's move as the owner reads it: "40 Pine Ave → Pat today 2:30 PM". A route day's says the weekday it leaves
+ * and the one it gets, from its first visit there: "412 Oak St: Thu → Tue from Tue, Nov 10, 9 AM (Carlos)".
+ */
+export function itemLine(item: ProposalItem, from: string, timeZone: string, language: Language, kind?: Proposal["kind"]): string {
+  const at = timeText(new Date(item.to.startAt), timeZone, language);
+  if (kind === "route_days") {
+    const was = weekdayWord(wallClock(new Date(item.from.startAt), timeZone).date, language);
+    const since = language === "es" ? "desde" : "from";
+    return `${item.title}: ${was} → ${weekdayWord(item.to.date, language)} ${since} ${dayText(item.to.date, language)}, ${at} (${namesText(item.to.names, language)})`;
+  }
+  return `${item.title} → ${namesText(item.to.names, language)} ${dayWord(item.to.date, from, language)} ${at}`;
 }
 
 /**
@@ -187,7 +211,7 @@ export function linesFrom(proposal: Pick<Proposal, "date"> & { kind?: Proposal["
 /**
  * The owners' numbered confirm: the reason, then "Move 2 stops for Carlos? 1. 40 Pine Ave → Pat today 2:30 PM
  * 2. 4 Elm Rd → Carlos Mon 9 AM. Reply the numbers to keep, 'all', or 'no'." with each stop on its own line. A
- * weather proposal asks "Move 3 stops to a dry day?".
+ * weather proposal asks "Move 3 stops to a dry day?", and a route-day one "Move 3 recurring stops to their area's day?".
  */
 export function ownerText(
   proposal: Pick<Proposal, "date" | "reason" | "items"> & { kind?: Proposal["kind"] },
@@ -197,8 +221,13 @@ export function ownerText(
 ): string {
   const n = proposal.items.length;
   const stops = language === "es" ? `${n} ${n === 1 ? "parada" : "paradas"}` : `${n} ${n === 1 ? "stop" : "stops"}`;
+  const recurring = language === "es" ? `${n} ${n === 1 ? "parada recurrente" : "paradas recurrentes"}` : `${n} recurring ${n === 1 ? "stop" : "stops"}`;
   const ask =
-    proposal.kind === "move_weather"
+    proposal.kind === "route_days"
+      ? language === "es"
+        ? `¿Paso ${recurring} al día de su zona?`
+        : `Move ${recurring} to their area's day?`
+      : proposal.kind === "move_weather"
       ? language === "es"
         ? `¿Muevo ${stops} a un día seco?`
         : `Move ${stops} to a dry day?`
@@ -206,7 +235,7 @@ export function ownerText(
         ? `¿Muevo ${stops} de ${firstName(memberName ?? "")}?`
         : `Move ${stops} for ${firstName(memberName ?? "")}?`;
   const reply = language === "es" ? "Responde los números que quieres, 'todas' o 'no'." : "Reply the numbers to keep, 'all', or 'no'.";
-  const lines = proposal.items.map((item) => `${item.id}. ${itemLine(item, linesFrom(proposal), timeZone, language)}`);
+  const lines = proposal.items.map((item) => `${item.id}. ${itemLine(item, linesFrom(proposal), timeZone, language, proposal.kind)}`);
   return [`${proposal.reason}.`, ask, ...lines, reply].join("\n");
 }
 
@@ -477,7 +506,12 @@ export function proposalForTool(proposal: OpenProposal, timeZone: string, langua
     ...(proposal.memberName ? { crew: proposal.memberName } : {}),
     date: proposal.date,
     reason: proposal.reason,
-    items: proposal.items.map((item) => ({ itemId: item.id, title: item.title, customerName: item.customerName, line: itemLine(item, linesFrom(proposal), timeZone, language) })),
+    items: proposal.items.map((item) => ({
+      itemId: item.id,
+      title: item.title,
+      customerName: item.customerName,
+      line: itemLine(item, linesFrom(proposal), timeZone, language, proposal.kind),
+    })),
     text: ownerText(proposal, proposal.memberName, timeZone, language),
   };
 }
@@ -553,8 +587,8 @@ export type Applied = {
  * holds the schedule's lock and re-checks each stop as it moves: the visit is at the revision it was proposed
  * on (anything since, a start or a delay included, means it changed), its new time is still free for the crew
  * getting it, inside their hours, and they carry what the work needs (`moveVisitIn`, as `reschedule_visit`). A
- * stop that doesn't hold is skipped with why, and the rest still move. The proposal is applied either way. The
- * crew are texted once it commits.
+ * stop that doesn't hold is skipped with why, and the rest still move; a route day's that moves puts its work on
+ * the new weekday. The proposal is applied either way. The crew are texted once it commits.
  */
 export async function applyProposal(actor: Actor, input: { proposalId?: string; itemIds?: string[] }, deps?: Deps): Promise<Applied> {
   if (!isPrivileged(actor.role)) throw new Error("NOT_PRIVILEGED");
@@ -575,8 +609,8 @@ export async function applyProposal(actor: Actor, input: { proposalId?: string; 
     for (const item of items) {
       try {
         // Each stop in its own savepoint, so one that doesn't hold leaves the others as they moved.
-        const { previous } = await tx.transaction((sp) =>
-          moveVisitIn(
+        const { previous } = await tx.transaction(async (sp) => {
+          const move = await moveVisitIn(
             sp,
             actor,
             {
@@ -591,8 +625,11 @@ export async function applyProposal(actor: Actor, input: { proposalId?: string; 
               reason: proposal.reason,
             },
             now,
-          ),
-        );
+          );
+          // A route day moves the work's weekday with its next visit, so the visits after come round on it.
+          if (proposal.kind === "route_days") await setRecurringDay(sp, orgId, move.previous.jobId, item.to, now);
+          return move;
+        });
         moved.push({ item, previous });
       } catch (error) {
         skipped.push({ item, reason: skipReason(error, language) });
@@ -614,7 +651,11 @@ export async function applyProposal(actor: Actor, input: { proposalId?: string; 
       console.error("proposals: a moved stop's crew text failed", { orgId, visitId: previous.visitId, error });
     }
   }
-  const moved = result.moved.map(({ item }) => ({ itemId: item.id, title: item.title, line: itemLine(item, linesFrom(result.proposal), result.timeZone, language) }));
+  const moved = result.moved.map(({ item }) => ({
+    itemId: item.id,
+    title: item.title,
+    line: itemLine(item, linesFrom(result.proposal), result.timeZone, language, result.proposal.kind),
+  }));
   const skipped = result.skipped.map(({ item, reason }) => ({ itemId: item.id, title: item.title, reason }));
   const customerTexts = result.moved.map(({ item }) => ({ itemId: item.id, customerName: item.customerName, text: item.customerText }));
   return { proposal: result.proposal, moved, skipped, customerTexts, notified: [...new Set(notified)], summaryText: summaryText({ moved, skipped, customerTexts, notified: [...new Set(notified)] }, language) };
