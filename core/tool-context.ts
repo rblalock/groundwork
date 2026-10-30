@@ -134,6 +134,8 @@ const HINTS: Record<string, string> = {
   QUOTE_NOT_AGREED: "Only an approved, sent, or won quote can be scheduled. If the customer said yes, mark it won with set_quote_outcome first.",
   JOB_CLOSED: "That work is already completed or cancelled. Open new work for more visits.",
   SERVICE_JOB_NOT_FOUND: "No work has that id. Use read_schedule or get_quote.",
+  NO_CHECKLIST: "That work has no quote, so it has no checklist. Say so in one line; a visit is still marked done with change_visit_status.",
+  CHECKLIST_ITEM_NOT_FOUND: "That work's checklist has no such item. Use read_checklist for its items.",
   JOB_TITLE_REQUIRED: "Work without a quote needs a title, such as the address or the member's words for it.",
   VISITS_AHEAD: "That work still has visits coming up. Say when, and ask whether to cancel them; only then pass cancelUpcomingVisits.",
   HAS_VISITS: "They have visits booked in that time. Say which; those need moving or cancelling first.",

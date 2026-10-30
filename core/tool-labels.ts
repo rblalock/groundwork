@@ -119,6 +119,12 @@ export const toolLabels: Record<string, ToolLabel> = {
   },
   reschedule_visit: { active: "Moving the visit", done: "Moved the visit" },
   change_visit_status: { active: "Updating the visit", done: "Updated the visit" },
+  read_checklist: { active: "Reading the checklist", done: "Read the checklist" },
+  tick_checklist: {
+    active: "Ticking the checklist",
+    done: "Ticked the checklist",
+    detail: "Items come from the quote's lines, with no prices. The last one marks today's visit done.",
+  },
   attach_work_photos: { active: "Adding the photos", done: "Added the photos" },
   price_photo: {
     active: "Pricing the photo",
@@ -294,6 +300,12 @@ export const toolLabelsEs: Record<string, ToolLabel> = {
   },
   reschedule_visit: { active: "Moviendo la visita", done: "Moví la visita" },
   change_visit_status: { active: "Actualizando la visita", done: "Actualicé la visita" },
+  read_checklist: { active: "Leyendo la lista", done: "Leí la lista" },
+  tick_checklist: {
+    active: "Marcando la lista",
+    done: "Marqué la lista",
+    detail: "Las tareas vienen de las líneas de la cotización, sin precios. La última marca hecha la visita de hoy.",
+  },
   attach_work_photos: { active: "Agregando las fotos", done: "Agregué las fotos" },
   price_photo: {
     active: "Marcando precios en la foto",

@@ -15,7 +15,7 @@ import { pricedPhotosFor, type PricedPhoto } from "./priced-photo";
 import { getProfile } from "./profile";
 import { getQuote, type Poster } from "./quotes";
 import { changeVisitStatus, getServiceJob, type Actor, type VisitView } from "./scheduling";
-import { wallClock } from "./scheduling-time";
+import { dayText, timeText, wallClock } from "./scheduling-time";
 import { pluralUnit } from "./units";
 
 export type ChecklistItemView = {
@@ -65,6 +65,24 @@ export function checklistText(items: Array<Pick<ChecklistItemView, "name" | "qua
 
 export function checklistCounts(items: Array<Pick<ChecklistItemView, "doneAt">>): { done: number; total: number } {
   return { done: items.filter((item) => item.doneAt).length, total: items.length };
+}
+
+/** The list as tools return it: each item's text and whether, by whom, and when it was ticked; `text` is ready to send. */
+export function checklistForTool(items: ChecklistItemView[], timeZone: string, language: Language) {
+  const { done, total } = checklistCounts(items);
+  return {
+    items: items.map((item, index) => ({
+      itemId: item.itemId,
+      number: index + 1,
+      text: itemText(item, language),
+      done: Boolean(item.doneAt),
+      ...(item.doneAt ? { doneBy: item.doneByName, doneAt: `${dayText(wallClock(item.doneAt, timeZone).date, language)}, ${timeText(item.doneAt, timeZone, language)}` } : {}),
+    })),
+    done,
+    total,
+    allDone: done === total,
+    text: checklistText(items, language),
+  };
 }
 
 /**
