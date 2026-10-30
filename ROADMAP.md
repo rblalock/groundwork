@@ -47,6 +47,13 @@ The priced photo already runs SAM on the quote's photo, and `price_photo` with a
 finished-job photo. Next: pair the two for the same lines and show them side by side on the invoice
 and the customer's price guide.
 
+## A social post from the before-and-after
+
+The before-and-after pair becomes a post the business can share as it is: the two photos side by
+side, lightly cleaned up (crop to one frame, level the exposure between the two, the business's name
+in a corner), with an optional line inviting people to get their own quote. The operator taps share
+and goes; nothing to design, nothing to write.
+
 ## Repeat quotes proposed from the price guide
 
 The customer's price guide holds every priced photo of their yard. When the member says "same as last
