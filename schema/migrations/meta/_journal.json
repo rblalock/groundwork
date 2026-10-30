@@ -64,6 +64,13 @@
       "when": 1793364149497,
       "tag": "0008_checklist-items",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793365876967,
+      "tag": "0009_places",
+      "breakpoints": true
     }
   ]
 }

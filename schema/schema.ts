@@ -5,6 +5,7 @@ import {
   boolean,
   check,
   date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -111,6 +112,8 @@ export const stripeAccountStatus = pgEnum("stripe_account_status", ["onboarding"
 
 /** A business note is text; a document is a file a member kept, with its description. */
 export const noteKind = pgEnum("note_kind", ["note", "document"]);
+/** Whether an address has been placed on the map: `pending` until tried, `not_found` when the geocoder had no match. */
+export const geocodeStatus = pgEnum("geocode_status", ["pending", "ok", "not_found", "failed"]);
 
 /**
  * An inbound text's place in the queue: `pending` until a worker leases it, `processing` while one
@@ -313,6 +316,19 @@ export const businessProfile = pgTable("business_profile", {
   quoteFooter: text("quote_footer"),
   invoiceFooter: text("invoice_footer"),
   pdfHiddenDetails: text("pdf_hidden_details").array().notNull().default([]),
+  /**
+   * Where the yard is (`address`, placed by `core/places.ts`), the start and end of every crew's day.
+   * Null lat and lng until it's placed; never guessed.
+   */
+  yardLat: doublePrecision("yard_lat"),
+  yardLng: doublePrecision("yard_lng"),
+  yardGeocodedAt: timestamptz("yard_geocoded_at"),
+  yardGeocodeStatus: geocodeStatus("yard_geocode_status").notNull().default("pending"),
+  yardPlaceLabel: text("yard_place_label"),
+  /** Drive times between places: straight-line distance times `roadFactorBp` (13000 is 1.3) at `townMph`, never under `minDriveMinutes`. */
+  roadFactorBp: integer("road_factor_bp").notNull().default(13_000),
+  townMph: integer("town_mph").notNull().default(28),
+  minDriveMinutes: integer("min_drive_minutes").notNull().default(5),
   version: integer("version").notNull().default(1),
   pricebookVersion: integer("pricebook_version").notNull().default(0),
   rulesVersion: integer("rules_version").notNull().default(0),
@@ -598,6 +614,12 @@ export const properties = pgTable("properties", {
     .references(() => customers.id),
   address: text("address").notNull(),
   notes: text("notes"),
+  /** Where the address is, from `core/places.ts`; null until placed, and never guessed. `place_label` is the geocoder's match. */
+  lat: doublePrecision("lat"),
+  lng: doublePrecision("lng"),
+  geocodedAt: timestamptz("geocoded_at"),
+  geocodeStatus: geocodeStatus("geocode_status").notNull().default("pending"),
+  placeLabel: text("place_label"),
   createdAt: createdAt(),
 });
 
