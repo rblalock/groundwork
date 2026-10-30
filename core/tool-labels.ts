@@ -125,6 +125,11 @@ export const toolLabels: Record<string, ToolLabel> = {
     done: "Priced the photo",
     detail: "Each quoted thing outlined and labeled with its line from the quote.",
   },
+  repeat_quote: {
+    active: "Pricing the last quote again",
+    done: "Priced the last quote again",
+    detail: "Last time's lines at today's prices, computed in code. Nothing is saved until you say yes.",
+  },
   make_post: {
     active: "Making the post",
     done: "Made the post",
@@ -294,6 +299,11 @@ export const toolLabelsEs: Record<string, ToolLabel> = {
     active: "Marcando precios en la foto",
     done: "Marqué precios en la foto",
     detail: "Cada cosa cotizada marcada y con su línea de la cotización.",
+  },
+  repeat_quote: {
+    active: "Calculando la última cotización otra vez",
+    done: "Calculé la última cotización otra vez",
+    detail: "Las líneas de la última vez a los precios de hoy, calculadas en código. Nada se guarda hasta que digas que sí.",
   },
   make_post: {
     active: "Haciendo la publicación",

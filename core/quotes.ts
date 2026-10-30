@@ -23,6 +23,7 @@ import {
   calculate,
   type Adjustment,
   type AppliedRule,
+  type CalcResult,
   type LineInput,
   type LineResult,
   type RuleLine,
@@ -641,6 +642,79 @@ async function resolveParties(orgId: string, input: Partial<CreateQuoteInput>, e
   return { customerId, propertyId, customer };
 }
 
+type Revision = typeof quoteRevisions.$inferSelect;
+
+/**
+ * Prices a revision: lines resolved against the active pricebook, the named rules, adjustments, the
+ * minimum, and tax. What `input` leaves out carries over from `previous`.
+ */
+async function priceRevision(
+  executor: Db | Tx,
+  orgId: string,
+  memberId: string,
+  input: Partial<CreateQuoteInput>,
+  previous: Revision | null,
+  profile: { minimumChargeCents: number | null; taxRateBp: number | null },
+): Promise<{ appliedRules: AppliedRule[]; adjustments: Adjustment[]; calc: CalcResult }> {
+  // Lines: new ones are resolved against the pricebook; otherwise the previous snapshot carries over.
+  let lines: LineInput[];
+  if (input.lines) {
+    const itemIds = [...new Set(input.lines.map((l) => l.itemId).filter((id): id is string => Boolean(id)))];
+    const rows = itemIds.length
+      ? await executor
+          .select()
+          .from(pricebookItems)
+          .where(
+            and(eq(pricebookItems.orgId, orgId), inArray(pricebookItems.id, itemIds), eq(pricebookItems.status, "active")),
+          )
+      : [];
+    const items = new Map(rows.map((r) => [r.id, r]));
+    lines = input.lines.map((line) => resolveLine(line, items));
+  } else {
+    lines = (previous?.lines ?? []).map(toLineInput);
+  }
+  if (lines.length === 0) throw new Error("NO_LINES");
+
+  // Rules: explicit ids must be active; ids inherited from the previous revision drop out once retired.
+  const explicitRules = input.ruleIds !== undefined;
+  const ruleIds = [...new Set(explicitRules ? input.ruleIds : (previous?.ruleIds ?? []))];
+  const ruleRows = ruleIds.length
+    ? await executor.select().from(rules).where(and(eq(rules.orgId, orgId), inArray(rules.id, ruleIds)))
+    : [];
+  const appliedRules: AppliedRule[] = [];
+  for (const id of ruleIds) {
+    const row = ruleRows.find((r) => r.id === id);
+    if (!row || row.status !== "active") {
+      if (explicitRules) throw new Error(`UNKNOWN_RULE:${id}`);
+      continue;
+    }
+    appliedRules.push({ ruleId: row.id, text: row.text, effect: row.effect });
+  }
+
+  const adjustments = input.adjustments
+    ? resolveAdjustments(input.adjustments, memberId)
+    : (previous?.adjustments ?? []);
+
+  const calc = calculate({
+    lines,
+    rules: appliedRules,
+    minimumCents: profile.minimumChargeCents,
+    adjustments,
+    taxRateBp: profile.taxRateBp,
+  });
+  return { appliedRules, adjustments, calc };
+}
+
+/** What a new quote with these lines, rules, and adjustments would come to today. Nothing is saved. */
+export async function previewQuote(
+  orgId: string,
+  memberId: string,
+  input: Pick<CreateQuoteInput, "lines" | "ruleIds" | "adjustments">,
+): Promise<CalcResult> {
+  const profile = await getProfileWith(orgId, db());
+  return (await priceRevision(db(), orgId, memberId, input, null, profile)).calc;
+}
+
 async function saveRevision(args: {
   quoteId: string | null;
   input: Partial<CreateQuoteInput>;
@@ -679,52 +753,7 @@ async function saveRevision(args: {
     if (!title) throw new Error("TITLE_REQUIRED");
     const profile = await getProfileWith(orgId, tx);
 
-    // Lines: new ones are resolved against the pricebook; otherwise the previous snapshot carries over.
-    let lines: LineInput[];
-    if (input.lines) {
-      const itemIds = [...new Set(input.lines.map((l) => l.itemId).filter((id): id is string => Boolean(id)))];
-      const rows = itemIds.length
-        ? await tx
-            .select()
-            .from(pricebookItems)
-            .where(
-              and(eq(pricebookItems.orgId, orgId), inArray(pricebookItems.id, itemIds), eq(pricebookItems.status, "active")),
-            )
-        : [];
-      const items = new Map(rows.map((r) => [r.id, r]));
-      lines = input.lines.map((line) => resolveLine(line, items));
-    } else {
-      lines = (previous?.lines ?? []).map(toLineInput);
-    }
-    if (lines.length === 0) throw new Error("NO_LINES");
-
-    // Rules: explicit ids must be active; ids inherited from the previous revision drop out once retired.
-    const explicitRules = input.ruleIds !== undefined;
-    const ruleIds = [...new Set(explicitRules ? input.ruleIds : (previous?.ruleIds ?? []))];
-    const ruleRows = ruleIds.length
-      ? await tx.select().from(rules).where(and(eq(rules.orgId, orgId), inArray(rules.id, ruleIds)))
-      : [];
-    const appliedRules: AppliedRule[] = [];
-    for (const id of ruleIds) {
-      const row = ruleRows.find((r) => r.id === id);
-      if (!row || row.status !== "active") {
-        if (explicitRules) throw new Error(`UNKNOWN_RULE:${id}`);
-        continue;
-      }
-      appliedRules.push({ ruleId: row.id, text: row.text, effect: row.effect });
-    }
-
-    const adjustments = input.adjustments
-      ? resolveAdjustments(input.adjustments, caller.memberId)
-      : (previous?.adjustments ?? []);
-
-    const calc = calculate({
-      lines,
-      rules: appliedRules,
-      minimumCents: profile.minimumChargeCents,
-      adjustments,
-      taxRateBp: profile.taxRateBp,
-    });
+    const { appliedRules, adjustments, calc } = await priceRevision(tx, orgId, caller.memberId, input, previous, profile);
 
     const customerLanguage: Language =
       input.customerLanguage ??

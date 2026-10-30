@@ -67,6 +67,7 @@ const HINTS: Record<string, string> = {
   NAME_TAKEN: "Another pricebook item already has that name.",
   RULE_NOT_FOUND: "No rule has that id. Check read_business.",
   QUOTE_NOT_FOUND: "No quote has that id. Use list_quotes to find it.",
+  NO_QUOTES: "That customer has no quotes to repeat. Say so in one line and offer to quote the job new.",
   QUOTE_CLOSED: "That quote is closed (won, lost, or void) and cannot change.",
   QUOTE_NOT_OPEN: "That quote is not a draft anymore.",
   NOT_APPROVED: "That quote has not been approved yet.",
