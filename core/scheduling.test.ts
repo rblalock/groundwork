@@ -363,6 +363,13 @@ withTestDb("equipment: only crew who carry what the work needs are offered, a na
 
   // Work with no quote needs nothing.
   assert.ok(await bookVisit(s.owner, { title: "Shed", memberIds: [s.carlos.memberId], day: "wednesday", time: "09:00" }, deps));
+
+  // Moving work to a crew who don't carry it is refused the same way; the crew booked on it keep moving it freely.
+  const anas = await bookVisit(s.owner, { quoteId: s.quote.quoteId, memberIds: [s.ana.memberId], day: "thursday", time: "09:00" }, deps);
+  const move = (extra: Record<string, unknown>) => rescheduleVisit(s.owner, { visitId: anas.visit.visitId, ...extra }, deps);
+  await assert.rejects(move({ memberIds: [s.carlos.memberId] }), /MISSING_EQUIPMENT: Carlos Crew doesn't carry Chipper/);
+  assert.deepEqual((await move({ memberIds: [s.carlos.memberId], allowMissingEquipment: true })).visit.crew.map((c) => c.name), ["Carlos Crew"]);
+  assert.equal((await move({ time: "10:00" })).visit.crew[0].name, "Carlos Crew", "the crew it has already go without it");
 });
 
 withTestDb("availability over the clocks changing: no slot in the gap, both of the repeated hour", async () => {

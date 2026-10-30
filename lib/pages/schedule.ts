@@ -186,6 +186,7 @@ export const rescheduleSchema = z
     memberIds: z.array(id).min(1).max(6).optional(),
     notes: z.string().max(4000).optional(),
     allowOutsideHours: z.boolean().optional(),
+    allowMissingEquipment: z.boolean().optional(),
   })
   .strict();
 

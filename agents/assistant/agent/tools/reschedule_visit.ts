@@ -7,7 +7,7 @@ import { plain, refuseFromEmail, requireCaller, toolError } from "../../../../co
 export default defineTool({
   approval: privilegedOnly("move visits or change who goes"),
   description:
-    "Move a visit, change how long it is, or change who goes. Pass only what changes; the rest stays. day is as the member said it (YYYY-MM-DD, today, tomorrow, or a weekday) and time is 24-hour HH:MM, in the business's time zone. memberIds replaces the whole crew. Find the visitId with read_schedule. Owners and admins only. Whoever is on it, before or after, gets a text. Reply with confirmText.",
+    "Move a visit, change how long it is, or change who goes. Pass only what changes; the rest stays. day is as the member said it (YYYY-MM-DD, today, tomorrow, or a weekday) and time is 24-hour HH:MM, in the business's time zone. memberIds replaces the whole crew; a crew who don't carry what the work's price book items need is refused (MISSING_EQUIPMENT). Find the visitId with read_schedule. Owners and admins only. Whoever is on it, before or after, gets a text. Reply with confirmText.",
   inputSchema: z.object({
     visitId: z.string(),
     day: z.string().optional(),
@@ -19,6 +19,10 @@ export default defineTool({
     notes: z.string().max(4000).optional(),
     reason: z.string().max(500).optional().describe("The member's words for why, if they said."),
     allowOutsideHours: z.boolean().optional(),
+    allowMissingEquipment: z
+      .boolean()
+      .optional()
+      .describe("Only when the owner or an admin says the new crew goes anyway without what the work needs (\"Ana will borrow the chipper\")."),
     offsetMinutes: z.number().int().optional(),
   }),
   async execute({ notes, ...input }, ctx) {

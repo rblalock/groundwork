@@ -142,9 +142,8 @@ export function VisitForm({
     setError(undefined);
     setOverridable(null);
     const [kind, id] = work.split(":");
-    const { allowOutsideHours } = overrides;
     const body = moving
-      ? { date, time, durationMinutes: duration, memberIds, notes, ...(allowOutsideHours ? { allowOutsideHours } : {}) }
+      ? { date, time, durationMinutes: duration, memberIds, notes, ...overrides }
       : {
           ...(kind === "quote" ? { quoteId: id } : kind === "job" ? { jobId: id } : { title: title.trim() || undefined }),
           memberIds,

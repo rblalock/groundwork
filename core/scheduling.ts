@@ -1028,6 +1028,15 @@ async function saveRevision(tx: Tx, actor: Actor, visitId: string, action: strin
   await recordEvent({ orgId: actor.orgId, kind: `visit.${action}`, refId: visitId, memberId: actor.memberId, data: { jobId: row.jobId } }, tx);
 }
 
+/** Refuses a crew who don't carry what the work needs between them. Throws `MISSING_EQUIPMENT`. */
+async function ensureCrewCarries(orgId: string, quoteId: string | null, crew: CrewMember[], tx: Tx): Promise<void> {
+  const lacking = missingEquipment(await equipmentNeeded(orgId, quoteId, tx), crew.map((c) => c.equipment));
+  if (!lacking.length) return;
+  const names = crew.map((c) => c.name);
+  const who = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)} don't` : `${names[0]} doesn't`;
+  throw new Error(`MISSING_EQUIPMENT: ${who} carry ${lacking.join(", ")}, which the work needs`);
+}
+
 export type BookVisitInput = JobInput & {
   /** An open job to add the visit to. Otherwise the quote's job (made if needed), or a new job. */
   jobId?: string;
@@ -1092,14 +1101,7 @@ export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps
     } else {
       ({ job, created: jobCreated } = await ensureJob(actor, input, tx, now));
     }
-    if (!input.allowMissingEquipment) {
-      const lacking = missingEquipment(await equipmentNeeded(orgId, job.quoteId, tx), crew.map((c) => c.equipment));
-      if (lacking.length) {
-        const names = crew.map((c) => c.name);
-        const who = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)} don't` : `${names[0]} doesn't`;
-        throw new Error(`MISSING_EQUIPMENT: ${who} carry ${lacking.join(", ")}, which the work needs`);
-      }
-    }
+    if (!input.allowMissingEquipment) await ensureCrewCarries(orgId, job.quoteId, crew, tx);
     const work = await workPlace(orgId, { propertyId: input.propertyId ?? job.propertyId ?? undefined }, tx);
     const crewStops = await crewStopsOn(orgId, crew, wallClock(startAt, timeZone).date, timeZone, tx);
     const { driveEstimated, ...buffers } = visitBuffers(
@@ -1170,12 +1172,15 @@ export type RescheduleInput = {
   visitNotes?: string;
   reason?: string;
   allowOutsideHours?: boolean;
+  /** The owner means it: send a crew who don't carry what the work needs. */
+  allowMissingEquipment?: boolean;
 };
 
 /**
  * Moves a visit, changes how long it is, or changes who goes, owners and admins only. Whatever isn't
- * given stays as it was. The same checks as booking apply, leaving the visit's own time out. Texts
- * whoever is on it before or after, other than whoever moved it.
+ * given stays as it was. The same checks as booking apply, leaving the visit's own time out; what the work
+ * needs is checked when the crew changes, since the crew it has were already booked on it. Texts whoever is
+ * on it before or after, other than whoever moved it.
  */
 export async function rescheduleVisit(actor: Actor, input: RescheduleInput, deps?: Deps): Promise<BookingResult & { previous: VisitView }> {
   requirePrivileged(actor);
@@ -1204,6 +1209,8 @@ export async function rescheduleVisit(actor: Actor, input: RescheduleInput, deps
           );
     if (startAt <= now && !keepsTime) throw new Error("VISIT_IN_PAST");
     const crew = await crewFor(orgId, input.memberIds ?? before.crew.map((c) => c.memberId), tx);
+    const newCrew = crew.some((c) => !before.crew.some((b) => b.memberId === c.memberId));
+    if (newCrew && !input.allowMissingEquipment) await ensureCrewCarries(orgId, before.quoteId, crew, tx);
     const bufferBeforeMinutes = input.bufferBeforeMinutes === undefined ? before.bufferBeforeMinutes : clampBuffer(input.bufferBeforeMinutes);
     const bufferAfterMinutes = input.bufferAfterMinutes === undefined ? before.bufferAfterMinutes : clampBuffer(input.bufferAfterMinutes);
     await ensureCrewFree(orgId, crew, { startAt, endAt, bufferBeforeMinutes, bufferAfterMinutes }, timeZone, tx, {
