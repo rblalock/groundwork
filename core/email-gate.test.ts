@@ -72,6 +72,7 @@ const ALLOWED: Record<string, string> = {
   list_invoices: "reads",
   list_jobs: "reads",
   list_quotes: "reads",
+  make_post: "draws the before-and-after for the member's own thread; nothing reaches the customer",
   no_reply: "no effect",
   price_photo: "draws the quote's own photo and lines; nothing reaches the customer until the quote is sent",
   react: "a tapback on the member's own message; never on an email",

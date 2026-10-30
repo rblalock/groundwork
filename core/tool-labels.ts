@@ -125,6 +125,11 @@ export const toolLabels: Record<string, ToolLabel> = {
     done: "Priced the photo",
     detail: "Each quoted thing outlined and labeled with its line from the quote.",
   },
+  make_post: {
+    active: "Making the post",
+    done: "Made the post",
+    detail: "The before-and-after cropped to share, with the business's name. No prices or address.",
+  },
   close_service_job: { active: "Closing the work", done: "Closed the work" },
   set_work_hours: { active: "Setting working hours", done: "Set working hours" },
   add_time_off: { active: "Adding time off", done: "Added time off" },
@@ -289,6 +294,11 @@ export const toolLabelsEs: Record<string, ToolLabel> = {
     active: "Marcando precios en la foto",
     done: "Marqué precios en la foto",
     detail: "Cada cosa cotizada marcada y con su línea de la cotización.",
+  },
+  make_post: {
+    active: "Haciendo la publicación",
+    done: "Hice la publicación",
+    detail: "El antes y después recortado para compartir, con el nombre del negocio. Sin precios ni dirección.",
   },
   close_service_job: { active: "Cerrando el servicio", done: "Cerré el servicio" },
   set_work_hours: { active: "Poniendo el horario de trabajo", done: "Puse el horario de trabajo" },

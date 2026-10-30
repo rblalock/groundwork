@@ -36,9 +36,9 @@ const NOTES: Record<Language, Record<Reason, string>> = {
 
 function summaryText(located: number, lines: number, notLocated: string[], language: Language, beforeAfter: boolean): string {
   if (language === "es") {
-    return `Foto con precios lista: ${located} de ${lines} líneas ubicadas${notLocated.length ? ` (no ubicadas: ${notLocated.join(", ")})` : ""}.${beforeAfter ? " El antes y después con la foto de la cotización está en la factura y en la guía de precios del cliente." : ""}`;
+    return `Foto con precios lista: ${located} de ${lines} líneas ubicadas${notLocated.length ? ` (no ubicadas: ${notLocated.join(", ")})` : ""}.${beforeAfter ? " El antes y después con la foto de la cotización está en la factura y en la guía de precios del cliente. Di 'haz una publicación' para una imagen lista para compartir." : ""}`;
   }
-  return `Priced photo ready: ${located} of ${lines} lines located${notLocated.length ? ` (not located: ${notLocated.join(", ")})` : ""}.${beforeAfter ? " The before-and-after with the quote's photo is on the invoice and the customer's price guide." : ""}`;
+  return `Priced photo ready: ${located} of ${lines} lines located${notLocated.length ? ` (not located: ${notLocated.join(", ")})` : ""}.${beforeAfter ? " The before-and-after with the quote's photo is on the invoice and the customer's price guide. Say 'make a post' for a share-ready image." : ""}`;
 }
 
 export default defineTool({

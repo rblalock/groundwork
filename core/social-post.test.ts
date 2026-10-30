@@ -4,16 +4,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 process.env.BLOB_LOCAL_DIR = mkdtempSync(join(tmpdir(), "social-post-"));
 
-import { test } from "node:test";
+import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
 import sharp from "sharp";
+import { z } from "zod";
+import { pricedPhotos } from "../schema/schema";
 import type { PricedRegion } from "../schema/types";
 import type { BeforeAfter } from "./before-after";
-import { storeInboundAttachment } from "./blob";
-import { newId } from "./db";
+import { readStoredFile, storeInboundAttachment } from "./blob";
+import { memberAuth } from "./channel-dispatch";
+import { db, newId } from "./db";
+import { setTransportForTests } from "./imessage";
+import { addPhone, createMember, findMemberById, recordInbound, type Caller } from "./members";
 import type { PricedPhoto } from "./priced-photo";
+import { updateProfile } from "./profile";
+import { createQuote, type Poster } from "./quotes";
 import { callToAction, postLines, renderSocialPost, socialCaption, socialPostLayout } from "./social-post";
-import { TEST_ORG } from "./test-db";
+import { TEST_ORG, withTestDb } from "./test-db";
 
 test("a square post puts the two halves side by side, a story stacks them, both the same size", () => {
   const square = socialPostLayout("square", 168);
@@ -132,4 +139,47 @@ test("the logo sits on a white tile in the band, and the photos must be readable
     renderSocialPost({ ...pair, after: photoRow({ sourceUrl: "fake://inbound/after.jpg" }) }, { format: "story", cta: true, language: "en", business }),
     /UNREADABLE_PHOTO/,
   );
+});
+
+afterEach(() => setTransportForTests(null));
+const quiet: Poster = async () => ({ posted: true });
+
+withTestDb("make_post: draws the quote's post, sends it to the member's thread with its caption, or says what's missing", async () => {
+  const sent: string[] = [];
+  setTransportForTests({ postText: async (_thread, text) => (sent.push(text), ["t1"]), postFile: async () => "f1", addReaction: async () => {} });
+  const member = await createMember({ orgId: TEST_ORG, name: "Pat", role: "owner" });
+  const phone = await addPhone(TEST_ORG, member.id, "+15555550142");
+  await recordInbound(TEST_ORG, phone.id, "thread:pat", new Date(), "iMessage");
+  await updateProfile(TEST_ORG, { phone: "+13055550142" }, member.id);
+  const owner: Caller = { orgId: TEST_ORG, memberId: member.id, name: "Pat", role: "owner", language: "en", phoneE164: "+15555550142" };
+  const bare = await createQuote({ title: "9 Elm St", lines: [{ name: "Bed edging", quantity: 40, unitLabel: "linear foot", unitCents: 250 }] }, owner, { post: quiet });
+  const quote = await createQuote({ title: "412 Oak St front yard", lines: [{ name: "Mulch installed", quantity: 3, unitLabel: "cubic yard", unitCents: 9500 }] }, owner, { post: quiet });
+  const pair = await fixturePair();
+  for (const photo of [pair.before, pair.after]) {
+    await db().insert(pricedPhotos).values({ ...photo, id: newId("ppho"), quoteId: quote.quoteId, regions: [region(0, "Mulch installed")] });
+  }
+
+  const { default: makePost } = await import("../agents/assistant/agent/tools/make_post");
+  const tool = makePost as unknown as { inputSchema: z.ZodType; execute: (input: unknown, ctx: unknown) => Promise<Record<string, unknown>> };
+  const auth = memberAuth((await findMemberById(TEST_ORG, member.id))!, phone);
+  const call = (input: unknown) => tool.execute(tool.inputSchema.parse(input), { session: { id: "ses_x", auth: { current: auth } } });
+
+  // With no quoteId, the quote the member just made.
+  const made = await call({});
+  assert.equal(made.quoteId, quote.quoteId);
+  assert.deepEqual([made.format, made.posted], ["square", true]);
+  assert.equal(made.caption, "Before and after: mulch installed. Want yours done? Text (305) 555-0142.");
+  assert.match(String(made.imageUrl), /^file:/);
+  const stored = await readStoredFile(String(made.imageUrl));
+  assert.ok(stored);
+  const size = await sharp(stored).metadata();
+  assert.deepEqual([size.width, size.height], [1080, 1080]);
+  assert.deepEqual(sent, [made.caption]);
+
+  const story = await call({ quoteId: quote.quoteId, format: "story", cta: false });
+  assert.deepEqual([story.format, story.caption], ["story", "Before and after: mulch installed."]);
+
+  const none = await call({ quoteId: bare.quoteId });
+  assert.deepEqual([none.imageUrl, none.reason], [null, "no_before_after"]);
+  assert.match(String(none.note), /before the job/);
 });

@@ -38,7 +38,7 @@ export const HIDDEN_TOOLS = new Set([
 ]);
 
 /** Tools about one quote: the reply that ran one gets that quote's card. */
-export const QUOTE_TOOLS = new Set(["create_quote", "revise_quote", "approve_quote", "set_quote_outcome", "get_quote", "price_photo"]);
+export const QUOTE_TOOLS = new Set(["create_quote", "revise_quote", "approve_quote", "set_quote_outcome", "get_quote", "price_photo", "make_post"]);
 
 /** One step: a tool, how many times it ran, whether it failed, and what it touched ("INV-0003", "3 invoices"). */
 export type ToolChip = { tool: string; count: number; failed: boolean; detail: string | null };
