@@ -95,6 +95,24 @@ export function applyAssignment(regions: PricedRegion[], candidates: PricedCandi
   });
 }
 
+/**
+ * The outline being drawn, as an SVG path: through each point, then to where the pointer is (`at`), and
+ * back to the first point once it's `closed`. Empty with no point yet.
+ */
+export function sketchPath(points: Point[], at: Point | null, closed: boolean): string {
+  const through = closed || !at ? points : [...points, at];
+  if (through.length === 0) return "";
+  return `M${through.map(({ x, y }) => `${round(x)} ${round(y)}`).join("L")}${closed ? "Z" : ""}`;
+}
+
+const round = (value: number) => Math.round(value * 10) / 10;
+
+/** Whether `at` lands within `reach` of the first point of an outline that has enough points to close. */
+export function closesAt(points: Point[], at: Point, reach: number): boolean {
+  if (points.length < 3) return false;
+  return Math.hypot(at.x - points[0].x, at.y - points[0].y) <= reach;
+}
+
 /** "5 minutes ago", for who last edited the photo. */
 export function editedAgo(iso: string, language: Language, now = Date.now()): string {
   const seconds = Math.round((new Date(iso).getTime() - now) / 1000);

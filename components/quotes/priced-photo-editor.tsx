@@ -1,32 +1,38 @@
 "use client";
 
 import { Popover as PopoverPrimitive } from "@base-ui/react/popover";
-import { Check, Search, X } from "lucide-react";
+import { Check, PenLine, Search, Trash2, Undo2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { LoadingState, Spinner } from "@/components/spinner";
 import type { Language } from "@/core/language";
 import { pluralUnit } from "@/core/units";
 import { money, quantity } from "@/lib/format";
 import { pageCopyFor } from "@/lib/page-copy";
+import { MAX_DRAWN_POINTS } from "@/core/priced-photo-select";
 import {
   applyAssignment,
   assignmentsOf,
+  closesAt,
   editedAgo,
+  PricedPhotoError,
   pricedPhotoApi,
+  sketchPath,
   type PricedBox,
   type PricedCandidate,
   type PricedPhotoApi,
   type PricedPhotoEditorState,
   type PricedRegion,
+  type Point,
 } from "@/lib/priced-photo-editor";
 import { Button } from "@/ui/beautiful/atoms/Button";
 import { cn } from "@/ui/lib/utils";
 import { ErrorLine, inputClass, NativeSelect } from "../pages/client-kit";
 
 // Editing a quote's priced photo by hand (lib/priced-photo-editor.ts). Everything SAM found in the photo
-// is outlined over it; tapping an outline lists the quote's lines to put it on, and a box dragged on the
-// photo asks SAM to look again there for something it missed. Each change saves the whole set, and the
-// server draws the priced PNG again from it.
+// is outlined over it; tapping an outline lists the quote's lines to put it on, a box dragged on the
+// photo asks SAM to look again there for something it missed, and points tapped around a thing SAM never
+// finds outline it by hand. Each change saves the whole set, and the server draws the priced PNG again
+// from it.
 
 /** One color per line, in line order: the same ones the priced PNG draws with (core/priced-photo.ts). */
 const PALETTE = ["#ff9f0a", "#0a84ff", "#ff375f", "#bf5af2", "#ffd60a", "#64d2ff", "#ff3b30", "#30d158"];
@@ -34,12 +40,14 @@ const colorOf = (lineIndex: number) => PALETTE[lineIndex % PALETTE.length];
 
 /** A tap, not a drag, makes a box this share of the photo's width around where it landed. */
 const TAP_BOX = 0.15;
-
-type Point = { x: number; y: number };
+/** A tap this close to an outline's first point, in screen pixels, closes it. */
+const CLOSE_REACH = 16;
 type Hover = { id: string; x: number; y: number; flipX: boolean; flipY: boolean };
 /** The outline whose lines are showing, where its list hangs (in % of the photo), and the lines' order when it opened. */
 type Picked = { id: string; x: number; y: number; order: number[]; keyboard: boolean };
 type Finding = { lineIndex: number | null; phrase: string; box: PricedBox | null; busy: boolean; message?: string };
+/** An outline being drawn by hand: its points in the photo's pixels, where the pointer is, and whether it's closed. */
+type Sketch = { points: Point[]; at: Point | null; closed: boolean; busy: boolean; message?: string };
 
 export function PricedPhotoEditor({
   quoteId,
@@ -72,6 +80,7 @@ export function PricedPhotoEditor({
   const [highlight, setHighlight] = useState<number | null>(null);
   const [finding, setFinding] = useState<Finding | null>(null);
   const [draft, setDraft] = useState<{ start: Point; box: PricedBox } | null>(null);
+  const [sketch, setSketch] = useState<Sketch | null>(null);
   const [closing, setClosing] = useState(false);
 
   // The server's last word, to fall back to when a save fails; the save that counts is the latest one sent.
@@ -83,6 +92,8 @@ export function PricedPhotoEditor({
   const svgRef = useRef<SVGSVGElement>(null);
   const anchorRef = useRef<HTMLDivElement>(null);
   const pathRefs = useRef(new Map<string, SVGPathElement>());
+  // A tap on the photo adds its point when it lifts, and only if it went down there.
+  const pressed = useRef(false);
 
   const accept = (next: PricedPhotoEditorState) => {
     confirmedSeq.current = saveSeq.current;
@@ -109,6 +120,18 @@ export function PricedPhotoEditor({
     return () => document.removeEventListener("keydown", onKey);
   }, [finding]);
 
+  // Escape steps back through the outline being drawn: open a closed one, drop the last point, then leave.
+  useEffect(() => {
+    if (!sketch || sketch.busy) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      stepBack();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [sketch]);
+
   const onLines = useMemo(() => new Map(assignmentsOf(state?.regions ?? []).map((a) => [a.candidateId, a.lineIndexes])), [state?.regions]);
   const regionOf = useMemo(() => new Map((state?.regions ?? []).map((region) => [region.lineIndex, region])), [state?.regions]);
   const nameOf = useMemo(() => new Map((state?.lines ?? []).map((line) => [line.lineIndex, line.name])), [state?.lines]);
@@ -133,7 +156,9 @@ export function PricedPhotoEditor({
     );
   }
 
-  const drawing = finding !== null;
+  // A box or an outline is being drawn: the outlines underneath can't be picked meanwhile.
+  const drawing = finding !== null || sketch !== null;
+  const labelOf = (candidate: PricedCandidate) => (candidate.source === "hand" ? e.drawn : candidate.phrase);
   const linesText = (candidateId: string) => {
     const lines = onLines.get(candidateId) ?? [];
     return lines.length ? lines.map((index) => nameOf.get(index) ?? "").join(", ") : e.notOnLine;
@@ -209,10 +234,87 @@ export function PricedPhotoEditor({
   function startFind(lineIndex: number | null) {
     const line = lineIndex === null ? undefined : state?.lines.find((l) => l.lineIndex === lineIndex);
     setOpen(false);
+    setSketch(null);
     setNotice(undefined);
     setError(undefined);
     setDraft(null);
     setFinding({ lineIndex, phrase: line ? (line.phrase ?? line.name) : "", box: null, busy: false });
+  }
+
+  function startSketch() {
+    setOpen(false);
+    setNotice(undefined);
+    setError(undefined);
+    setFinding(null);
+    setDraft(null);
+    setSketch({ points: [], at: null, closed: false, busy: false });
+  }
+
+  function stepBack() {
+    setSketch((current) => {
+      if (!current || current.busy) return current;
+      if (current.closed) return { ...current, closed: false, message: undefined };
+      if (current.points.length === 0) return null;
+      return { ...current, points: current.points.slice(0, -1), message: undefined };
+    });
+  }
+
+  const drawable = (current: Sketch | null): current is Sketch => current !== null && !current.closed && !current.busy;
+
+  function sketchDown(event: ReactPointerEvent<SVGSVGElement>) {
+    if (!drawable(sketch)) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pressed.current = true;
+    setSketch({ ...sketch, at: imagePoint(event.clientX, event.clientY) });
+  }
+
+  function sketchMove(event: ReactPointerEvent<SVGSVGElement>) {
+    // A mouse shows the next edge as it moves; a finger only while it's down.
+    if (!drawable(sketch) || (event.pointerType !== "mouse" && !pressed.current)) return;
+    setSketch({ ...sketch, at: imagePoint(event.clientX, event.clientY) });
+  }
+
+  function sketchUp(event: ReactPointerEvent<SVGSVGElement>) {
+    if (!drawable(sketch) || !pressed.current) return;
+    pressed.current = false;
+    const at = imagePoint(event.clientX, event.clientY);
+    const reach = (CLOSE_REACH / svgRef.current!.getBoundingClientRect().width) * state!.width;
+    const after = event.pointerType === "mouse" ? at : null;
+    if (closesAt(sketch.points, at, reach)) setSketch({ ...sketch, at: null, closed: true, message: undefined });
+    else if (sketch.points.length >= MAX_DRAWN_POINTS) setSketch({ ...sketch, at: after, message: e.drawTooMany });
+    else setSketch({ ...sketch, points: [...sketch.points, at], at: after, message: undefined });
+  }
+
+  async function saveSketch(lineIndex: number | null) {
+    if (!sketch || !sketch.closed) return;
+    const points = sketch.points.map(({ x, y }) => ({ x: Math.round(x), y: Math.round(y) }));
+    setSketch({ ...sketch, busy: true, message: undefined });
+    try {
+      // After any move still saving, so the outline lands on the set as it ends up.
+      await inflight.current;
+      const { added, ...next } = await api.draw({ points, ...(lineIndex !== null ? { lineIndex } : {}) });
+      accept(next);
+      setSketch(null);
+      setNotice(added ? e.drawnSaved : e.drawnSame);
+      if (lineIndex !== null) setHighlight(lineIndex);
+    } catch (failure) {
+      const message = failure instanceof PricedPhotoError && failure.status === 400 ? e.drawBad : e.drawFailed;
+      setSketch((current) => (current ? { ...current, busy: false, message } : current));
+    }
+  }
+
+  async function removeOutline(candidateId: string) {
+    setOpen(false);
+    setError(undefined);
+    setNotice(undefined);
+    try {
+      await inflight.current;
+      accept(await api.removeDrawn(candidateId));
+      setNotice(e.outlineRemoved);
+    } catch {
+      setError(e.savingFailed);
+    }
   }
 
   function drawStart(event: ReactPointerEvent<SVGSVGElement>) {
@@ -279,6 +381,7 @@ export function PricedPhotoEditor({
   const pickedLines = picked ? (onLines.get(picked.id) ?? []) : [];
   const shownBox = draft?.box ?? finding?.box ?? null;
   const focusedCandidate = !hover && !open && focused ? state.candidates.find((c) => c.id === focused) : undefined;
+  const hoverCandidate = hover ? state.candidates.find((c) => c.id === hover.id) : undefined;
 
   return (
     <div className="space-y-3">
@@ -291,11 +394,17 @@ export function PricedPhotoEditor({
         {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
         <img alt={e.photoAlt} className="absolute inset-0 size-full select-none" draggable={false} src={state.photoUrl} />
         <svg
-          className={cn("absolute inset-0 size-full", drawing && !finding?.busy && "cursor-crosshair")}
-          onPointerCancel={() => setDraft(null)}
-          onPointerDown={drawing ? drawStart : undefined}
-          onPointerMove={drawing ? drawMove : undefined}
-          onPointerUp={drawing ? drawEnd : undefined}
+          className={cn("absolute inset-0 size-full", ((finding && !finding.busy) || drawable(sketch)) && "cursor-crosshair")}
+          onPointerCancel={() => {
+            setDraft(null);
+            pressed.current = false;
+          }}
+          onPointerDown={finding ? drawStart : sketch ? sketchDown : undefined}
+          onPointerLeave={(event) => {
+            if (event.pointerType === "mouse" && drawable(sketch)) setSketch({ ...sketch, at: null });
+          }}
+          onPointerMove={finding ? drawMove : sketch ? sketchMove : undefined}
+          onPointerUp={finding ? drawEnd : sketch ? sketchUp : undefined}
           preserveAspectRatio="none"
           ref={svgRef}
           viewBox={`0 0 ${state.width} ${state.height}`}
@@ -310,7 +419,7 @@ export function PricedPhotoEditor({
               <path
                 aria-expanded={expanded}
                 aria-haspopup="dialog"
-                aria-label={`${candidate.phrase}: ${linesText(candidate.id)}`}
+                aria-label={`${labelOf(candidate)}: ${linesText(candidate.id)}`}
                 className="cursor-pointer outline-none transition-[stroke-opacity,fill-opacity,stroke-width] duration-150"
                 d={candidate.svgPath}
                 data-candidate={candidate.id}
@@ -357,15 +466,20 @@ export function PricedPhotoEditor({
               y={shownBox.top}
             />
           ) : null}
+          {sketch ? <SketchShape sketch={sketch} /> : null}
         </svg>
 
-        {drawing && !finding.box && !draft ? (
+        {finding && !finding.box && !draft ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-2 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[12px] text-white">{e.dragBox}</p>
+        ) : drawable(sketch) ? (
+          <p className="pointer-events-none absolute inset-x-0 bottom-2 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[12px] text-white">
+            {sketch.points.length < 3 ? e.drawTap : e.drawClose}
+          </p>
         ) : null}
 
         {hover ? (
           <HoverLabel
-            phrase={state.candidates.find((c) => c.id === hover.id)?.phrase ?? ""}
+            phrase={hoverCandidate ? labelOf(hoverCandidate) : ""}
             style={{
               left: hover.x,
               top: hover.y,
@@ -375,7 +489,7 @@ export function PricedPhotoEditor({
           />
         ) : focusedCandidate ? (
           <HoverLabel
-            phrase={focusedCandidate.phrase}
+            phrase={labelOf(focusedCandidate)}
             style={{
               left: `${(((focusedCandidate.box.left + focusedCandidate.box.right) / 2 / state.width) * 100).toFixed(2)}%`,
               top: `${((focusedCandidate.box.top / state.height) * 100).toFixed(2)}%`,
@@ -416,28 +530,21 @@ export function PricedPhotoEditor({
             >
               {picked && pickedCandidate ? (
                 <>
-                  <PopoverPrimitive.Title className="truncate px-2 pt-1.5 pb-1 text-[12px] font-normal text-ink-3">{pickedCandidate.phrase}</PopoverPrimitive.Title>
+                  <PopoverPrimitive.Title className="truncate px-2 pt-1.5 pb-1 text-[12px] font-normal text-ink-3">{labelOf(pickedCandidate)}</PopoverPrimitive.Title>
                   <ul className="max-h-72 overflow-y-auto">
                     {picked.order.map((lineIndex) => {
                       const line = state.lines.find((l) => l.lineIndex === lineIndex);
                       if (!line) return null;
-                      const on = pickedLines.includes(lineIndex);
-                      const located = regionOf.get(lineIndex)?.located ?? false;
                       return (
                         <li key={lineIndex}>
-                          <button
-                            aria-pressed={on}
-                            className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover focus-visible:bg-hover focus-visible:outline-none"
+                          <LineChoice
+                            lineIndex={lineIndex}
+                            located={regionOf.get(lineIndex)?.located ?? false}
+                            name={line.name}
+                            notLocated={e.notLocated}
+                            on={pickedLines.includes(lineIndex)}
                             onClick={() => toggle(picked.id, lineIndex)}
-                            type="button"
-                          >
-                            <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ background: colorOf(lineIndex) }} />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate">{line.name}</span>
-                              {!located ? <span className="block text-[11px] text-ink-3">{e.notLocated}</span> : null}
-                            </span>
-                            <Check aria-hidden="true" className={cn("size-4 shrink-0 text-accent", on ? "opacity-100" : "opacity-0")} />
-                          </button>
+                          />
                         </li>
                       );
                     })}
@@ -452,6 +559,18 @@ export function PricedPhotoEditor({
                       <X aria-hidden="true" className="size-3.5 shrink-0" />
                       {e.clear}
                     </button>
+                    {pickedCandidate.source === "hand" ? (
+                      // Only an outline on no line comes off, so no line's count changes under the member.
+                      <button
+                        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] text-ink-2 hover:bg-hover focus-visible:bg-hover focus-visible:outline-none disabled:opacity-50"
+                        disabled={pickedLines.length > 0}
+                        onClick={() => void removeOutline(picked.id)}
+                        type="button"
+                      >
+                        <Trash2 aria-hidden="true" className="size-3.5 shrink-0" />
+                        {e.removeOutline}
+                      </button>
+                    ) : null}
                   </div>
                 </>
               ) : null}
@@ -461,22 +580,29 @@ export function PricedPhotoEditor({
       </PopoverPrimitive.Root>
 
       {/* Under the photo, not over it: the quote page's sticky section bar covers the top of the card. */}
+      {/* On a phone the note takes its own row and the buttons wrap under it. */}
       <div className="flex flex-wrap items-center gap-2">
-        <p className="min-w-0 flex-1 text-[12px] text-ink-3 text-pretty">
+        <p className="min-w-48 flex-1 text-[12px] text-ink-3 text-pretty">
           {state.editedAt
             ? state.editedBy
               ? e.editedBy(state.editedBy, editedAgo(state.editedAt, language))
               : e.edited(editedAgo(state.editedAt, language))
             : e.hint}
         </p>
-        <Button disabled={drawing} onClick={() => startFind(null)} size="xs" type="button" variant="quiet">
-          <Search aria-hidden="true" className="size-3.5" />
-          {e.findInPhoto}
-        </Button>
-        <Button disabled={closing || finding?.busy} onClick={done} size="sm" type="button" variant="primary">
-          {closing ? <Spinner variant="saving" /> : null}
-          {e.done}
-        </Button>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button disabled={drawing} onClick={() => startFind(null)} size="xs" type="button" variant="quiet">
+            <Search aria-hidden="true" className="size-3.5" />
+            {e.findInPhoto}
+          </Button>
+          <Button disabled={drawing} onClick={startSketch} size="xs" type="button" variant="quiet">
+            <PenLine aria-hidden="true" className="size-3.5" />
+            {e.draw}
+          </Button>
+          <Button disabled={closing || finding?.busy || sketch?.busy} onClick={done} size="sm" type="button" variant="primary">
+            {closing ? <Spinner variant="saving" /> : null}
+            {e.done}
+          </Button>
+        </div>
       </div>
 
       {finding ? (
@@ -541,6 +667,57 @@ export function PricedPhotoEditor({
         </form>
       ) : null}
 
+      {sketch ? (
+        <div className="space-y-2 rounded-[10px] bg-inset p-3">
+          <p className="text-[12px] text-ink-2">{sketch.closed ? e.drawPutOn : e.drawHint}</p>
+          {sketch.closed ? (
+            <ul aria-label={e.drawPutOn}>
+              {state.lines.map((line) => (
+                <li key={line.lineIndex}>
+                  <LineChoice
+                    disabled={sketch.busy}
+                    lineIndex={line.lineIndex}
+                    located={regionOf.get(line.lineIndex)?.located ?? false}
+                    name={line.name}
+                    notLocated={e.notLocated}
+                    onClick={() => void saveSketch(line.lineIndex)}
+                  />
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <div className="flex flex-wrap items-center gap-2">
+            {sketch.closed ? (
+              <Button disabled={sketch.busy} onClick={() => void saveSketch(null)} size="sm" type="button" variant="secondary">
+                {e.keepNoLine}
+              </Button>
+            ) : (
+              <Button disabled={sketch.points.length < 3} onClick={() => setSketch({ ...sketch, at: null, closed: true, message: undefined })} size="sm" type="button" variant="primary">
+                {e.closeOutline}
+              </Button>
+            )}
+            <Button disabled={sketch.busy || sketch.points.length === 0} onClick={stepBack} size="sm" type="button" variant="quiet">
+              <Undo2 aria-hidden="true" className="size-3.5" />
+              {e.undo}
+            </Button>
+            <Button disabled={sketch.busy} onClick={() => setSketch(null)} size="sm" type="button" variant="quiet">
+              {e.cancel}
+            </Button>
+            {sketch.busy ? (
+              <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
+                <Spinner variant="saving" />
+                {e.saving}
+              </span>
+            ) : null}
+          </div>
+          {sketch.message ? (
+            <p className="text-[12px] text-ink-2" role="status">
+              {sketch.message}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <ErrorLine>{error}</ErrorLine>
       {notice ? (
         <p className="text-[13px] text-ink-2" role="status">
@@ -582,6 +759,73 @@ export function PricedPhotoEditor({
         })}
       </ul>
     </div>
+  );
+}
+
+/** One of the quote's lines to put an outline on: its color, its name, and a check when the outline is on it. */
+function LineChoice({
+  lineIndex,
+  name,
+  located,
+  notLocated,
+  on,
+  disabled,
+  onClick,
+}: {
+  lineIndex: number;
+  name: string;
+  located: boolean;
+  notLocated: string;
+  /** On or off for a toggle; left out for a one-time choice. */
+  on?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-pressed={on}
+      className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover focus-visible:bg-hover focus-visible:outline-none disabled:opacity-50"
+      disabled={disabled}
+      onClick={onClick}
+      type="button"
+    >
+      <span aria-hidden="true" className="size-2.5 shrink-0 rounded-full" style={{ background: colorOf(lineIndex) }} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{name}</span>
+        {!located ? <span className="block text-[11px] text-ink-3">{notLocated}</span> : null}
+      </span>
+      {on !== undefined ? <Check aria-hidden="true" className={cn("size-4 shrink-0 text-accent", on ? "opacity-100" : "opacity-0")} /> : null}
+    </button>
+  );
+}
+
+/**
+ * The outline being drawn: dark under white so it reads on grass and on sky, dashed until it's closed,
+ * with a dot on each point and a larger one on the first once tapping it would close the outline.
+ */
+function SketchShape({ sketch }: { sketch: Sketch }) {
+  const d = sketchPath(sketch.points, sketch.at, sketch.closed);
+  const closable = !sketch.closed && sketch.points.length >= 3;
+  return (
+    <g pointerEvents="none">
+      {d ? (
+        <>
+          <path d={d} fill="#ffffff" fillOpacity={sketch.closed ? 0.25 : 0.1} stroke="#000000" strokeLinejoin="round" strokeOpacity={0.5} strokeWidth={4} vectorEffect="non-scaling-stroke" />
+          <path d={d} fill="none" stroke="#ffffff" strokeDasharray={sketch.closed ? undefined : "6 4"} strokeLinejoin="round" strokeWidth={2} vectorEffect="non-scaling-stroke" />
+        </>
+      ) : null}
+      {sketch.points.map((point, i) => {
+        const big = i === 0 && closable;
+        // A zero-length line with round caps: a dot the same size on screen however the photo is scaled.
+        const dot = `M${point.x} ${point.y}h0`;
+        return (
+          <g key={i}>
+            <path d={dot} stroke="#000000" strokeLinecap="round" strokeOpacity={0.5} strokeWidth={big ? 18 : 10} vectorEffect="non-scaling-stroke" />
+            <path d={dot} stroke={big ? "#ff9f0a" : "#ffffff"} strokeLinecap="round" strokeWidth={big ? 14 : 7} vectorEffect="non-scaling-stroke" />
+          </g>
+        );
+      })}
+    </g>
   );
 }
 

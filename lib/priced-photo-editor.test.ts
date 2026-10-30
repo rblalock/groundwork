@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyAssignment, assignmentsOf, type PricedCandidate, type PricedRegion } from "./priced-photo-editor";
+import { applyAssignment, assignmentsOf, closesAt, sketchPath, type PricedCandidate, type PricedRegion } from "./priced-photo-editor";
 
 const candidate = (id: string, overrides: Partial<PricedCandidate> = {}): PricedCandidate => ({
   id,
@@ -73,4 +73,19 @@ test("applyAssignment takes a candidate off a line, and the line is not located 
 test("applyAssignment ignores a candidate it doesn't know", () => {
   const regions = [region(0)];
   assert.equal(applyAssignment(regions, [], "missing", 0, true), regions);
+});
+
+test("the outline being drawn follows the pointer, and closes on its first point", () => {
+  const points = [
+    { x: 10, y: 10 },
+    { x: 100.04, y: 10 },
+    { x: 100, y: 80 },
+  ];
+  assert.equal(sketchPath([], null, false), "");
+  assert.equal(sketchPath(points.slice(0, 1), { x: 50, y: 50 }, false), "M10 10L50 50");
+  assert.equal(sketchPath(points, { x: 12, y: 75.25 }, false), "M10 10L100 10L100 80L12 75.3");
+  assert.equal(sketchPath(points, { x: 12, y: 75 }, true), "M10 10L100 10L100 80Z");
+  assert.equal(closesAt(points, { x: 14, y: 13 }, 5), true);
+  assert.equal(closesAt(points, { x: 20, y: 10 }, 5), false);
+  assert.equal(closesAt(points.slice(0, 2), { x: 10, y: 10 }, 5), false, "two points don't close");
 });
