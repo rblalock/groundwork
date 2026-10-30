@@ -20,7 +20,7 @@ import { POST as approveRoute } from "../../app/api/quotes/[id]/approve/route";
 import { POST as outcomeRoute } from "../../app/api/quotes/[id]/outcome/route";
 import { GET as pdfRoute } from "../../app/api/quotes/[id]/pdf/route";
 import { GET as photoRoute } from "../../app/api/quotes/[id]/photos/[photoId]/route";
-import { formatQuoteCursor, parseQuoteCursor, QUOTE_PAGE_SIZE, quoteFor, quotesFor } from "./quotes";
+import { beforeAfterHref, beforeAfterQuery, formatQuoteCursor, parseQuoteCursor, QUOTE_PAGE_SIZE, quoteFor, quotesFor } from "./quotes";
 import { appCaller, call, installTransport, otherBusiness, person, refused, signIn, superAdminViewing } from "./test-support";
 
 const quiet: Poster = async () => ({ posted: true });
@@ -241,4 +241,14 @@ test("quotes: a page cursor is a quote's change time and id, anything else is th
   for (const bad of [undefined, "", "2", "2026-01-01~quo_a", "2026-01-01T00:00:05.123Z~cus_a", "2026-13-45T00:00:05.123Z~quo_a", ["x"]]) {
     assert.equal(parseQuoteCursor(bad), undefined, String(bad));
   }
+});
+
+test("quotes: the before-and-after is plain unless outlines=1, and each has its own address", () => {
+  const pair = { quoteId: "quo_a", version: 42 };
+  assert.equal(beforeAfterHref(pair), "/api/quotes/quo_a/before-after?v=42");
+  assert.equal(beforeAfterHref(pair, { outlines: true }), "/api/quotes/quo_a/before-after?v=42&outlines=1");
+  assert.deepEqual(beforeAfterQuery.parse({ v: "42" }), { v: "42" });
+  assert.deepEqual(beforeAfterQuery.parse({ v: "42", outlines: "1" }), { v: "42", outlines: true });
+  assert.deepEqual(beforeAfterQuery.parse({ outlines: "0" }), { outlines: false });
+  assert.throws(() => beforeAfterQuery.parse({ outlines: "yes" }), { name: "ZodError" });
 });

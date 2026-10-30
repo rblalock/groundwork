@@ -351,7 +351,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
                     />
                     {beforeAfter ? (
                       <div className="mt-6">
-                        <BeforeAfterCard href={beforeAfter.href} language={language} />
+                        <BeforeAfterCard href={beforeAfter.href} language={language} outlinedHref={beforeAfter.outlinedHref} />
                       </div>
                     ) : null}
                   </RecordSection>

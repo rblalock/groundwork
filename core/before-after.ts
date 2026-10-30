@@ -1,7 +1,8 @@
 // Before and after: a quote's priced photo from before the job beside its priced work photo from after
-// it, each with the quoted things outlined from its kept masks and a "Before" or "After" label in a
-// corner, and the quote's title (and total, when the viewer sees line prices) under both. Drawn on demand
-// from the two source photos and the kept outlines: no SAM call, nothing stored.
+// it, each with a "Before" or "After" label in a corner, and the quote's title (and total, when the viewer
+// sees line prices) under both. The photos are plain unless outlines are asked for, then each has the
+// quoted things outlined from its kept masks. Drawn on demand from the two source photos and the kept
+// outlines: no SAM call, nothing stored.
 import { and, eq } from "drizzle-orm";
 import sharp, { type OverlayOptions } from "sharp";
 import { quoteRevisions, quotes } from "../schema/schema";
@@ -102,16 +103,17 @@ async function outlined(photo: PricedPhoto, linePrices: boolean): Promise<Photo 
 }
 
 /**
- * Draws the before-and-after: both photos outlined and labeled, laid out by `beforeAfterLayout`, over a
- * caption of the quote's title and, with `linePrices`, its total. Throws `UNREADABLE_PHOTO` when either
- * photo can't be read.
+ * Draws the before-and-after: both photos labeled (and, with `outlines`, outlined), laid out by
+ * `beforeAfterLayout`, over a caption of the quote's title and, with `linePrices`, its total. Throws
+ * `UNREADABLE_PHOTO` when either photo can't be read.
  */
 export async function renderBeforeAfter(
   pair: BeforeAfter,
   language: Language,
-  options: { linePrices: boolean },
+  options: { linePrices: boolean; outlines?: boolean },
 ): Promise<{ png: Uint8Array; width: number; height: number }> {
-  const [before, after] = await Promise.all([outlined(pair.before, options.linePrices), outlined(pair.after, options.linePrices)]);
+  const draw = (photo: PricedPhoto) => (options.outlines ? outlined(photo, options.linePrices) : preparePhoto(photo.sourceUrl));
+  const [before, after] = await Promise.all([draw(pair.before), draw(pair.after)]);
   if (!before || !after) throw new Error("UNREADABLE_PHOTO");
   const layout = beforeAfterLayout(before, after);
   const { width, height } = layout;

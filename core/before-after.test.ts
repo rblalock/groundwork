@@ -69,7 +69,7 @@ function photoRow(over: Partial<PricedPhoto>): PricedPhoto {
   };
 }
 
-test("the composite outlines the kept masks, labels each photo, and puts the caption under both", async () => {
+test("the composite labels each photo, outlines the kept masks when asked, and puts the caption under both", async () => {
   const beforeUrl = await storeInboundAttachment("before.png", "image/png", await white(400, 300));
   const afterUrl = await storeInboundAttachment("after.png", "image/png", await white(400, 300));
   const bed: PricedRegion = {
@@ -97,13 +97,16 @@ test("the composite outlines the kept masks, labels each photo, and puts the cap
     }),
     after: photoRow({ sourceKind: "work_photo", sourceUrl: afterUrl }),
   };
-  const { png, width, height } = await renderBeforeAfter(pair, "en", { linePrices: true });
+  const { png, width, height } = await renderBeforeAfter(pair, "en", { linePrices: true, outlines: true });
   const { data, info } = await sharp(png).raw().toBuffer({ resolveWithObject: true });
   assert.deepEqual([info.width, info.height], [width, height]);
   assert.equal(width, 808);
   assert.ok(height > 300, "the caption sits under the photos");
   const pixel = (x: number, y: number) => [...data.subarray((y * info.width + x) * info.channels, (y * info.width + x) * info.channels + 3)];
   assert.ok(pixel(200, 150)[2] < 220, "the before's bed is filled in its line's color");
+  // Without outlines (the default), the before is its plain photo.
+  const plain = await sharp((await renderBeforeAfter(pair, "en", { linePrices: true })).png).raw().toBuffer();
+  assert.ok([...plain.subarray((150 * info.width + 200) * 3, (150 * info.width + 200) * 3 + 3)].every((c) => c > 240), "no outline by default");
   assert.ok(pixel(608, 150).every((c) => c > 240), "the after has no outline of its own");
   for (const left of [0, 408]) assert.ok(pixel(left + 12, 24).every((c) => c < 90), "a dark label pill in each photo's top left corner");
   assert.ok(pixel(404, 150).every((c) => c < 40), "a gap between the photos");

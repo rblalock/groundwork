@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { workPhotos } from "../../schema/schema";
 import type { PricedBox, PricedPhotoEditorState } from "../../schema/types";
 import { beforeAfterFor, pairOf, renderBeforeAfter, type BeforeAfter } from "../../core/before-after";
@@ -119,7 +120,7 @@ export type QuotePage = {
   timeline: TimelineEntry[];
   depositPaidCents: number | null;
   pricedPhoto: { id: string; url: string; notLocated: string[] } | null;
-  beforeAfter: { href: string } | null;
+  beforeAfter: { href: string; outlinedHref: string } | null;
 };
 
 export async function quoteFor(caller: AppCaller, quoteId: string): Promise<QuotePage> {
@@ -138,7 +139,9 @@ export async function quoteFor(caller: AppCaller, quoteId: string): Promise<Quot
     pricedPhoto: priced
       ? { id: priced.id, url: pricedPhotoHref(priced), notLocated: priced.regions.filter((region) => !region.located).map((region) => region.name) }
       : null,
-    beforeAfter: pair ? { href: beforeAfterHref({ quoteId, version: pair.version }) } : null,
+    beforeAfter: pair
+      ? { href: beforeAfterHref({ quoteId, version: pair.version }), outlinedHref: beforeAfterHref({ quoteId, version: pair.version }, { outlines: true }) }
+      : null,
   };
 }
 
@@ -160,9 +163,17 @@ export type QuoteCard = {
 export const pricedPhotoHref = (photo: Pick<PricedPhoto, "id" | "quoteId" | "createdAt" | "editedAt">) =>
   `/api/quotes/${encodeURIComponent(photo.quoteId)}/priced/${encodeURIComponent(photo.id)}?v=${Math.max(photo.createdAt.getTime(), photo.editedAt?.getTime() ?? 0)}`;
 
-/** Where the app serves a quote's before-and-after; the version changes when either photo is made again or edited. */
-export const beforeAfterHref = (pair: Pick<BeforeAfter, "quoteId" | "version">) =>
-  `/api/quotes/${encodeURIComponent(pair.quoteId)}/before-after?v=${pair.version}`;
+/**
+ * Where the app serves a quote's before-and-after, plain or with `outlines`; the version changes when
+ * either photo is made again or edited.
+ */
+export const beforeAfterHref = (pair: Pick<BeforeAfter, "quoteId" | "version">, options: { outlines?: boolean } = {}) =>
+  `/api/quotes/${encodeURIComponent(pair.quoteId)}/before-after?v=${pair.version}${options.outlines ? "&outlines=1" : ""}`;
+
+const flag = z.enum(["0", "1"]).transform((value) => value === "1");
+
+/** The before-and-after route's query: `outlines=1` outlines the quoted things. Anything else is a 400. */
+export const beforeAfterQuery = z.object({ v: z.string().optional(), outlines: flag.optional() });
 
 /**
  * A quote's card for the chat, for whoever may see the quote (`assertVisible`); a 404 for anyone else.
@@ -284,11 +295,11 @@ export async function pricedPhotoFile(caller: AppCaller, quoteId: string, priced
  * The quote's before-and-after, drawn for anyone who may see the quote, in their language and with the
  * total. A 404 when it has no pair, or when either photo can't be read anymore.
  */
-export async function beforeAfterFile(caller: AppCaller, quoteId: string): Promise<StoredFile & { version: number }> {
+export async function beforeAfterFile(caller: AppCaller, quoteId: string, options: { outlines?: boolean } = {}): Promise<StoredFile & { version: number }> {
   await assertVisible(caller, quoteId);
   const pair = await beforeAfterFor(caller.orgId, quoteId);
   if (!pair) throw notFound();
-  const drawn = await renderBeforeAfter(pair, caller.language, { linePrices: true }).catch((error: unknown) => {
+  const drawn = await renderBeforeAfter(pair, caller.language, { linePrices: true, outlines: options.outlines }).catch((error: unknown) => {
     console.error("before and after: drawing failed", { quoteId, error });
     throw notFound();
   });
