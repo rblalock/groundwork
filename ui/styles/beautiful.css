@@ -198,8 +198,11 @@ h4 {
   text-wrap: balance;
 }
 
-p {
-  text-wrap: pretty;
+/* In the base layer, so a utility like `truncate` on a paragraph still wins. */
+@layer base {
+  p {
+    text-wrap: pretty;
+  }
 }
 
 /* underlines clear descenders */
