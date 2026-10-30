@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { z } from "zod";
 import { saveCustomer } from "../../core/customers";
 import { saveItems } from "../../core/pricebook";
 import { updateProfile } from "../../core/profile";
@@ -16,6 +17,7 @@ import { PATCH as moveRoute } from "../../app/api/schedule/visits/[id]/route";
 import { POST as statusRoute } from "../../app/api/schedule/visits/[id]/status/route";
 import { customerFor } from "./customers";
 import { quoteFor } from "./quotes";
+import readScheduleTool from "../../agents/assistant/agent/tools/read_schedule";
 import { moveRequest } from "../schedule-presentation";
 import { scheduleFor, visitJson, workOn } from "./schedule";
 import { appCaller, call, installTransport, otherBusiness, person, refused, signIn, superAdminViewing } from "./test-support";
@@ -87,6 +89,23 @@ withTestDb("schedule: everyone sees every lane; only owners and admins see the w
   const theirs = await scheduleFor(crewB, { view: "week", date: s.day });
   assert.deepEqual(theirs.visits.map((v) => v.visitId), [s.visit.visitId], "a visit they're not on shows too");
   assert.deepEqual(theirs.crew.map((c) => c.name), ["Pat Owner", "Sam Crew", "Lee Crew"]);
+
+  // The route view's weather strip: the fake's forecast at the yard, for a day it reaches; none past it or without a yard.
+  assert.equal(routes.weather, null, "a day past the forecast's reach");
+  const tomorrow = addDays(wallClock(new Date(), TZ).date, 1);
+  assert.equal((await scheduleFor(owner, { view: "route", date: tomorrow })).weather, null, "the yard isn't placed");
+  await updateProfile(TEST_ORG, { address: "100 Bridge Rd, Tequesta, FL" }, s.owner.memberId);
+  const rainy = await scheduleFor(crewB, { view: "route", date: tomorrow });
+  assert.equal(rainy.weather, "Tomorrow: rain 70% 10 AM–2 PM, high 85°F", "everyone sees it");
+  assert.equal((await scheduleFor(owner, { view: "week", date: tomorrow })).weather, null, "only on the route view");
+  const auth = { auth: { current: { authenticator: "photon-imessage", principalId: `member:${s.owner.memberId}`, attributes: { orgId: TEST_ORG, memberId: s.owner.memberId } } } };
+  const read = async (input: object) =>
+    (await readScheduleTool.execute((readScheduleTool.inputSchema as z.ZodType).parse(input) as never, { session: auth } as never)) as Record<string, unknown>;
+  const lines = (await read({ day: "today", days: 2 })).weather as string[];
+  assert.equal(lines.length, 2);
+  assert.match(lines[0], /^Today: rain 10% at most, high \d+°F$/, "the rest of today");
+  assert.equal(lines[1], "Tomorrow: rain 70% 10 AM–2 PM, high 85°F");
+  assert.equal((await read({ day: s.day })).weather, undefined, "none for a day past its reach");
 
   // Anyone opens the visit's quote, customer, and work, on it or not.
   for (const crew of [crewA, crewB]) {

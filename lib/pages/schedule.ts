@@ -22,6 +22,7 @@ import {
 } from "../../core/scheduling";
 import { CLOCK, isYmd, wallClock, weekStart, workHoursSchema, type WorkingInterval } from "../../core/scheduling-time";
 import { addDays } from "../../core/time";
+import { scheduleWeather } from "../../core/weather";
 import { HttpError, memberCaller, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { notFound, privilegedActor } from "./access";
@@ -108,6 +109,8 @@ export type SchedulePage = {
   plans: DayPlanJson[];
   /** Open proposals to move stops (`core/proposals.ts`), from today on; owners and admins only. */
   proposals: ProposalJson[];
+  /** The route view's day's weather in one line (`core/weather.ts`), when the forecast reaches it; else null. */
+  weather: string | null;
 };
 
 /** A proposal as the Schedule page's card shows it: each stop's line, and the drafts that go with it. */
@@ -139,6 +142,7 @@ export async function scheduleFor(caller: AppCaller, input: { view?: string; dat
   const plans = asked === "week" || asked === "day" ? [] : plansIn(caller, schedule, profile, input.now);
   const view: ScheduleView = asked ?? (plans.length > 0 ? "route" : "day");
   const privileged = caller.role !== "member";
+  const weather = view === "route" ? await scheduleWeather(profile, { from: date, to: addDays(date, 1), today, language: caller.language, now: input.now }) : [];
   return {
     view,
     date,
@@ -161,6 +165,7 @@ export async function scheduleFor(caller: AppCaller, input: { view?: string; dat
     invoices: await jobInvoicesFor(caller, schedule.visits.map((v) => v.jobId)),
     plans: view === "route" ? plans.map(planJson) : [],
     proposals: privileged ? await proposalsFor(caller, input.now) : [],
+    weather: weather[0]?.line ?? null,
   };
 }
 

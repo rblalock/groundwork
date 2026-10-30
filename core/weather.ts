@@ -8,7 +8,7 @@
 // 2 PM local on the day after `now`, so a demo shows a proposal the evening before.
 import { businessProfile } from "../schema/schema";
 import type { Language } from "./language";
-import type { Point } from "./places";
+import { yardOf, type Point } from "./places";
 import { dayText, timeText, wallClock } from "./scheduling-time";
 import { addDays, localParts } from "./time";
 
@@ -132,6 +132,21 @@ export function weatherLines(
     if (day) lines.push({ date, line: weatherLine(day, input.today, input.timeZone, input.thresholds, input.language) });
   }
   return lines;
+}
+
+/**
+ * The schedule's weather lines for the days from `from` to `to` (exclusive) the forecast reaches, at the yard. None
+ * when no day is within its reach, the yard isn't placed, or there's no forecast.
+ */
+export async function scheduleWeather(
+  profile: Pick<typeof businessProfile.$inferSelect, "timeZone" | "address" | "yardLat" | "yardLng" | "rainThresholdPct" | "heatThresholdF">,
+  input: { from: string; to: string; today: string; language: Language; now?: Date },
+): Promise<Array<{ date: string; line: string }>> {
+  const yard = yardOf(profile);
+  if (!yard || !withinForecast(input.from, input.to, input.today)) return [];
+  const forecast = await forecastFor(yard, { now: input.now, timeZone: profile.timeZone });
+  if (!forecast) return [];
+  return weatherLines(forecast, { ...input, timeZone: profile.timeZone, thresholds: thresholdsOf(profile) });
 }
 
 /** Whether any of the days from `from` to `to` (exclusive) is within the forecast's reach of `today`. */

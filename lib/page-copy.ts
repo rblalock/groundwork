@@ -541,6 +541,7 @@ const en = {
     noCrew: "No one on the team yet.",
     routes: {
       empty: "No routes this day: nothing booked.",
+      weather: "Weather",
       leave: "Leave the yard",
       back: "Back at the yard",
       noDrive: "Address not placed",
@@ -1814,6 +1815,7 @@ const es: PageCopy = {
     noCrew: "Todavía no hay nadie en el equipo.",
     routes: {
       empty: "No hay rutas este día: no hay nada agendado.",
+      weather: "Clima",
       leave: "Sale de la base",
       back: "De vuelta en la base",
       noDrive: "Dirección sin ubicar",

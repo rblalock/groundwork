@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Check, Home, MapPin, Truck } from "lucide-react";
+import { AlertTriangle, Check, CloudSun, Home, MapPin, Truck } from "lucide-react";
 import type { ReactNode } from "react";
 import { StatusPill } from "@/ui/beautiful/atoms/StatusPill";
 import { cn } from "@/ui/lib/utils";
@@ -12,8 +12,9 @@ import { timeLabel } from "./calendar";
 
 // The Schedule page's route view: each crew member's day as a list, from the yard and back, with the drive
 // into each stop and the day's load against the business's capacity. Today's re-planned day shows when the
-// crew got on site, the projected times of the stops they'd reach late, and whether the day is at risk. It
-// only draws the plan the server worked out (`core/day-plan.ts`); nothing here changes a visit. A row opens
+// crew got on site, the projected times of the stops they'd reach late, and whether the day is at risk. Above the
+// routes, the day's weather in one line when the forecast reaches it. It only draws what the server worked out
+// (`core/day-plan.ts`, `core/weather.ts`); nothing here changes a visit. A row opens
 // the visit's details.
 
 const STATUS_TONE = { proposed: "orange", scheduled: "accent", completed: "green", cancelled: "neutral" } as const;
@@ -25,6 +26,7 @@ export function RouteBoard({
   language,
   selectedId,
   onVisit,
+  weather,
 }: {
   plans: DayPlanJson[];
   visits: VisitJson[];
@@ -32,11 +34,20 @@ export function RouteBoard({
   language: Language;
   selectedId: string | null;
   onVisit: (visit: VisitJson) => void;
+  /** The day's weather in one line; null when the forecast doesn't reach it. */
+  weather: string | null;
 }) {
   const s = pageCopyFor(language).schedule;
-  if (plans.length === 0) return <p className="px-4 py-3 text-[13px] text-ink-3">{s.routes.empty}</p>;
   return (
     <div className="divide-y divide-line">
+      {weather ? (
+        <p className="flex items-center gap-1.5 px-4 py-2 text-[12px] text-ink-2">
+          <CloudSun aria-hidden="true" className="size-3.5 shrink-0 text-ink-3" />
+          <span className="sr-only">{s.routes.weather}: </span>
+          {weather}
+        </p>
+      ) : null}
+      {plans.length === 0 ? <p className="px-4 py-3 text-[13px] text-ink-3">{s.routes.empty}</p> : null}
       {plans.map((plan) => (
         <RouteCard key={plan.memberId} language={language} onVisit={onVisit} plan={plan} selectedId={selectedId} timeZone={timeZone} visits={visits} />
       ))}
