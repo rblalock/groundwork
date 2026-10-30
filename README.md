@@ -21,6 +21,12 @@ the next job by text or email. No outlines, prices, or address. On the quote pag
 with a caption to edit: download it, copy the caption, or send both through the phone's share
 sheet. In chat, "make a post" sends the image and its caption to the member's thread.
 
+A job done before is quoted again from its last quote. "Same as last time for Maria" proposes that
+quote's lines in a numbered confirm at today's prices, with what changed since: a price that went
+up, an item no longer in the price book (it stays unpriced for the owner), a total set by hand last
+time (not repeated). Nothing is saved until the member says yes. "Quote it again" on the customer's
+price guide and on a quote's page opens the chat with the request typed in.
+
 See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
 [ROADMAP.md](ROADMAP.md) for what comes next.
 

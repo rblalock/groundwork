@@ -55,11 +55,16 @@ Each trade is a pack under `verticals/<id>/` (price book items with photo prompt
 minimum charge, and an instruction overlay) with its own eval set tagged by trade and its own
 scorecard run. Candidates: irrigation, pool service, pest control, tree work.
 
-## Repeat quotes proposed from the price guide
+## Repeat quotes: what v1 leaves out
 
-The customer's price guide holds every priced photo of their yard. When the member says "same as last
-spring for Maria", propose the lines from that priced photo's quote in the numbered confirm, at
-today's prices from the calculator.
+v1 is `repeat_quote`: a past quote's lines and rules at today's prices in a numbered confirm, made
+into a new quote by `create_quote` when the member says yes. "Quote it again" on the price guide and
+the quote page opens the chat with the request typed in. Still to do:
+
+- **A button that quotes without the chat.** Make the repeat from the quote page in one tap, with
+  the same confirm on the page.
+- **Recurring work every season.** Repeat the spring cleanup each spring on its own, which belongs
+  with dispatch's route days rather than one quote at a time.
 
 ## Crew checklist from the priced photo
 
