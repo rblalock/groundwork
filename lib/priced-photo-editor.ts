@@ -1,8 +1,9 @@
 import type { Language } from "../core/language";
 
 // Editing a priced photo by hand: which of the objects SAM found in the photo goes with which quote line,
-// asking SAM to look again in one spot, and outlining what it never finds. The routes are under /api/quotes/[id]/priced/[pricedId]; the
-// pure helpers below keep the screen's regions in step with a change before the server answers.
+// asking SAM to look again in one spot or for the one thing in a box, and outlining what it never finds.
+// The routes are under /api/quotes/[id]/priced/[pricedId]; the pure helpers below keep the screen's
+// regions in step with a change before the server answers.
 
 import type { PricedBox, PricedCandidate, PricedPhotoEditorState, PricedRegion } from "../schema/types";
 
@@ -10,11 +11,18 @@ export type { PricedBox, PricedCandidate, PricedPhotoEditorState, PricedRegion }
 
 export type Assignment = { candidateId: string; lineIndexes: number[] };
 
+/**
+ * One ask of SAM: a phrase, kept inside `box` when one is given; or, with no phrase, the one object `box`
+ * and `points` name (a `negative` point is off it), in place of `replace`, what an earlier ask of the
+ * box found.
+ */
+export type FindRequest = { phrase?: string; box?: PricedBox; points?: Array<Point & { negative?: boolean }>; lineIndex?: number; replace?: string };
+
 /** The routes, as the editor calls them. A thin seam: the editor takes another implementation to try it without a server. */
 export type PricedPhotoApi = {
   load: () => Promise<PricedPhotoEditorState>;
   save: (assignments: Assignment[]) => Promise<PricedPhotoEditorState>;
-  find: (request: { phrase: string; box?: PricedBox; lineIndex?: number }) => Promise<PricedPhotoEditorState & { found: number }>;
+  find: (request: FindRequest) => Promise<PricedPhotoEditorState & { found: number; candidateIds: string[] }>;
   draw: (request: { points: Point[]; lineIndex?: number }) => Promise<PricedPhotoEditorState & { candidateId: string; added: boolean }>;
   removeDrawn: (candidateId: string) => Promise<PricedPhotoEditorState>;
 };
@@ -49,9 +57,9 @@ export const fetchEditorState = (quoteId: string, pricedId: string) => call<Pric
 export const saveAssignments = (quoteId: string, pricedId: string, assignments: Assignment[]) =>
   call<PricedPhotoEditorState>(`${base(quoteId, pricedId)}/regions`, "PUT", { assignments });
 
-/** One SAM call for `phrase`, inside `box` when given; what it finds goes on `lineIndex` when given. */
-export const findInPhoto = (quoteId: string, pricedId: string, request: { phrase: string; box?: PricedBox; lineIndex?: number }) =>
-  call<PricedPhotoEditorState & { found: number }>(`${base(quoteId, pricedId)}/find`, "POST", request);
+/** One SAM call (`FindRequest`); what it finds goes on `lineIndex` when given. `candidateIds` is what it found, as the photo keeps it. */
+export const findInPhoto = (quoteId: string, pricedId: string, request: FindRequest) =>
+  call<PricedPhotoEditorState & { found: number; candidateIds: string[] }>(`${base(quoteId, pricedId)}/find`, "POST", request);
 
 /** An outline drawn by hand, in the photo's pixels, onto `lineIndex` when given; no SAM call. */
 export const drawInPhoto = (quoteId: string, pricedId: string, request: { points: Point[]; lineIndex?: number }) =>

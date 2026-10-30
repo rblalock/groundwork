@@ -8,7 +8,7 @@ import type { Language } from "@/core/language";
 import { pluralUnit } from "@/core/units";
 import { money, quantity } from "@/lib/format";
 import { pageCopyFor } from "@/lib/page-copy";
-import { MAX_DRAWN_POINTS } from "@/core/priced-photo-select";
+import { MAX_DRAWN_POINTS, MAX_PROMPT_POINTS, SELECTED_PHRASE } from "@/core/priced-photo-select";
 import {
   applyAssignment,
   assignmentsOf,
@@ -30,9 +30,9 @@ import { ErrorLine, inputClass, NativeSelect } from "../pages/client-kit";
 
 // Editing a quote's priced photo by hand (lib/priced-photo-editor.ts). Everything SAM found in the photo
 // is outlined over it; tapping an outline lists the quote's lines to put it on, a box dragged on the
-// photo asks SAM to look again there for something it missed, and points tapped around a thing SAM never
-// finds outline it by hand. Each change saves the whole set, and the server draws the priced PNG again
-// from it.
+// photo asks SAM to look again there for something it missed (by a word, or with none for the one thing
+// in the box), and points tapped around a thing SAM never finds outline it by hand. Each change saves the
+// whole set, and the server draws the priced PNG again from it.
 
 /** One color per line, in line order: the same ones the priced PNG draws with (core/priced-photo.ts). */
 const PALETTE = ["#ff9f0a", "#0a84ff", "#ff375f", "#bf5af2", "#ffd60a", "#64d2ff", "#ff3b30", "#30d158"];
@@ -45,7 +45,21 @@ const CLOSE_REACH = 16;
 type Hover = { id: string; x: number; y: number; flipX: boolean; flipY: boolean };
 /** The outline whose lines are showing, where its list hangs (in % of the photo), and the lines' order when it opened. */
 type Picked = { id: string; x: number; y: number; order: number[]; keyboard: boolean };
-type Finding = { lineIndex: number | null; phrase: string; box: PricedBox | null; busy: boolean; message?: string };
+/**
+ * Asking SAM: by a phrase, kept inside `box` when one is drawn, or with no phrase for the one thing in
+ * `box`. After a boxed answer, `answer` is what SAM found and `replace` the one it added; each tap off it
+ * (`points`) asks again with the box and every tap so far.
+ */
+type Finding = {
+  lineIndex: number | null;
+  phrase: string;
+  box: PricedBox | null;
+  busy: boolean;
+  message?: string;
+  points: Point[];
+  answer: string[] | null;
+  replace: string | null;
+};
 /** An outline being drawn by hand: its points in the photo's pixels, where the pointer is, and whether it's closed. */
 type Sketch = { points: Point[]; at: Point | null; closed: boolean; busy: boolean; message?: string };
 
@@ -158,7 +172,7 @@ export function PricedPhotoEditor({
 
   // A box or an outline is being drawn: the outlines underneath can't be picked meanwhile.
   const drawing = finding !== null || sketch !== null;
-  const labelOf = (candidate: PricedCandidate) => (candidate.source === "hand" ? e.drawn : candidate.phrase);
+  const labelOf = (candidate: PricedCandidate) => (candidate.source === "hand" ? e.drawn : candidate.phrase === SELECTED_PHRASE ? e.selected : candidate.phrase);
   const linesText = (candidateId: string) => {
     const lines = onLines.get(candidateId) ?? [];
     return lines.length ? lines.map((index) => nameOf.get(index) ?? "").join(", ") : e.notOnLine;
@@ -238,7 +252,8 @@ export function PricedPhotoEditor({
     setNotice(undefined);
     setError(undefined);
     setDraft(null);
-    setFinding({ lineIndex, phrase: line ? (line.phrase ?? line.name) : "", box: null, busy: false });
+    // A line with no photo prompt starts with no phrase: a box then asks for the one thing in it.
+    setFinding({ lineIndex, phrase: line?.phrase ?? "", box: null, busy: false, points: [], answer: null, replace: null });
   }
 
   function startSketch() {
@@ -321,6 +336,11 @@ export function PricedPhotoEditor({
     if (!finding || finding.busy) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
+    // After a boxed answer, a tap says where it isn't.
+    if (finding.answer) {
+      pressed.current = true;
+      return;
+    }
     const start = imagePoint(event.clientX, event.clientY);
     setDraft({ start, box: { left: start.x, top: start.y, right: start.x, bottom: start.y } });
   }
@@ -334,7 +354,13 @@ export function PricedPhotoEditor({
     });
   }
 
-  function drawEnd() {
+  function drawEnd(event: ReactPointerEvent<SVGSVGElement>) {
+    if (finding?.answer) {
+      if (!pressed.current) return;
+      pressed.current = false;
+      notThis(imagePoint(event.clientX, event.clientY));
+      return;
+    }
     if (!draft || !state) return;
     const { box, start } = draft;
     const small = state.width * 0.02;
@@ -353,7 +379,11 @@ export function PricedPhotoEditor({
 
   async function find(event: FormEvent) {
     event.preventDefault();
-    if (!finding || !finding.phrase.trim()) return;
+    if (!finding || finding.busy) return;
+    if (!finding.phrase.trim()) {
+      if (finding.box) await askBox({ ...finding, points: [], answer: null, replace: null });
+      return;
+    }
     const { lineIndex, box } = finding;
     setFinding({ ...finding, busy: true, message: undefined });
     try {
@@ -366,6 +396,41 @@ export function PricedPhotoEditor({
       setFinding(null);
       setNotice(e.found(found));
       if (lineIndex !== null) setHighlight(lineIndex);
+    } catch {
+      setFinding((current) => (current ? { ...current, busy: false, message: e.findFailed } : current));
+    }
+  }
+
+  /** A tap off the boxed answer: asks again, up to `MAX_PROMPT_POINTS` taps (the hint says when there are no more). */
+  function notThis(at: Point) {
+    if (!finding || finding.busy || finding.points.length >= MAX_PROMPT_POINTS) return;
+    void askBox({ ...finding, points: [...finding.points, at] });
+  }
+
+  /** Asks SAM for the one thing in the box, off every tap so far, in place of what the last ask added. */
+  async function askBox(ask: Finding) {
+    const { box, points, lineIndex, replace } = ask;
+    if (!box) return;
+    setFinding({ ...ask, busy: true, message: undefined });
+    try {
+      // After any move still saving, so the answer lands on the set as it ends up.
+      await inflight.current;
+      const before = new Set((confirmed.current?.candidates ?? []).map((c) => c.id));
+      const { found, candidateIds, ...next } = await api.find({
+        box,
+        ...(points.length ? { points: points.map(({ x, y }) => ({ x: Math.round(x), y: Math.round(y), negative: true })) } : {}),
+        ...(lineIndex !== null ? { lineIndex } : {}),
+        ...(replace ? { replace } : {}),
+      });
+      accept(next);
+      if (candidateIds.length === 0) {
+        // Nothing there: back to the box, to ask again or draw another.
+        setFinding((current) => (current ? { ...current, busy: false, points: [], answer: null, replace: null, message: e.nothingInBox } : current));
+        return;
+      }
+      const added = candidateIds.find((id) => !before.has(id)) ?? null;
+      setFinding((current) => (current ? { ...current, busy: false, points, answer: candidateIds, replace: added, message: found ? e.found(found) : e.foundSame } : current));
+      if (found && lineIndex !== null) setHighlight(lineIndex);
     } catch {
       setFinding((current) => (current ? { ...current, busy: false, message: e.findFailed } : current));
     }
@@ -413,8 +478,9 @@ export function PricedPhotoEditor({
             const lines = onLines.get(candidate.id) ?? [];
             const color = lines.length ? colorOf(lines[0]) : null;
             const expanded = open && picked?.id === candidate.id;
-            const lit = hover?.id === candidate.id || focused === candidate.id || expanded || (highlight !== null && lines.includes(highlight));
-            const dim = (highlight !== null && !lines.includes(highlight)) || drawing;
+            const answered = finding?.answer?.includes(candidate.id) ?? false;
+            const lit = hover?.id === candidate.id || focused === candidate.id || expanded || answered || (highlight !== null && lines.includes(highlight));
+            const dim = ((highlight !== null && !lines.includes(highlight)) || drawing) && !answered;
             return (
               <path
                 aria-expanded={expanded}
@@ -466,11 +532,14 @@ export function PricedPhotoEditor({
               y={shownBox.top}
             />
           ) : null}
+          {finding?.points.map((point, i) => <NotItMark key={i} point={point} />)}
           {sketch ? <SketchShape sketch={sketch} /> : null}
         </svg>
 
         {finding && !finding.box && !draft ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-2 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[12px] text-white">{e.dragBox}</p>
+        ) : finding?.answer && !finding.busy && finding.points.length < MAX_PROMPT_POINTS ? (
+          <p className="pointer-events-none absolute inset-x-0 bottom-2 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[12px] text-white">{e.tapNotIt}</p>
         ) : drawable(sketch) ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-2 mx-auto w-fit rounded-full bg-black/70 px-3 py-1 text-[12px] text-white">
             {sketch.points.length < 3 ? e.drawTap : e.drawClose}
@@ -610,59 +679,98 @@ export function PricedPhotoEditor({
         // hangs off the document, which then scrolls and shifts the whole app shell.
         <form className="relative space-y-2 rounded-[10px] bg-inset p-3" onSubmit={find}>
           <p className="text-[12px] text-ink-2">{finding.lineIndex !== null ? e.findLine(nameOf.get(finding.lineIndex) ?? "") : e.findInPhoto}</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <label className="sr-only" htmlFor="priced-find-phrase">
-              {e.phrase}
-            </label>
-            <input
-              className={cn(inputClass, "min-w-40 flex-1")}
-              disabled={finding.busy}
-              id="priced-find-phrase"
-              onChange={(event) => setFinding({ ...finding, phrase: event.target.value, message: undefined })}
-              placeholder={e.phrasePlaceholder}
-              value={finding.phrase}
-            />
-            <NativeSelect
-              aria-label={e.putOn}
-              className="w-auto max-w-48"
-              disabled={finding.busy}
-              onChange={(event) => {
-                const lineIndex = event.target.value === "" ? null : Number(event.target.value);
-                const line = state.lines.find((l) => l.lineIndex === lineIndex);
-                setFinding({ ...finding, lineIndex, phrase: finding.phrase.trim() || !line ? finding.phrase : (line.phrase ?? line.name) });
-              }}
-              value={finding.lineIndex ?? ""}
-            >
-              <option value="">{e.noLine}</option>
-              {state.lines.map((line) => (
-                <option key={line.lineIndex} value={line.lineIndex}>
-                  {line.name}
-                </option>
-              ))}
-            </NativeSelect>
-            <Button disabled={finding.busy || !finding.phrase.trim()} size="sm" type="submit" variant="primary">
-              {finding.busy ? <Spinner variant="loading" /> : null}
-              {finding.busy ? e.finding : e.find}
-            </Button>
-            <Button
-              disabled={finding.busy}
-              onClick={() => {
-                setFinding(null);
-                setDraft(null);
-              }}
-              size="sm"
-              type="button"
-              variant="quiet"
-            >
-              {e.cancel}
-            </Button>
-          </div>
+          {finding.answer ? (
+            // A boxed answer is saved already: Done leaves it, a new box asks about something else.
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                disabled={finding.busy}
+                onClick={() => {
+                  setFinding(null);
+                  setDraft(null);
+                }}
+                size="sm"
+                type="button"
+                variant="primary"
+              >
+                {e.done}
+              </Button>
+              <Button
+                disabled={finding.busy}
+                onClick={() => setFinding({ ...finding, box: null, points: [], answer: null, replace: null, message: undefined })}
+                size="sm"
+                type="button"
+                variant="quiet"
+              >
+                {e.newBox}
+              </Button>
+              {finding.busy ? (
+                <span className="flex items-center gap-1.5 text-[12px] text-ink-3">
+                  <Spinner variant="loading" />
+                  {e.finding}
+                </span>
+              ) : null}
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="sr-only" htmlFor="priced-find-phrase">
+                {e.phrase}
+              </label>
+              <input
+                className={cn(inputClass, "min-w-40 flex-1")}
+                disabled={finding.busy}
+                id="priced-find-phrase"
+                onChange={(event) => setFinding({ ...finding, phrase: event.target.value, message: undefined })}
+                placeholder={e.phrasePlaceholder}
+                value={finding.phrase}
+              />
+              <NativeSelect
+                aria-label={e.putOn}
+                className="w-auto max-w-48"
+                disabled={finding.busy}
+                onChange={(event) => {
+                  const lineIndex = event.target.value === "" ? null : Number(event.target.value);
+                  const line = state.lines.find((l) => l.lineIndex === lineIndex);
+                  setFinding({ ...finding, lineIndex, phrase: finding.phrase.trim() || !line ? finding.phrase : (line.phrase ?? "") });
+                }}
+                value={finding.lineIndex ?? ""}
+              >
+                <option value="">{e.noLine}</option>
+                {state.lines.map((line) => (
+                  <option key={line.lineIndex} value={line.lineIndex}>
+                    {line.name}
+                  </option>
+                ))}
+              </NativeSelect>
+              <Button disabled={finding.busy || (!finding.phrase.trim() && !finding.box)} size="sm" type="submit" variant="primary">
+                {finding.busy ? <Spinner variant="loading" /> : null}
+                {finding.busy ? e.finding : e.find}
+              </Button>
+              <Button
+                disabled={finding.busy}
+                onClick={() => {
+                  setFinding(null);
+                  setDraft(null);
+                }}
+                size="sm"
+                type="button"
+                variant="quiet"
+              >
+                {e.cancel}
+              </Button>
+            </div>
+          )}
           {finding.message ? (
             <p className="text-[12px] text-ink-2" role="status">
               {finding.message}
             </p>
-          ) : !finding.box ? (
+          ) : null}
+          {finding.answer ? (
+            // Each ask is one SAM call, billed like any other.
+            <p className="text-[12px] text-ink-3">{finding.points.length < MAX_PROMPT_POINTS ? e.notThis(MAX_PROMPT_POINTS - finding.points.length) : e.noMoreTaps}</p>
+          ) : finding.message ? null : !finding.box ? (
             <p className="text-[12px] text-ink-3">{e.dragBox}</p>
+          ) : !finding.phrase.trim() ? (
+            <p className="text-[12px] text-ink-3">{e.boxOnly}</p>
           ) : null}
         </form>
       ) : null}
@@ -825,6 +933,17 @@ function SketchShape({ sketch }: { sketch: Sketch }) {
           </g>
         );
       })}
+    </g>
+  );
+}
+
+/** A tap off a boxed answer: a red dot, dark-ringed so it reads on grass and on sky, the same size however the photo is scaled. */
+function NotItMark({ point }: { point: Point }) {
+  const dot = `M${point.x} ${point.y}h0`;
+  return (
+    <g pointerEvents="none">
+      <path d={dot} stroke="#000000" strokeLinecap="round" strokeOpacity={0.5} strokeWidth={16} vectorEffect="non-scaling-stroke" />
+      <path d={dot} stroke="#ff3b30" strokeLinecap="round" strokeWidth={12} vectorEffect="non-scaling-stroke" />
     </g>
   );
 }
