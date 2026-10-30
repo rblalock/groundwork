@@ -126,3 +126,22 @@ withTestDb("recurring work: monthly comes round on the same weekday of the month
   const done = await changeVisitStatus(owner, { visitId: booked.visit.visitId, status: "completed" }, { now: local("2026-11-11", "12:00"), post });
   assert.equal(whenOf(done.nextVisit), local("2026-12-09", "10:00").toISOString(), "the 2nd Wednesday of December");
 });
+
+withTestDb("recurring work: a visit only pencilled in never sets when or with whom the next one comes", async () => {
+  const { owner, crew, post } = await business();
+  const ana = await person("Ana Ortega", "member", "+15555550103");
+  const first = await bookVisit(owner, { title: "7 Pine Ave", memberIds: [crew.memberId], day: "2026-11-10", time: "09:00", recurring: "weekly" }, { now: NOW, post });
+  const done = await changeVisitStatus(crew, { visitId: first.visit.visitId, status: "completed" }, { now: local("2026-11-10", "10:00"), post });
+  await changeVisitStatus(owner, { visitId: done.nextVisit!.visitId, status: "cancelled" }, { now: local("2026-11-11", "08:00"), post });
+  // As a forwarded email would: pencilled in on a Friday with someone else, then cancelled.
+  const pencilled = await bookVisit(
+    owner,
+    { jobId: first.visit.jobId, memberIds: [ana.memberId], day: "2026-11-20", time: "15:00", tentative: true, silent: true },
+    { now: local("2026-11-11", "08:00"), post },
+  );
+  await changeVisitStatus(owner, { visitId: pencilled.visit.visitId, status: "cancelled" }, { now: local("2026-11-11", "08:05"), post });
+  assert.equal(await rollForwardDue(TEST_ORG, { now: local("2026-11-11", "09:00") }), 1);
+  const next = (await getServiceJob(owner, first.visit.jobId))!.visits.find((v) => v.status === "scheduled");
+  assert.equal(whenOf(next ?? null), local("2026-11-24", "09:00").toISOString(), "a week after the 17th, which was skipped");
+  assert.deepEqual(next?.crew.map((c) => c.memberId), [crew.memberId], "Carlos, as booked; not the pencilled-in crew");
+});

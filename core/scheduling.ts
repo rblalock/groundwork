@@ -1595,8 +1595,8 @@ export function recurringSlot(slots: Slot[], date: string, time: string): Slot |
 const RECURRING_LATER_DAYS = 6;
 
 /**
- * Books recurring work's next visit when it has none open: after its latest visit (done, or cancelled to skip
- * one), on the recurrence's weekday and clock (`nextOccurrenceFrom`), for its length, with that visit's crew still
+ * Books recurring work's next visit when it has none open: after its latest visit booked for real (done, or
+ * cancelled to skip one; never one only pencilled in), on the recurrence's weekday and clock (`nextOccurrenceFrom`), for its length, with that visit's crew still
  * on the team. A day they can't take (time off, a full day) moves it to the first one after that can, through
  * `recurringSlot`. It goes through `bookVisit`, booked by the business's first owner or admin, with no crew text:
  * the morning route has it. Returns the visit, or null when there's nothing to book or nowhere to put it.
@@ -1606,8 +1606,23 @@ export async function rollForward(orgId: string, jobId: string, deps?: Deps): Pr
   const job = await jobRow(orgId, jobId, db());
   if (!job || job.status !== "open" || !job.recurrence) return null;
   const booked = await loadVisitViews(orgId, [eq(visits.jobId, jobId)]);
-  const last = booked.at(-1);
-  if (!last || booked.some((v) => OPEN_VISIT.includes(v.status))) return null;
+  if (booked.some((v) => OPEN_VISIT.includes(v.status))) return null;
+  // Only a visit booked for real sets when and with whom the next comes: one only ever pencilled in (a forwarded
+  // email's) doesn't, done or cancelled.
+  const held = booked.length
+    ? await db()
+        .selectDistinct({ visitId: visitRevisions.visitId })
+        .from(visitRevisions)
+        .where(
+          and(
+            eq(visitRevisions.orgId, orgId),
+            inArray(visitRevisions.visitId, booked.map((v) => v.visitId)),
+            sql`${visitRevisions.snapshot}->>'status' = 'scheduled'`,
+          ),
+        )
+    : [];
+  const last = booked.filter((v) => held.some((h) => h.visitId === v.visitId)).at(-1);
+  if (!last) return null;
   const team = await scheduleCrew(orgId);
   const crew = last.crew.filter((c) => team.some((m) => m.memberId === c.memberId));
   const [booker] = await privilegedMembers(orgId);
