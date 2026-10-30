@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { Card } from "@/components/pages/kit";
 import type { Language } from "@/core/language";
 import { pageCopyFor } from "@/lib/page-copy";
@@ -12,18 +13,20 @@ export function BeforeAfterCard({
   outlinedHref,
   quoteHref,
   description,
+  actions,
   language,
 }: {
   href: string;
   outlinedHref?: string;
   quoteHref?: string;
   description?: string;
+  actions?: ReactNode;
   language: Language;
 }) {
   const q = pageCopyFor(language).quotes;
   if (outlinedHref) {
     return (
-      <Card description={description} title={q.beforeAfter}>
+      <Card actions={actions} description={description} title={q.beforeAfter}>
         <BeforeAfterOutlines href={href} language={language} outlinedHref={outlinedHref} />
       </Card>
     );
@@ -32,7 +35,7 @@ export function BeforeAfterCard({
   // eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size
   const image = <img alt={q.beforeAfterAlt} className="block h-auto w-full" loading="lazy" src={href} />;
   return (
-    <Card description={description} title={q.beforeAfter}>
+    <Card actions={actions} description={description} title={q.beforeAfter}>
       <figure className="space-y-1.5">
         {quoteHref ? (
           <Link className={frame} href={quoteHref}>

@@ -9,6 +9,7 @@ import { quoteDeposits } from "../../core/invoices";
 import { isLanguage } from "../../core/language";
 import { isPrivileged } from "../../core/members";
 import { pdfFileName } from "../../core/pdf";
+import { getProfile } from "../../core/profile";
 import {
   assignPricedPhoto,
   createPricedPhoto,
@@ -23,6 +24,7 @@ import {
 import type { Assignment } from "../../core/priced-photo-select";
 import { customerLinkFor } from "../../core/quote-link";
 import { quoteTimeline, type TimelineEntry } from "../../core/quote-timeline";
+import { POST_FORMATS, postLines, socialCaption, socialPostFor, type PostFormat } from "../../core/social-post";
 import {
   approveQuote,
   countQuotes,
@@ -113,7 +115,9 @@ export async function assertVisible(caller: AppCaller, quoteId: string): Promise
 /**
  * `depositPaidCents` is what's been paid of the quote's deposit, for owners and admins (null otherwise, or
  * with none asked). `pricedPhoto` is its latest priced photo, and the lines it couldn't find in it.
- * `beforeAfter` is its before-and-after, when it has a priced photo from before the job and one after.
+ * `beforeAfter` is its before-and-after, when it has a priced photo from before the job and one after,
+ * and `socialPost` the post made from it: its image in each format, with and without the line asking
+ * for the next job, and the caption for each.
  */
 export type QuotePage = {
   quote: QuoteDetail;
@@ -121,6 +125,7 @@ export type QuotePage = {
   depositPaidCents: number | null;
   pricedPhoto: { id: string; url: string; notLocated: string[] } | null;
   beforeAfter: { href: string; outlinedHref: string } | null;
+  socialPost: { images: Record<PostFormat, { withCta: string; withoutCta: string }>; captions: { withCta: string; withoutCta: string } } | null;
 };
 
 export async function quoteFor(caller: AppCaller, quoteId: string): Promise<QuotePage> {
@@ -132,6 +137,7 @@ export async function quoteFor(caller: AppCaller, quoteId: string): Promise<Quot
   // A quote approved before links existed gets its link the first time it's looked at.
   const customerLink = quote.customerLink ?? (await customerLinkFor(caller.orgId, quoteId));
   const deposits = quote.depositCents && isPrivileged(caller.role) ? await quoteDeposits(caller.orgId, quoteId) : null;
+  const profile = pair ? await getProfile(caller.orgId) : null;
   return {
     quote: { ...quote, customerLink },
     timeline: timeline ?? [],
@@ -142,6 +148,21 @@ export async function quoteFor(caller: AppCaller, quoteId: string): Promise<Quot
     beforeAfter: pair
       ? { href: beforeAfterHref({ quoteId, version: pair.version }), outlinedHref: beforeAfterHref({ quoteId, version: pair.version }, { outlines: true }) }
       : null,
+    socialPost:
+      pair && profile
+        ? {
+            images: Object.fromEntries(
+              POST_FORMATS.map((format) => [
+                format,
+                { withCta: socialPostHref({ quoteId, version: pair.version }, { format, cta: true }), withoutCta: socialPostHref({ quoteId, version: pair.version }, { format, cta: false }) },
+              ]),
+            ) as Record<PostFormat, { withCta: string; withoutCta: string }>,
+            captions: {
+              withCta: socialCaption(postLines(pair), profile, { cta: true, language: caller.language }),
+              withoutCta: socialCaption(postLines(pair), profile, { cta: false, language: caller.language }),
+            },
+          }
+        : null,
   };
 }
 
@@ -174,6 +195,13 @@ const flag = z.enum(["0", "1"]).transform((value) => value === "1");
 
 /** The before-and-after route's query: `outlines=1` outlines the quoted things. Anything else is a 400. */
 export const beforeAfterQuery = z.object({ v: z.string().optional(), outlines: flag.optional() });
+
+/** Where the app serves a quote's social post in one format, with or without the line asking for the next job. */
+export const socialPostHref = (pair: Pick<BeforeAfter, "quoteId" | "version">, options: { format: PostFormat; cta: boolean }) =>
+  `/api/quotes/${encodeURIComponent(pair.quoteId)}/post?v=${pair.version}&format=${options.format}&cta=${options.cta ? 1 : 0}`;
+
+/** The social post route's query: a square unless `format=story`, and the line asking for the next job unless `cta=0`. */
+export const socialPostQuery = z.object({ v: z.string().optional(), format: z.enum(POST_FORMATS).default("square"), cta: flag.default(true) });
 
 /**
  * A quote's card for the chat, for whoever may see the quote (`assertVisible`); a 404 for anyone else.
@@ -304,6 +332,20 @@ export async function beforeAfterFile(caller: AppCaller, quoteId: string, option
     throw notFound();
   });
   return { bytes: drawn.png, contentType: "image/png", filename: `before-after-${quoteId}.png`, version: pair.version };
+}
+
+/**
+ * The quote's social post, drawn for anyone who may see the quote, in their language. A 404 when it has
+ * no before-and-after, or when either photo can't be read anymore.
+ */
+export async function socialPostFile(caller: AppCaller, quoteId: string, options: { format: PostFormat; cta: boolean }): Promise<StoredFile & { version: number }> {
+  await assertVisible(caller, quoteId);
+  const post = await socialPostFor(caller.orgId, quoteId, { ...options, language: caller.language }).catch((error: unknown) => {
+    console.error("social post: drawing failed", { quoteId, error });
+    throw notFound();
+  });
+  if (!post) throw notFound();
+  return { bytes: post.png, contentType: "image/png", filename: `before-after-${options.format}.png`, version: post.pair.version };
 }
 
 /** Makes (or makes again) the quote's priced photo from its latest photo, as the assistant's price_photo does. */

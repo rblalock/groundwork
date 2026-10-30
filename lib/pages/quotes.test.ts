@@ -10,7 +10,9 @@ process.env.BLOB_LOCAL_DIR = blobDir;
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { eq, inArray, sql } from "drizzle-orm";
-import { messages, quotes as quotesTable } from "../../schema/schema";
+import sharp from "sharp";
+import { messages, pricedPhotos, quotes as quotesTable } from "../../schema/schema";
+import { storeInboundAttachment } from "../../core/blob";
 import { saveCustomer } from "../../core/customers";
 import { db, newId } from "../../core/db";
 import { saveItems } from "../../core/pricebook";
@@ -20,8 +22,9 @@ import { POST as approveRoute } from "../../app/api/quotes/[id]/approve/route";
 import { POST as outcomeRoute } from "../../app/api/quotes/[id]/outcome/route";
 import { GET as pdfRoute } from "../../app/api/quotes/[id]/pdf/route";
 import { GET as photoRoute } from "../../app/api/quotes/[id]/photos/[photoId]/route";
-import { beforeAfterHref, beforeAfterQuery, formatQuoteCursor, parseQuoteCursor, QUOTE_PAGE_SIZE, quoteFor, quotesFor } from "./quotes";
-import { appCaller, call, installTransport, otherBusiness, person, refused, signIn, superAdminViewing } from "./test-support";
+import { GET as postRoute } from "../../app/api/quotes/[id]/post/route";
+import { beforeAfterHref, beforeAfterQuery, socialPostHref, socialPostQuery, formatQuoteCursor, parseQuoteCursor, QUOTE_PAGE_SIZE, quoteFor, quotesFor } from "./quotes";
+import { appCaller, BASE as BASE_URL, call, installTransport, otherBusiness, person, refused, signIn, superAdminViewing } from "./test-support";
 
 const quiet: Poster = async () => ({ posted: true });
 
@@ -251,4 +254,59 @@ test("quotes: the before-and-after is plain unless outlines=1, and each has its 
   assert.deepEqual(beforeAfterQuery.parse({ v: "42", outlines: "1" }), { v: "42", outlines: true });
   assert.deepEqual(beforeAfterQuery.parse({ outlines: "0" }), { outlines: false });
   assert.throws(() => beforeAfterQuery.parse({ outlines: "yes" }), { name: "ZodError" });
+});
+
+test("quotes: the social post is a square with the call to action unless asked otherwise", () => {
+  assert.equal(socialPostHref({ quoteId: "quo_a", version: 42 }, { format: "story", cta: false }), "/api/quotes/quo_a/post?v=42&format=story&cta=0");
+  assert.deepEqual(socialPostQuery.parse({}), { format: "square", cta: true });
+  assert.deepEqual(socialPostQuery.parse({ v: "42", format: "story", cta: "0" }), { v: "42", format: "story", cta: false });
+  for (const bad of [{ format: "tall" }, { cta: "yes" }, { format: "" }]) assert.throws(() => socialPostQuery.parse(bad), { name: "ZodError" }, JSON.stringify(bad));
+});
+
+withTestDb("quotes: the social post is served to anyone on the team once the quote has a before-and-after", async () => {
+  const s = await seed();
+  const crewHeaders = await signIn("+15555550102");
+  const get = (quoteId: string, query: string, headers = crewHeaders) =>
+    postRoute(new Request(`${BASE_URL}/api/quotes/${quoteId}/post${query}`, { headers }), { params: Promise.resolve({ id: quoteId }) });
+
+  assert.equal((await get(s.ownerQuote.quoteId, "")).status, 404, "no before-and-after yet");
+  const photo = async (sourceKind: "quote_attachment" | "work_photo", background: string) =>
+    db()
+      .insert(pricedPhotos)
+      .values({
+        id: newId("ppho"),
+        orgId: TEST_ORG,
+        quoteId: s.ownerQuote.quoteId,
+        revisionNumber: 1,
+        sourceKind,
+        sourceId: newId("src"),
+        sourceUrl: await storeInboundAttachment("yard.jpg", "image/jpeg", await sharp({ create: { width: 400, height: 300, channels: 3, background } }).jpeg().toBuffer()),
+        url: "fake://priced.png",
+        width: 400,
+        height: 300,
+        regions: [{ lineIndex: 0, itemId: null, name: "Widget service", quantity: 10, unitLabel: "widget", totalCents: 12000, phrase: "widget", objects: [], located: false }],
+      })
+      .returning()
+      .then(([row]) => row);
+  await photo("quote_attachment", "#777777");
+  const after = await photo("work_photo", "#3c8c3c");
+
+  const { socialPost } = await quoteFor(await appCaller(crewHeaders), s.ownerQuote.quoteId);
+  assert.ok(socialPost);
+  assert.match(socialPost.captions.withoutCta, /^Before and after: widget service\.$/);
+  const version = after.createdAt.getTime();
+  assert.equal(socialPost.images.story.withoutCta, `/api/quotes/${s.ownerQuote.quoteId}/post?v=${version}&format=story&cta=0`);
+
+  const story = await get(s.ownerQuote.quoteId, `?v=${version}&format=story&cta=0`);
+  assert.equal(story.status, 200);
+  assert.equal(story.headers.get("content-type"), "image/png");
+  assert.match(story.headers.get("cache-control") ?? "", /immutable/);
+  const size = await sharp(Buffer.from(await story.arrayBuffer())).metadata();
+  assert.deepEqual([size.width, size.height], [1080, 1920]);
+  assert.equal((await get(s.ownerQuote.quoteId, "")).headers.get("cache-control"), "no-store", "a square, never cached without its version");
+
+  const bad = await get(s.ownerQuote.quoteId, "?format=tall");
+  assert.deepEqual([bad.status, ((await bad.json()) as { code: string }).code], [400, "INVALID_INPUT"]);
+  assert.equal((await get(s.otherQuote.quoteId, "")).status, 404);
+  assert.equal((await get(s.ownerQuote.quoteId, "", new Headers())).status, 401);
 });

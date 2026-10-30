@@ -237,7 +237,17 @@ export default async function InvoiceDetailPage({ params }: { params: Promise<{ 
 
                 {beforeAfter ? (
                   <RecordSection id="before-after">
-                    <BeforeAfterCard description={t.beforeAfterHelp} href={beforeAfter.href} language={language} quoteHref={`/quotes/${beforeAfter.quoteId}`} />
+                    <BeforeAfterCard
+                      actions={
+                        <Link className="shrink-0 text-[12px] font-medium text-accent-ink hover:underline" href={`/quotes/${beforeAfter.quoteId}#priced-photo`}>
+                          {t.shareFromQuote}
+                        </Link>
+                      }
+                      description={t.beforeAfterHelp}
+                      href={beforeAfter.href}
+                      language={language}
+                      quoteHref={`/quotes/${beforeAfter.quoteId}`}
+                    />
                   </RecordSection>
                 ) : null}
 

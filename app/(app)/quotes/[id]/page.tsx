@@ -31,6 +31,7 @@ import { editorItems } from "@/lib/pages/quote-editor";
 import { AddPhotosButton, EditQuoteButton, RemovePhotoButton } from "@/components/quotes/quote-editor";
 import { BeforeAfterCard } from "@/components/quotes/before-after-card";
 import { PricedPhotoSection } from "@/components/quotes/priced-photo-section";
+import { SocialPostPanel } from "@/components/quotes/social-post-panel";
 import { copyFor } from "@/lib/copy";
 import { JumpBar, type JumpSection } from "@/components/record/jump-bar";
 import { EmptyFold, RailFact, RecordColumns, RecordSection } from "@/components/record/layout";
@@ -80,7 +81,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
   const caller = await pageMember();
   const { id } = await params;
   const { priced: pricedOutcome } = await searchParams;
-  const { quote, timeline, depositPaidCents, pricedPhoto, beforeAfter } = await quoteFor(caller, id).catch((error: unknown) => {
+  const { quote, timeline, depositPaidCents, pricedPhoto, beforeAfter, socialPost } = await quoteFor(caller, id).catch((error: unknown) => {
     if (error instanceof HttpError && error.status === 404) notFound();
     throw error;
   });
@@ -352,6 +353,11 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
                     {beforeAfter ? (
                       <div className="mt-6">
                         <BeforeAfterCard href={beforeAfter.href} language={language} outlinedHref={beforeAfter.outlinedHref} />
+                      </div>
+                    ) : null}
+                    {socialPost ? (
+                      <div className="mt-3">
+                        <SocialPostPanel captions={socialPost.captions} images={socialPost.images} language={language} />
                       </div>
                     ) : null}
                   </RecordSection>
