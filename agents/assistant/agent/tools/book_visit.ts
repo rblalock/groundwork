@@ -7,7 +7,7 @@ import { isEmailTurn, plain, requireCaller, toolError } from "../../../../core/t
 export default defineTool({
   approval: privilegedOnly("book visits"),
   description:
-    "Book a visit: when the work happens and who goes. For a quote (quoteId: approved, sent, or won; its work is opened the first time), more visits on existing work (jobId), or new work with no quote (title, and customerId and propertyId when known). Owners and admins only. day is as the member said it (YYYY-MM-DD, today, tomorrow, or a weekday name like tuesday) and time is 24-hour HH:MM, both in the business's time zone: the code works out the date, so never compute it yourself. memberIds come from read_business. durationMinutes defaults to 60. tentative pencils it in. The crew booked get a text; customers never do. Reply with confirmText.",
+    "Book a visit: when the work happens and who goes. For a quote (quoteId: approved, sent, or won; its work is opened the first time), more visits on existing work (jobId), or new work with no quote (title, and customerId and propertyId when known). Owners and admins only. day is as the member said it (YYYY-MM-DD, today, tomorrow, or a weekday name like tuesday) and time is 24-hour HH:MM, both in the business's time zone: the code works out the date, so never compute it yourself. memberIds come from read_business. durationMinutes defaults to 60. Leave the buffers out unless the member gives them: the code holds the drive in from the crew's stop before (or the yard) and out to the next (or back); driveEstimated false means a place couldn't be placed, so no drive was held. tentative pencils it in. The crew booked get a text; customers never do. Reply with confirmText.",
   inputSchema: z.object({
     quoteId: z.string().optional(),
     jobId: z.string().optional(),
@@ -35,6 +35,8 @@ export default defineTool({
       return plain({
         visit: visitForTool(booked.visit, booked.timeZone, caller.language),
         workOpened: booked.jobCreated,
+        buffers: { beforeMinutes: booked.visit.bufferBeforeMinutes, afterMinutes: booked.visit.bufferAfterMinutes },
+        driveEstimated: booked.driveEstimated ?? false,
         crewTexted: booked.notified,
         confirmText: confirmText("booked", booked.visit, booked.timeZone, caller.language),
       });

@@ -6,7 +6,7 @@
 // Who may do what: owners and admins book, move, and cancel visits, open and close jobs, set hours, and
 // add anyone's time off. Everyone reads the whole schedule and marks visits done; crew add or remove
 // their own time off. Booking someone sends them a heads-up text (never a customer: they don't text us).
-import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import {
   busyBlocks,
   businessProfile,
@@ -24,7 +24,8 @@ import { db, newId, type Db, type Tx } from "./db";
 import { recordEvent } from "./events";
 import { isLanguage, type Language } from "./language";
 import { isPrivileged, type Caller, type Member } from "./members";
-import { getProfileWith } from "./profile";
+import { crewDrives, driveSettingsOf, legsAround, placeOf, yardOf, type Leg, type Place, type Stop } from "./places";
+import { getProfileWith, type Profile } from "./profile";
 import { crewChecklist, type CrewChecklist } from "./checklist";
 import type { Poster } from "./quotes";
 import {
@@ -66,6 +67,9 @@ export type VisitView = {
   customerId: string | null;
   customerName: string | null;
   address: string | null;
+  propertyId: string | null;
+  /** Where the address is; null when it couldn't be placed (`core/places.ts`). */
+  place: Place | null;
   quoteId: string | null;
   crew: CrewRef[];
   startAt: Date;
@@ -77,6 +81,11 @@ export type VisitView = {
   revision: number;
   /** How much of the work's checklist is ticked; null when it has none. */
   checklist: { done: number; total: number } | null;
+  /**
+   * The drives around it on its first crew member's day (`withDrives`): from the stop before or the yard, and to
+   * the stop after or back to the yard. A side is null when either end is unplaced. Absent when not worked out.
+   */
+  drive?: { fromPrevious: Leg | null; toNext: Leg | null };
 };
 
 type Deps = { now?: Date; post?: Poster };
@@ -183,7 +192,7 @@ export async function setWorkHours(
 
 function visitQuery(executor: Db | Tx, orgId: string) {
   return executor
-    .select({ visit: visits, job: serviceJobs, customerName: customers.name, address: properties.address })
+    .select({ visit: visits, job: serviceJobs, customerName: customers.name, address: properties.address, lat: properties.lat, lng: properties.lng })
     .from(visits)
     .innerJoin(serviceJobs, and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.id, visits.jobId)))
     .leftJoin(customers, and(eq(customers.orgId, orgId), eq(customers.id, serviceJobs.customerId)))
@@ -222,7 +231,7 @@ async function loadVisitViews(orgId: string, where: SQL[], executor: Db | Tx = d
     .limit(limit);
   const crew = await crewOf(orgId, rows.map((r) => r.visit.id), executor);
   const checklists = await checklistCounts(orgId, rows.map((r) => r.job.id), executor);
-  return rows.map(({ visit, job, customerName, address }) => ({
+  return rows.map(({ visit, job, customerName, address, lat, lng }) => ({
     visitId: visit.id,
     jobId: job.id,
     title: job.title,
@@ -230,6 +239,8 @@ async function loadVisitViews(orgId: string, where: SQL[], executor: Db | Tx = d
     customerId: job.customerId,
     customerName,
     address,
+    propertyId: job.propertyId,
+    place: address ? placeOf({ lat, lng }, address) : null,
     quoteId: job.quoteId,
     crew: crew.get(visit.id) ?? [],
     startAt: visit.startAt,
@@ -321,7 +332,7 @@ export async function readSchedule(
     from,
     to,
     crew: memberId ? allCrew.filter((c) => c.memberId === memberId) : allCrew,
-    visits: await loadVisitViews(orgId, where),
+    visits: await withDrives(orgId, await loadVisitViews(orgId, where), profile),
     timeOff: blocks.map(({ block, memberName }) => ({ ...block, memberName })),
   };
 }
@@ -338,9 +349,114 @@ export async function visitsOnDay(orgId: string, ymd: string, timeZone: string, 
 }
 
 // ---------------------------------------------------------------------------------------------
+// Drives
+
+const stopOf = (v: Pick<VisitView, "startAt" | "place">): Stop => ({ startAt: v.startAt, place: v.place });
+
+/**
+ * Adds each visit's drives (`VisitView.drive`), from its first crew member's other visits that day and the
+ * yard. Cancelled visits and visits with no crew get none.
+ */
+async function withDrives(orgId: string, views: VisitView[], profile: Profile, executor: Db | Tx = db()): Promise<VisitView[]> {
+  const routed = new Set(views.filter((v) => v.status !== "cancelled" && v.crew.length > 0));
+  if (routed.size === 0) return views;
+  const timeZone = profile.timeZone;
+  const dates = new Map<string, string>();
+  const dateOf = (v: VisitView) => {
+    const known = dates.get(v.visitId);
+    if (known) return known;
+    const date = wallClock(v.startAt, timeZone).date;
+    dates.set(v.visitId, date);
+    return date;
+  };
+  const days = [...routed].map(dateOf).sort();
+  const sameDays = await loadVisitViews(
+    orgId,
+    [inArray(visits.status, HOLDS_TIME), gte(visits.startAt, dayStart(days[0], timeZone)), lt(visits.startAt, dayStart(addDays(days[days.length - 1], 1), timeZone))],
+    executor,
+    2000,
+  );
+  const yard = yardOf(profile);
+  const settings = driveSettingsOf(profile);
+  return views.map((v) => {
+    if (!routed.has(v)) return v;
+    const lead = v.crew[0].memberId;
+    const stops = sameDays.filter((o) => o.visitId !== v.visitId && dateOf(o) === dateOf(v) && o.crew.some((c) => c.memberId === lead)).map(stopOf);
+    const legs = legsAround(stopOf(v), stops, yard, settings);
+    return { ...v, drive: { fromPrevious: legs.before, toNext: legs.after } };
+  });
+}
+
+/** One of the business's properties, placed or not. Throws `PROPERTY_NOT_FOUND`. */
+async function propertyPlace(orgId: string, propertyId: string, executor: Db | Tx): Promise<{ propertyId: string; place: Place | null }> {
+  const [row] = await executor
+    .select({ address: properties.address, lat: properties.lat, lng: properties.lng })
+    .from(properties)
+    .where(and(eq(properties.orgId, orgId), eq(properties.id, propertyId)));
+  if (!row) throw new Error("PROPERTY_NOT_FOUND");
+  return { propertyId, place: placeOf(row, row.address) };
+}
+
+/** Where the work is: the property given, else its job's, else its quote's. Null when none is known. */
+async function workPlace(
+  orgId: string,
+  input: { propertyId?: string; jobId?: string; quoteId?: string },
+  executor: Db | Tx,
+): Promise<{ propertyId: string; place: Place | null } | null> {
+  if (input.propertyId) return propertyPlace(orgId, input.propertyId, executor);
+  if (input.jobId) {
+    const job = await jobRow(orgId, input.jobId, executor);
+    if (!job) throw new Error("SERVICE_JOB_NOT_FOUND");
+    if (job.propertyId) return propertyPlace(orgId, job.propertyId, executor);
+  }
+  if (input.quoteId) {
+    const [quote] = await executor.select({ propertyId: quotes.propertyId }).from(quotes).where(and(eq(quotes.orgId, orgId), eq(quotes.id, input.quoteId)));
+    if (!quote) throw new Error("QUOTE_NOT_FOUND");
+    if (quote.propertyId) return propertyPlace(orgId, quote.propertyId, executor);
+  }
+  return null;
+}
+
+type Buffers = { bufferBeforeMinutes: number; bufferAfterMinutes: number; driveEstimated: boolean };
+
+/**
+ * A visit's buffers: each the member gave, else the drive (`crewDrives`), else today's default when the drive
+ * can't be estimated (an unplaced end). `driveEstimated` is false when one fell back to the default.
+ */
+function visitBuffers(given: { before?: number; after?: number }, drives: { before: number | null; after: number | null }): Buffers {
+  const side = (minutes: number | undefined, drive: number | null) =>
+    minutes !== undefined ? { minutes: clampBuffer(minutes), fell: false } : drive !== null ? { minutes: drive, fell: false } : { minutes: clampBuffer(undefined), fell: true };
+  const before = side(given.before, drives.before);
+  const after = side(given.after, drives.after);
+  return { bufferBeforeMinutes: before.minutes, bufferAfterMinutes: after.minutes, driveEstimated: !before.fell && !after.fell };
+}
+
+/** Each crew member's visits holding time on the local day `date`, other than `excludeVisitId`, as stops. */
+async function crewStopsOn(orgId: string, crew: CrewMember[], date: string, timeZone: string, executor: Db | Tx, excludeVisitId?: string): Promise<Stop[][]> {
+  const window = { startAt: dayStart(date, timeZone), endAt: dayStart(addDays(date, 1), timeZone) };
+  const out: Stop[][] = [];
+  for (const member of crew) {
+    const taken = await occupancy(orgId, member.memberId, window, executor, excludeVisitId);
+    out.push(taken.visits.filter((v) => wallClock(v.startAt, timeZone).date === date).map(stopOf));
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Availability
 
-export type Slot = { date: string; start: string; end: string; startAt: Date; endAt: Date; offsetMinutes: number };
+export type Slot = {
+  date: string;
+  start: string;
+  end: string;
+  startAt: Date;
+  endAt: Date;
+  offsetMinutes: number;
+  /** The crew's drive in from the stop before (or the yard), and out to the next (or back); null when unplaced. */
+  driveFromPreviousMinutes: number | null;
+  driveToNextMinutes: number | null;
+  driveEstimated: boolean;
+};
 
 async function occupancy(
   orgId: string,
@@ -379,6 +495,10 @@ async function occupancy(
  * Times the crew are all free for `durationMinutes` (plus buffers), from `from` for `days` days, in
  * 15-minute steps inside each one's working hours, around their visits and time off. Advisory: it
  * holds nothing, and booking checks again. Crew may only look up themselves.
+ *
+ * The buffers not given are the drive to the work's property (`propertyId`, else the job's or quote's, else
+ * the visit being moved's) from each one's stop before it that day or the yard, and on to the next stop or back.
+ * When a place is unknown or unplaced, they fall back to the default and `driveEstimated` is false.
  */
 export async function findAvailability(
   actor: Viewer,
@@ -390,31 +510,51 @@ export async function findAvailability(
     bufferBeforeMinutes?: number;
     bufferAfterMinutes?: number;
     reschedulingVisitId?: string;
+    propertyId?: string;
+    jobId?: string;
+    quoteId?: string;
     limit?: number;
   },
   deps?: { now?: Date },
-): Promise<{ timeZone: string; durationMinutes: number; slots: Slot[]; advisory: true }> {
+): Promise<{ timeZone: string; durationMinutes: number; slots: Slot[]; driveEstimated: boolean; advisory: true }> {
   const { orgId } = actor;
   const now = deps?.now ?? new Date();
   const profile = await getProfileWith(orgId, db());
   const timeZone = profile.timeZone;
   const crew = await crewFor(orgId, input.memberIds, db());
   const duration = clampDuration(input.durationMinutes);
-  const before = clampBuffer(input.bufferBeforeMinutes);
-  const after = clampBuffer(input.bufferAfterMinutes);
+  const given = {
+    before: input.bufferBeforeMinutes === undefined ? undefined : clampBuffer(input.bufferBeforeMinutes),
+    after: input.bufferAfterMinutes === undefined ? undefined : clampBuffer(input.bufferAfterMinutes),
+  };
   const days = Math.min(Math.max(Math.trunc(input.days ?? 7), 1), 14);
   const limit = Math.min(Math.max(Math.trunc(input.limit ?? 60), 1), 100);
   const from = resolveDay(input.from, timeZone, now);
+  let moving: VisitView | null = null;
   if (input.reschedulingVisitId) {
-    const moving = await getVisit(actor, input.reschedulingVisitId);
+    moving = await getVisit(actor, input.reschedulingVisitId);
     if (!moving) throw new Error("VISIT_NOT_FOUND");
     if (!OPEN_VISIT.includes(moving.status)) throw new Error("VISIT_NOT_OPEN");
   }
+  const work =
+    (await workPlace(orgId, input, db())) ??
+    (moving?.propertyId ? { propertyId: moving.propertyId, place: moving.place } : null);
+  const target = work?.place ?? null;
+  const yard = yardOf(profile);
+  const settings = driveSettingsOf(profile);
   const window = { startAt: new Date(dayStart(from, timeZone).getTime() - DAY), endAt: new Date(dayStart(addDays(from, days), timeZone).getTime() + DAY) };
   const busy = new Map<string, Interval[]>();
+  // Each one's stops by local day, for the drives in and out of a slot.
+  const stops = new Map<string, Map<string, Stop[]>>();
   for (const member of crew) {
     const taken = await occupancy(orgId, member.memberId, window, db(), input.reschedulingVisitId);
     busy.set(member.memberId, [...taken.visits.map(occupiedInterval), ...taken.blocks]);
+    const byDay = new Map<string, Stop[]>();
+    for (const v of taken.visits) {
+      const date = wallClock(v.startAt, timeZone).date;
+      byDay.set(date, [...(byDay.get(date) ?? []), stopOf(v)]);
+    }
+    stops.set(member.memberId, byDay);
   }
   const slots: Slot[] = [];
   for (let d = 0; d < days && slots.length < limit; d++) {
@@ -426,7 +566,14 @@ export async function findAvailability(
       for (const startAt of localTimeInstants(date, minutesClock(minute), timeZone)) {
         if (startAt <= now) continue;
         const endAt = new Date(startAt.getTime() + duration * MINUTE);
-        const held = occupiedInterval({ startAt, endAt, bufferBeforeMinutes: before, bufferAfterMinutes: after });
+        const drives = crewDrives(
+          { startAt, place: target },
+          crew.map((member) => stops.get(member.memberId)?.get(date) ?? []),
+          yard,
+          settings,
+        );
+        const buffers = visitBuffers(given, drives);
+        const held = occupiedInterval({ startAt, endAt, ...buffers });
         const free = crew.every(
           (member) =>
             withinWorkingHours(held.startAt, held.endAt, timeZone, member.hours) &&
@@ -440,11 +587,15 @@ export async function findAvailability(
           startAt,
           endAt,
           offsetMinutes: offsetMinutesAt(startAt, timeZone),
+          driveFromPreviousMinutes: drives.before,
+          driveToNextMinutes: drives.after,
+          driveEstimated: buffers.driveEstimated,
         });
       }
     }
   }
-  return { timeZone, durationMinutes: duration, slots, advisory: true };
+  const driveEstimated = slots.length ? slots.every((slot) => slot.driveEstimated) : target !== null && yard !== null;
+  return { timeZone, durationMinutes: duration, slots, driveEstimated, advisory: true };
 }
 
 const DAY = 24 * 60 * MINUTE;
@@ -735,12 +886,20 @@ export type BookVisitInput = JobInput & {
   allowOutsideHours?: boolean;
 };
 
-export type BookingResult = { visit: VisitView; jobCreated: boolean; timeZone: string; notified: string[] };
+export type BookingResult = {
+  visit: VisitView;
+  jobCreated: boolean;
+  timeZone: string;
+  notified: string[];
+  /** Booking only: false when a buffer fell back to the default because a place was unplaced or unknown. */
+  driveEstimated?: boolean;
+};
 
 /**
  * Books a visit, owners and admins only. Refuses a past time, a time outside the crew's hours (unless
  * `allowOutsideHours`), and one over their other visits or time off. Texts each crew member booked,
- * other than whoever booked it.
+ * other than whoever booked it. The buffers not given are the drives in and out (`findAvailability`), to
+ * the property given or the work's.
  */
 export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps): Promise<BookingResult> {
   requirePrivileged(actor);
@@ -752,8 +911,10 @@ export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps
     const timeZone = profile.timeZone;
     const { startAt, endAt } = visitTimes(input, timeZone, now);
     const crew = await crewFor(orgId, input.memberIds, tx);
-    const bufferBeforeMinutes = clampBuffer(input.bufferBeforeMinutes);
-    const bufferAfterMinutes = clampBuffer(input.bufferAfterMinutes);
+    const given = {
+      before: input.bufferBeforeMinutes === undefined ? undefined : clampBuffer(input.bufferBeforeMinutes),
+      after: input.bufferAfterMinutes === undefined ? undefined : clampBuffer(input.bufferAfterMinutes),
+    };
     let job: ServiceJob;
     let jobCreated = false;
     if (input.jobId) {
@@ -764,6 +925,13 @@ export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps
     } else {
       ({ job, created: jobCreated } = await ensureJob(actor, input, tx, now));
     }
+    const work = await workPlace(orgId, { propertyId: input.propertyId ?? job.propertyId ?? undefined }, tx);
+    const crewStops = await crewStopsOn(orgId, crew, wallClock(startAt, timeZone).date, timeZone, tx);
+    const { driveEstimated, ...buffers } = visitBuffers(
+      given,
+      crewDrives({ startAt, place: work?.place ?? null }, crewStops, yardOf(profile), driveSettingsOf(profile)),
+    );
+    const { bufferBeforeMinutes, bufferAfterMinutes } = buffers;
     await ensureCrewFree(orgId, crew, { startAt, endAt, bufferBeforeMinutes, bufferAfterMinutes }, timeZone, tx, {
       allowOutsideHours: input.allowOutsideHours,
       language: actor.language,
@@ -786,14 +954,21 @@ export async function bookVisit(actor: Actor, input: BookVisitInput, deps?: Deps
     await tx.insert(visitCrew).values(crew.map((c) => ({ orgId, visitId: id, memberId: c.memberId })));
     await tx.update(serviceJobs).set({ updatedAt: now }).where(and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.id, job.id)));
     await saveRevision(tx, actor, id, "booked", null);
-    return { id, jobCreated, timeZone };
+    return { id, jobCreated, timeZone, driveEstimated };
   });
   const brief = await crewBrief(orgId, result.id);
-  const visit = (await getVisit(actor, result.id)) as VisitView;
+  const visit = await visitWithDrives(actor, result.id);
   const notified = input.silent
     ? []
     : await tellCrew(actor, visit.crew.map((c) => c.memberId), (lang) => withChecklist(crewText.booked(actor.name, visit, result.timeZone, lang), brief, lang), deps, brief);
-  return { visit, jobCreated: result.jobCreated, timeZone: result.timeZone, notified };
+  return { visit, jobCreated: result.jobCreated, timeZone: result.timeZone, notified, driveEstimated: result.driveEstimated };
+}
+
+/** A visit just booked or moved, with its drives. */
+async function visitWithDrives(viewer: Viewer, visitId: string): Promise<VisitView> {
+  const visit = (await getVisit(viewer, visitId)) as VisitView;
+  const [withDrive] = await withDrives(viewer.orgId, [visit], await getProfileWith(viewer.orgId, db()));
+  return withDrive;
 }
 
 function visitTimes(
@@ -878,7 +1053,7 @@ export async function rescheduleVisit(actor: Actor, input: RescheduleInput, deps
     await saveRevision(tx, actor, before.visitId, "rescheduled", input.reason);
     return { timeZone };
   });
-  const visit = (await getVisit(actor, input.visitId)) as VisitView;
+  const visit = await visitWithDrives(actor, input.visitId);
   const now_ = visit.crew.map((c) => c.memberId);
   const joined = now_.filter((id) => !previous.crew.some((c) => c.memberId === id));
   // Crew new on the visit get its checklist and priced photo, as a booking would send them.
@@ -1099,11 +1274,19 @@ const STATUS_WORD: Record<Language, Record<VisitStatus, string>> = {
   es: { proposed: "tentativa", scheduled: "agendada", completed: "hecha", cancelled: "cancelada" },
 };
 
+/** "About 25 min from the yard.", when the drive in is known; empty otherwise. */
+function driveText(v: VisitView, lang: Language): string {
+  const leg = v.drive?.fromPrevious;
+  if (!leg || leg.minutes === 0) return "";
+  const from = leg.yard ? (lang === "es" ? "la base" : "the yard") : leg.label;
+  return lang === "es" ? ` Unos ${leg.minutes} min desde ${from}.` : ` About ${leg.minutes} min from ${from}.`;
+}
+
 const crewText = {
   booked: (by: string, v: VisitView, tz: string, lang: Language) =>
     lang === "es"
-      ? `${by} te agendó para ${v.title}: ${whenText(v.startAt, v.endAt, tz, lang)}.`
-      : `${by} booked you for ${v.title}: ${whenText(v.startAt, v.endAt, tz, lang)}.`,
+      ? `${by} te agendó para ${v.title}: ${whenText(v.startAt, v.endAt, tz, lang)}.${driveText(v, lang)}`
+      : `${by} booked you for ${v.title}: ${whenText(v.startAt, v.endAt, tz, lang)}.${driveText(v, lang)}`,
   moved: (by: string, v: VisitView, tz: string, lang: Language) =>
     lang === "es"
       ? `${by} movió ${v.title} a ${whenText(v.startAt, v.endAt, tz, lang)}.`
@@ -1195,6 +1378,10 @@ export function visitForTool(visit: VisitView, timeZone: string, language: Langu
     status: visit.status,
     notes: visit.notes,
     ...(visit.checklist ? { checklist: visit.checklist } : {}),
+    ...(visit.drive?.fromPrevious
+      ? { driveFromPreviousMinutes: visit.drive.fromPrevious.minutes, driveFrom: visit.drive.fromPrevious.yard ? "the yard" : visit.drive.fromPrevious.label }
+      : {}),
+    ...(visit.drive?.toNext ? { driveToNextMinutes: visit.drive.toNext.minutes, driveTo: visit.drive.toNext.yard ? "the yard" : visit.drive.toNext.label } : {}),
     line: visitLine(visit, timeZone, language),
   };
 }

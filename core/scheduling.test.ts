@@ -7,8 +7,9 @@ import { db } from "./db";
 import { runOrgTick } from "./followups";
 import { setTransportForTests } from "./imessage";
 import { addPhone, createMember, recordInbound, type Caller } from "./members";
+import { driveMinutes, yardOf } from "./places";
 import { saveItems } from "./pricebook";
-import { updateProfile } from "./profile";
+import { getProfile, updateProfile } from "./profile";
 import { approveQuote, createQuote, setQuoteOutcome, type Poster } from "./quotes";
 import {
   addTimeOff,
@@ -24,6 +25,7 @@ import {
   serviceJobsAbout,
   setWorkHours,
   toSchedule,
+  visitForTool,
 } from "./scheduling";
 import { TEST_ORG, withTestDb } from "./test-db";
 
@@ -152,6 +154,65 @@ withTestDb("availability: working hours in 15-minute steps, around visits, buffe
   // Today's slots start after now (8 AM), and a visit being moved doesn't block itself.
   const today = await findAvailability(s.owner, { memberIds: [s.ana.memberId], from: "today", days: 1 }, deps);
   assert.equal(today.slots[0].start, "08:15");
+});
+
+withTestDb("buffers are the drive: in from the yard or the stop before, out to the next stop or back, and unplaced falls back", async () => {
+  const s = await seed();
+  await updateProfile(TEST_ORG, { address: "100 Bridge Rd, Tequesta, FL" }, s.owner.memberId);
+  const yard = yardOf(await getProfile(TEST_ORG))!;
+  const oak = { lat: s.customer.properties[0].lat!, lng: s.customer.properties[0].lng! };
+  const maria = await saveCustomer(TEST_ORG, { name: "Maria Alvarez", address: "7 Pine Ave" }, s.owner.memberId);
+  const pine = { lat: maria.properties[0].lat!, lng: maria.properties[0].lng! };
+  assert.equal(driveMinutes(yard, oak), 10);
+
+  // An empty day: the drive in from the yard and back both fit inside the crew's hours.
+  const open = await findAvailability(s.owner, { memberIds: [s.carlos.memberId], from: "tuesday", days: 1, quoteId: s.quote.quoteId }, deps);
+  assert.equal(open.driveEstimated, true);
+  assert.equal(open.slots[0].start, "08:15", "leaving the yard at 8, there by 8:10");
+  assert.equal(open.slots[0].driveFromPreviousMinutes, 10);
+  assert.equal(open.slots.at(-1)!.start, "15:45", "back at the yard by 5");
+
+  const first = await bookVisit(s.owner, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "tuesday", time: "09:00" }, deps);
+  assert.equal(first.driveEstimated, true);
+  assert.deepEqual([first.visit.bufferBeforeMinutes, first.visit.bufferAfterMinutes], [10, driveMinutes(oak, yard)]);
+  assert.deepEqual(first.visit.drive?.fromPrevious, { minutes: 10, label: "100 Bridge Rd, Tequesta, FL", yard: true });
+  assert.equal(texts.at(-1)?.text.split("\n")[0], "Pat Owner booked you for 12 Oak St: Tue, Oct 20, 9 AM–10 AM. About 10 min from the yard.");
+  const tool = visitForTool(first.visit, NY, "en");
+  assert.deepEqual([tool.driveFromPreviousMinutes, tool.driveFrom, tool.driveToNextMinutes], [10, "the yard", driveMinutes(oak, yard)]);
+
+  const second = await bookVisit(
+    s.owner,
+    { title: "Pine Ave beds", customerId: maria.id, propertyId: maria.properties[0].id, memberIds: [s.carlos.memberId], day: "tuesday", time: "11:00" },
+    deps,
+  );
+  assert.deepEqual([second.visit.bufferBeforeMinutes, second.visit.bufferAfterMinutes], [driveMinutes(oak, pine), driveMinutes(pine, yard)]);
+  assert.ok(texts.at(-1)?.text.endsWith(`About ${driveMinutes(oak, pine)} min from 12 Oak St.`));
+
+  // The schedule works drives out from the day as it is now: the first visit now goes on to Pine Ave.
+  const day = await readSchedule(s.owner, { from: "tuesday", days: 1 }, deps);
+  const firstNow = day.visits.find((v) => v.visitId === first.visit.visitId)!;
+  assert.deepEqual(firstNow.drive?.toNext, { minutes: driveMinutes(oak, pine), label: "7 Pine Ave", yard: false });
+
+  // A buffer the member gives wins over the drive.
+  const given = await bookVisit(s.owner, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "tuesday", time: "14:00", bufferBeforeMinutes: 30 }, deps);
+  assert.equal(given.visit.bufferBeforeMinutes, 30);
+  assert.equal(given.visit.bufferAfterMinutes, driveMinutes(oak, yard));
+
+  // An address that couldn't be placed: no drive, today's default buffers, and the result says so.
+  const nowhere = await saveCustomer(TEST_ORG, { name: "Bo Sample", address: "999 Nowhere Ln" }, s.owner.memberId);
+  const guess = await findAvailability(s.owner, { memberIds: [s.ana.memberId], from: "tuesday", days: 1, propertyId: nowhere.properties[0].id }, deps);
+  assert.equal(guess.driveEstimated, false);
+  assert.equal(guess.slots[0].start, "08:00");
+  const unplaced = await bookVisit(
+    s.owner,
+    { title: "Back lot", customerId: nowhere.id, propertyId: nowhere.properties[0].id, memberIds: [s.ana.memberId], day: "tuesday", time: "09:00" },
+    deps,
+  );
+  assert.equal(unplaced.driveEstimated, false);
+  assert.deepEqual([unplaced.visit.bufferBeforeMinutes, unplaced.visit.bufferAfterMinutes], [0, 0]);
+  assert.deepEqual(unplaced.visit.drive, { fromPrevious: null, toNext: null });
+  assert.equal(texts.at(-1)?.text, "Pat Owner booked you for Back lot: Tue, Oct 20, 9 AM–10 AM.");
+  await assert.rejects(findAvailability(s.owner, { memberIds: [s.ana.memberId], from: "tuesday", propertyId: "prop_elsewhere" }, deps), /PROPERTY_NOT_FOUND/);
 });
 
 withTestDb("availability over the clocks changing: no slot in the gap, both of the repeated hour", async () => {

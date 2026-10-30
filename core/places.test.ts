@@ -6,6 +6,7 @@ import { saveCustomer } from "./customers";
 import { db } from "./db";
 import { createMember } from "./members";
 import {
+  crewDrives,
   DEFAULT_DRIVE,
   driveMinutes,
   geocode,
@@ -87,6 +88,26 @@ test("legs around a visit: an unplaced end is left out, never guessed", () => {
   const afterUnplaced = legsAround({ startAt: eleven, place: oak }, [{ startAt: nine, place: null }], yard);
   assert.equal(afterUnplaced.before, null, "the stop before couldn't be placed: not the yard instead");
   assert.equal(afterUnplaced.after?.yard, true);
+});
+
+test("a crew's drives: the longest in and out of anyone on it, and none when anyone's end is unplaced", () => {
+  const yard = at(26.934, -80.129, "100 Bridge Rd");
+  const oak = at(26.9617, -80.0942, "412 Oak St");
+  const elm = at(26.976, -80.1105, "4 Elm Rd");
+  const nine = new Date("2026-10-20T13:00:00Z");
+  const eleven = new Date("2026-10-20T15:00:00Z");
+  const visit = { startAt: eleven, place: oak };
+  const fromYard = crewDrives(visit, [[]], yard);
+  assert.deepEqual(fromYard, { before: driveMinutes(yard, oak), after: driveMinutes(oak, yard) });
+  const twoCrew = crewDrives(visit, [[], [{ startAt: nine, place: at(26.9, -80.2, "far") }]], yard);
+  assert.equal(twoCrew.before, driveMinutes(at(26.9, -80.2), oak), "the one coming from farther sets the start");
+  assert.equal(twoCrew.after, driveMinutes(oak, yard));
+  assert.deepEqual(crewDrives(visit, [[{ startAt: nine, place: elm }], [{ startAt: nine, place: null }]], yard), {
+    before: null,
+    after: driveMinutes(oak, yard),
+  });
+  assert.deepEqual(crewDrives(visit, [], yard), { before: null, after: null });
+  assert.deepEqual(crewDrives({ startAt: eleven, place: null }, [[]], yard), { before: null, after: null });
 });
 
 test("the yard is placed only with an address and a point", () => {

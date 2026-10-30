@@ -119,10 +119,13 @@ export function VisitForm({
 
   async function findTimes() {
     setError(undefined);
+    // The work's place sets the drive held around each time.
+    const [kind, id] = work.split(":");
+    const about = moving ? { visitId: moving.visitId } : kind === "quote" ? { quoteId: id } : kind === "job" ? { jobId: id } : {};
     const result = await send<{ slots: SlotJson[] }>(
       "/api/schedule/availability",
       "POST",
-      { memberIds, date, days: 5, durationMinutes: duration, ...(moving ? { visitId: moving.visitId } : {}) },
+      { memberIds, date, days: 5, durationMinutes: duration, ...about },
       false,
     );
     if (result.ok) setSlots(result.data.slots);

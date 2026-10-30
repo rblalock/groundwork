@@ -139,7 +139,15 @@ export const statusSchema = z
   .strict();
 
 export const availabilitySchema = z
-  .object({ memberIds: z.array(id).min(1).max(6), date: ymd, days: z.number().int().min(1).max(14).default(5), durationMinutes: z.number().int().min(15).max(960), visitId: id.optional() })
+  .object({
+    memberIds: z.array(id).min(1).max(6),
+    date: ymd,
+    days: z.number().int().min(1).max(14).default(5),
+    durationMinutes: z.number().int().min(15).max(960),
+    visitId: id.optional(),
+    quoteId: id.optional(),
+    jobId: id.optional(),
+  })
   .strict();
 
 export const timeOffSchema = z
@@ -227,6 +235,8 @@ export async function availabilityFromApp(caller: AppCaller, input: z.infer<type
       days: input.days,
       durationMinutes: input.durationMinutes,
       reschedulingVisitId: input.visitId,
+      quoteId: input.quoteId,
+      jobId: input.jobId,
       limit: 60,
     });
     return found.slots.map(({ date, start, end }) => ({ date, start, end }));

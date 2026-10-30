@@ -78,6 +78,24 @@ export function legsAround(
   };
 }
 
+/**
+ * The drives to hold around a visit at `at` for its whole crew, `crewStops` being each one's other stops that
+ * day: the longest drive in and the longest drive out, since the visit starts when the last of them arrives.
+ * A side is null when it can't be estimated for someone (an unplaced end), or there's no crew.
+ */
+export function crewDrives(
+  at: Stop,
+  crewStops: Stop[][],
+  yard: Place | null,
+  settings: DriveSettings = DEFAULT_DRIVE,
+): { before: number | null; after: number | null } {
+  if (crewStops.length === 0) return { before: null, after: null };
+  const legs = crewStops.map((stops) => legsAround(at, stops, yard, settings));
+  const longest = (side: "before" | "after") =>
+    legs.every((l) => l[side]) ? Math.max(...legs.map((l) => (l[side] as Leg).minutes)) : null;
+  return { before: longest("before"), after: longest("after") };
+}
+
 /** The business profile's drive settings. */
 export function driveSettingsOf(profile: Pick<typeof businessProfile.$inferSelect, "roadFactorBp" | "townMph" | "minDriveMinutes">): DriveSettings {
   return { roadFactorBp: profile.roadFactorBp, townMph: profile.townMph, minDriveMinutes: profile.minDriveMinutes };
