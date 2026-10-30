@@ -5,9 +5,10 @@ import { listRules, nameKey, saveItems, saveRule } from "./pricebook";
 import { updateProfile } from "./profile";
 
 /**
- * Loads a trade pack into one business, as its owner: prices (upserted by name), rules and business
- * notes (skipped when one with the same text or title is already saved), the minimum charge, and its
- * profile settings (quote validity, deposit, follow-up).
+ * Loads a trade pack into one business, as its owner: prices (upserted by name, with each item's photo
+ * prompt, equipment, and weather flag), rules and business notes (skipped when one with the same text or
+ * title is already saved), the minimum charge, and its profile settings (quote validity, deposit,
+ * follow-up).
  * Safe to run again. Rule `appliesTo` names become the saved items' ids. Throws `PACK_ITEM_UNKNOWN`
  * for a rule naming an item the pack does not have.
  */

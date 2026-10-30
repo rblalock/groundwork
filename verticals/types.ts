@@ -12,6 +12,8 @@ export type PackItem = {
   notes?: string;
   /** The noun phrase that finds the item in a photo ("mulch bed"); none for items a photo can't show. */
   photoPrompt?: string;
+  /** What doing it needs, in the owner's words ("trailer", "chipper"); a crew booked for it must carry all of it. */
+  equipment?: string[];
   /** Work rain or heat calls off (mowing, sod): its stops are checked against the forecast the evening before. */
   weatherSensitive?: boolean;
 };

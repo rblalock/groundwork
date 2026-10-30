@@ -25,7 +25,7 @@ export const landscaping: VerticalPack = {
     },
     { name: "Sod installed", unitKind: "sqft", unitLabel: "square foot", priceCents: 185, group: "Lawn", photoPrompt: "lawn", weatherSensitive: true },
     { name: "Cleanup labor", unitKind: "hour", unitLabel: "hour", priceCents: 5500, group: "Cleanup", weatherSensitive: true },
-    { name: "Haul-away", unitKind: "flat", unitLabel: "load", priceCents: 15000, group: "Cleanup" },
+    { name: "Haul-away", unitKind: "flat", unitLabel: "load", priceCents: 15000, group: "Cleanup", equipment: ["trailer"] },
     {
       name: "Sprinkler head replacement",
       unitKind: "each",

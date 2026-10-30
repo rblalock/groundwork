@@ -36,6 +36,8 @@ withTestDb("applying the landscaping pack twice adds its items, rules, notes, mi
   const haulAway = items.find((i) => i.name === "Haul-away");
   const rush = rules.find((r) => r.text.toLowerCase().includes("rush"));
   assert.ok(haulAway && rush?.effect && Array.isArray(rush.effect.appliesTo));
+  assert.deepEqual(haulAway.equipment, ["trailer"]);
+  assert.ok(items.filter((i) => i.id !== haulAway.id).every((i) => i.equipment.length === 0));
   assert.equal(rush.effect.appliesTo.length, 9);
   assert.ok(!rush.effect.appliesTo.includes(haulAway.id));
   const ids = new Set(items.map((i) => i.id));
@@ -50,4 +52,29 @@ withTestDb("applying the landscaping pack twice adds its items, rules, notes, mi
   assert.equal(stillThere.id, otherItem.id);
   assert.equal(stillThere.priceCents, 1);
   assert.equal((await listRules(TEST_ORG)).length, 0);
+});
+
+withTestDb("every pack loads into a business of its own with each item's equipment, weather flag, and rules on its own items", async () => {
+  for (const pack of Object.values(VERTICALS)) {
+    const org = await createOrganization({ name: `${pack.label} Test Co` });
+    const owner = await createMember({ orgId: org.id, name: "Test Owner", role: "owner" });
+    const counts = await applyVerticalPack(org.id, owner.id, pack);
+    assert.deepEqual(counts, { items: pack.items.length, rulesAdded: pack.rules.length, notesAdded: pack.notes.length }, pack.id);
+
+    const items = await listItems(org.id);
+    const byName = new Map(items.map((i) => [i.name, i]));
+    for (const item of pack.items) {
+      const saved = byName.get(item.name);
+      assert.ok(saved, `${pack.id}: ${item.name}`);
+      assert.equal(saved.priceCents, item.priceCents);
+      assert.deepEqual(saved.equipment, item.equipment ?? [], `${pack.id}: ${item.name}`);
+      assert.equal(saved.weatherSensitive, item.weatherSensitive ?? false, `${pack.id}: ${item.name}`);
+    }
+    const ids = new Set(items.map((i) => i.id));
+    for (const rule of await listRules(org.id, { includeRetired: true, includeSuggested: true })) {
+      const appliesTo = rule.effect?.appliesTo;
+      if (Array.isArray(appliesTo)) assert.ok(appliesTo.every((id) => ids.has(id)), rule.text);
+    }
+    assert.equal((await getProfile(org.id)).minimumChargeCents, pack.minimumChargeCents);
+  }
 });
