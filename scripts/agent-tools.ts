@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
@@ -10,7 +10,15 @@ import { APP_JOB, APP_WEB } from "../core/members";
 // resolver returns is resolved for the turn's source, so a web turn has no `no_reply` and a job's thread
 // has no `start_job`, as in the agent.
 
-const TOOLS_DIR = resolve(import.meta.dirname, "../agents/assistant/agent/tools");
+/**
+ * The tools' folder in the repo. Looked up from the working directory first: when eve bundles the eval
+ * config, this module runs from its cache and `import.meta.dirname` no longer points into the repo.
+ */
+function toolsDir(): string {
+  const candidates = [resolve(process.cwd(), "agents/assistant/agent/tools"), resolve(import.meta.dirname, "../agents/assistant/agent/tools")];
+  return candidates.find((dir) => existsSync(dir)) ?? candidates[0];
+}
+const TOOLS_DIR = toolsDir();
 
 type ToolDefinition = { description?: string; inputSchema?: z.ZodType };
 type ToolModule = ToolDefinition & { events?: { "turn.started"?: (event: unknown, resolve: unknown) => unknown } };
