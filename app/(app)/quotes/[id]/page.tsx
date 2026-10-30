@@ -351,7 +351,8 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
                       quoteId={quote.quoteId}
                     />
                     {beforeAfter ? (
-                      <div className="mt-6">
+                      // The invoice's "Share it from the quote" lands here.
+                      <div className="mt-6 scroll-mt-14" id="before-after">
                         <BeforeAfterCard href={beforeAfter.href} language={language} outlinedHref={beforeAfter.outlinedHref} />
                       </div>
                     ) : null}
