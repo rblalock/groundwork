@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { plansIn, type DayPlan, type PlanStop, type Replan } from "../../core/day-plan";
+import { yardOf, type Place } from "../../core/places";
 import { getProfile } from "../../core/profile";
 import { proposeRouteDays, recurringJobCount } from "../../core/route-days";
 import { applyProposal, dropProposal, itemLine, linesFrom, openProposals, summaryText, type Proposal } from "../../core/proposals";
@@ -114,6 +115,8 @@ export type SchedulePage = {
   weather: string | null;
   /** Open recurring jobs at placed addresses, for planning route days (`core/route-days.ts`); owners and admins only, else 0. */
   recurringJobs: number;
+  /** The yard on the route view's map, when it's placed (`core/places.ts`); else null. */
+  yard: Place | null;
 };
 
 /** A proposal as the Schedule page's card shows it: each stop's line, and the drafts that go with it. */
@@ -171,6 +174,7 @@ export async function scheduleFor(caller: AppCaller, input: { view?: string; dat
     // The strip sits under the day's own heading, so the line's day word ("Tomorrow:") is dropped.
     weather: weather[0]?.line.replace(/^[^:]*: /, "") ?? null,
     recurringJobs: privileged ? await recurringJobCount(caller.orgId) : 0,
+    yard: view === "route" ? yardOf(profile) : null,
   };
 }
 

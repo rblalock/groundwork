@@ -209,6 +209,7 @@ export function ScheduleBoard({
         <section className="min-w-0 overflow-hidden rounded-card bg-surface shadow-card">
           {page.view === "route" ? (
             <RouteBoard
+              crew={page.crew}
               language={language}
               onVisit={shared.onVisit}
               plans={page.plans}
@@ -216,6 +217,7 @@ export function ScheduleBoard({
               timeZone={page.timeZone}
               visits={page.visits}
               weather={page.weather}
+              yard={page.yard}
             />
           ) : page.view === "day" ? (
             <DayGrid date={page.date} {...shared} />

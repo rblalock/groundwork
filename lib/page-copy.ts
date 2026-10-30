@@ -558,6 +558,15 @@ const en = {
       arrives: (at: string) => `there about ${at}`,
       backProjected: "Back at the yard, re-planned",
       atRisk: (back: string, end: string) => `At risk: back about ${back}, past the ${end} end of the day.`,
+      map: {
+        label: "Map of the day's routes",
+        legend: "Straight lines, not roads",
+        shorter: "dashed: the shorter order",
+        hide: "Hide map",
+        show: "Show map",
+        yard: "Yard",
+        late: "running late",
+      },
     },
     proposals: {
       title: "Proposals",
@@ -1836,6 +1845,15 @@ const es: PageCopy = {
       arrives: (at: string) => `llega como a las ${at}`,
       backProjected: "De vuelta en la base, replaneado",
       atRisk: (back: string, end: string) => `En riesgo: de vuelta como a las ${back}, después del fin del día a las ${end}.`,
+      map: {
+        label: "Mapa de las rutas del día",
+        legend: "Líneas rectas, no calles",
+        shorter: "punteado: el orden más corto",
+        hide: "Ocultar mapa",
+        show: "Mostrar mapa",
+        yard: "Base",
+        late: "va tarde",
+      },
     },
     proposals: {
       title: "Propuestas",

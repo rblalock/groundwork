@@ -1,21 +1,31 @@
 "use client";
 
-import { AlertTriangle, Check, CloudSun, Home, MapPin, Truck } from "lucide-react";
-import type { ReactNode } from "react";
+import dynamic from "next/dynamic";
+import { AlertTriangle, Check, CloudSun, Home, Map as MapIcon, MapPin, Truck } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Button } from "@/ui/beautiful/atoms/Button";
 import { StatusPill } from "@/ui/beautiful/atoms/StatusPill";
 import { cn } from "@/ui/lib/utils";
 import type { Language } from "@/core/language";
+import type { Place } from "@/core/places";
 import { pageCopyFor } from "@/lib/page-copy";
 import type { DayPlanJson, VisitJson } from "@/lib/pages/schedule";
+import { crewColor, mapPoints } from "@/lib/route-map";
 import { durationText } from "@/core/scheduling-time";
 import { timeLabel } from "./calendar";
 
 // The Schedule page's route view: each crew member's day as a list, from the yard and back, with the drive
 // into each stop and the day's load against the business's capacity. Today's re-planned day shows when the
 // crew got on site, the projected times of the stops they'd reach late, and whether the day is at risk. Above the
-// routes, the day's weather in one line when the forecast reaches it. It only draws what the server worked out
-// (`core/day-plan.ts`, `core/weather.ts`); nothing here changes a visit. A row opens
-// the visit's details.
+// routes, the day's weather in one line when the forecast reaches it, and a map of the day: the yard, each
+// placed stop numbered, a straight line per crew member in their color (`./route-map.tsx`). It only draws what
+// the server worked out (`core/day-plan.ts`, `core/weather.ts`); nothing here changes a visit. A row or a
+// marker opens the visit's details.
+
+const RouteMap = dynamic(() => import("./route-map").then((m) => m.RouteMap), { ssr: false });
+
+/** Whether the viewer hid the map, remembered in the browser for crew who only want the list. */
+const MAP_HIDDEN_KEY = "schedule.routeMap.hidden";
 
 const STATUS_TONE = { proposed: "orange", scheduled: "accent", completed: "green", cancelled: "neutral" } as const;
 
@@ -27,6 +37,8 @@ export function RouteBoard({
   selectedId,
   onVisit,
   weather,
+  yard,
+  crew,
 }: {
   plans: DayPlanJson[];
   visits: VisitJson[];
@@ -36,6 +48,10 @@ export function RouteBoard({
   onVisit: (visit: VisitJson) => void;
   /** The day's weather in one line; null when the forecast doesn't reach it. */
   weather: string | null;
+  /** The placed yard; null when it isn't placed. */
+  yard: Place | null;
+  /** The crew in lane order, which gives each person their color. */
+  crew: Array<{ memberId: string }>;
 }) {
   const s = pageCopyFor(language).schedule;
   return (
@@ -47,10 +63,101 @@ export function RouteBoard({
           {weather}
         </p>
       ) : null}
+      <DayMap crew={crew} language={language} onVisit={onVisit} plans={plans} selectedId={selectedId} visits={visits} yard={yard} />
       {plans.length === 0 ? <p className="px-4 py-3 text-[13px] text-ink-3">{s.routes.empty}</p> : null}
       {plans.map((plan) => (
         <RouteCard key={plan.memberId} language={language} onVisit={onVisit} plan={plan} selectedId={selectedId} timeZone={timeZone} visits={visits} />
       ))}
+    </div>
+  );
+}
+
+/** The day's map with its legend, and a toggle to hide it; nothing when no stop is placed. */
+function DayMap({
+  plans,
+  visits,
+  yard,
+  crew,
+  language,
+  selectedId,
+  onVisit,
+}: {
+  plans: DayPlanJson[];
+  visits: VisitJson[];
+  yard: Place | null;
+  crew: Array<{ memberId: string }>;
+  language: Language;
+  selectedId: string | null;
+  onVisit: (visit: VisitJson) => void;
+}) {
+  const m = pageCopyFor(language).schedule.routes.map;
+  const lanes = useMemo(() => crew.map((c) => c.memberId), [crew]);
+  const points = useMemo(() => mapPoints(plans, yard, lanes), [plans, yard, lanes]);
+  // Read after the first render so the server's and the browser's first renders match; null until then.
+  const [hidden, setHidden] = useState<boolean | null>(null);
+  useEffect(() => {
+    try {
+      setHidden(window.localStorage.getItem(MAP_HIDDEN_KEY) === "1");
+    } catch {
+      // Storage can be off (private browsing): the map just shows.
+      setHidden(false);
+    }
+  }, []);
+  const toggle = () => {
+    const next = !hidden;
+    setHidden(next);
+    try {
+      if (next) window.localStorage.setItem(MAP_HIDDEN_KEY, "1");
+      else window.localStorage.removeItem(MAP_HIDDEN_KEY);
+    } catch {
+      // Not remembered, but still hidden.
+    }
+  };
+  if (points.markers.length === 0) return null;
+  const dashed = points.lines.some((l) => l.dashed);
+  const late = points.markers.some((p) => p.warn);
+  return (
+    <div>
+      {hidden === false ? (
+        <RouteMap
+          label={m.label}
+          onStop={(visitId) => {
+            const visit = visits.find((v) => v.visitId === visitId);
+            if (visit) onVisit(visit);
+          }}
+          points={points}
+          selectedId={selectedId}
+          yardLabel={m.yard}
+        />
+      ) : null}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-[12px] text-ink-3">
+        {hidden === false ? (
+          <>
+            {plans.length > 1
+              ? plans.map((plan) => (
+                  <span className="inline-flex items-center gap-1.5 text-ink-2" key={plan.memberId}>
+                    <span aria-hidden="true" className="size-2.5 rounded-full" style={{ background: crewColor(plan.memberId, lanes) }} />
+                    {plan.name}
+                  </span>
+                ))
+              : null}
+            {late ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span aria-hidden="true" className="size-2.5 rounded-full ring-2 ring-orange" />
+                {m.late}
+              </span>
+            ) : null}
+            <span>
+              {m.legend}
+              {dashed ? ` · ${m.shorter}` : ""}
+            </span>
+          </>
+        ) : null}
+        <Button className="ml-auto" disabled={hidden === null} onClick={toggle} size="xs" variant="quiet">
+          <MapIcon aria-hidden="true" className="size-3.5" />
+          {hidden ? m.show : m.hide}
+        </Button>
+      </div>
     </div>
   );
 }
