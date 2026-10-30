@@ -156,7 +156,7 @@ Each has three or more evals in `agents/assistant/evals/<id>/`, tagged with its 
   business by the owner's phone, touches no other business, and is safe to run again.
 - `VERTICAL=landscaping` (or another pack's id) adds the pack's instructions (vocabulary, units to
   ask for, photo and rule handling) to the assistant every turn. Unset or `none`, the assistant stays
-  trade-agnostic; an unknown name is an error.
+  trade-agnostic; an unknown name warns once and runs without a pack.
 
 ## Line prices for customers
 
