@@ -5,7 +5,8 @@
 // business hides line prices from customers, the quote's link shows a second copy labeled with quantities
 // only, drawn beside the first from the same masks. Every object SAM found is kept as a candidate with its
 // outline (once, when two phrases found the same object), so a member can move objects between lines and
-// both copies are drawn again without SAM.
+// both copies are drawn again without SAM. A member can outline by hand what SAM never finds; that
+// outline is kept as a candidate like the rest.
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -28,6 +29,8 @@ import {
   candidatesFrom,
   centeredIn,
   distinctCandidates,
+  DRAWN_PHRASE,
+  drawnCandidate,
   newCandidates,
   selectRegions,
   withKept,
@@ -103,7 +106,8 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
     ...lines.flatMap((line) => (line.phrase ? [line.phrase] : [])),
     ...priceBook.flatMap((item) => (item.status === "active" && item.photoPrompt?.trim() ? [item.photoPrompt.trim()] : [])),
   ];
-  const phrases = [...new Set(prompts)].filter((phrase) => !kept.some((c) => c.phrase === phrase));
+  // An outline drawn by hand under a line's name doesn't stand for SAM's look for a phrase.
+  const phrases = [...new Set(prompts)].filter((phrase) => !kept.some((c) => c.source !== "hand" && c.phrase === phrase));
   const calls: Array<{ phrase: string; images: number }> = [];
   const found =
     phrases.length > 0
@@ -232,7 +236,7 @@ export async function pricedPhotosForCustomer(orgId: string, customerId: string,
 }
 
 // ---------------------------------------------------------------------------------------------
-// Editing: moving the kept candidates between lines, and looking for one more phrase
+// Editing: moving the kept candidates between lines, looking for one more phrase, and outlining by hand
 
 /** A priced photo on the quote, with the name of the member who last edited it; null when the quote has no such photo. */
 export async function pricedPhotoOnQuote(orgId: string, quoteId: string, pricedId: string): Promise<(PricedPhoto & { editedByName: string | null }) | null> {
@@ -296,6 +300,60 @@ export async function findInPricedPhoto(
   const onKept = withKept(row.regions, same);
   const regions = ask.lineIndex === undefined ? onKept : addToLine(onKept, ask.lineIndex, added);
   return { photo: await saveEdit(caller, row, photo, regions, candidates), found: added.length };
+}
+
+/**
+ * Keeps a polygon a member drew on the photo as a candidate (`drawnCandidate`), under the name of the
+ * line at `lineIndex` and on that line when one is given, and draws both copies again with no SAM call.
+ * An outline over an object already kept gives way to it (`distinctCandidates`): that one goes on the
+ * line instead, and `added` is false. Throws `BAD_OUTLINE`, `UNKNOWN_LINE`, and what `assignPricedPhoto`
+ * throws.
+ */
+export async function drawInPricedPhoto(
+  caller: Caller,
+  quoteId: string,
+  pricedId: string,
+  ask: { points: Array<{ x: number; y: number }>; lineIndex?: number },
+): Promise<{ photo: PricedPhoto; candidateId: string; added: boolean }> {
+  const row = await editable(caller.orgId, quoteId, pricedId);
+  const region = ask.lineIndex === undefined ? undefined : row.regions.find((r) => r.lineIndex === ask.lineIndex);
+  if (ask.lineIndex !== undefined && !region) throw new Error(`UNKNOWN_LINE: ${ask.lineIndex}`);
+  const photo = await readPhoto(row);
+  const drawn = drawnCandidate(ask.points, photo, newId("cand"), region?.name ?? DRAWN_PHRASE);
+  const { kept: candidates, same } = distinctCandidates([...row.candidates, drawn]);
+  const candidate = same.get(drawn.id) ?? drawn;
+  const added = candidate === drawn;
+  if (!added && (!region || region.objects.some((o) => o.candidateId === candidate.id))) return { photo: row, candidateId: candidate.id, added };
+  const regions = region ? addToLine(row.regions, region.lineIndex, [candidate]) : row.regions;
+  return { photo: await saveEdit(caller, row, photo, regions, candidates), candidateId: candidate.id, added };
+}
+
+/**
+ * Takes an outline a member drew off the photo. Nothing is drawn again: an outline on no line isn't on
+ * either copy. Throws `UNKNOWN_CANDIDATE`, `NOT_DRAWN` for one SAM found, `ON_A_LINE` for one a line
+ * still uses, `PRICED_PHOTO_NOT_FOUND`, or `PRICED_PHOTO_CHANGED`.
+ */
+export async function removeDrawnFromPricedPhoto(caller: Caller, quoteId: string, pricedId: string, candidateId: string): Promise<PricedPhoto> {
+  const row = await editable(caller.orgId, quoteId, pricedId);
+  const candidate = row.candidates.find((c) => c.id === candidateId);
+  if (!candidate) throw new Error(`UNKNOWN_CANDIDATE: ${candidateId}`);
+  if (candidate.source !== "hand") throw new Error("NOT_DRAWN");
+  if (row.regions.some((region) => region.objects.some((o) => o.candidateId === candidateId))) throw new Error("ON_A_LINE");
+  const [saved] = await db()
+    .update(pricedPhotos)
+    .set({ candidates: row.candidates.filter((c) => c.id !== candidateId), editedBy: caller.memberId, editedAt: new Date() })
+    .where(
+      and(
+        eq(pricedPhotos.orgId, row.orgId),
+        eq(pricedPhotos.id, row.id),
+        eq(pricedPhotos.url, row.url),
+        // Another removal draws nothing either, so its edit time is what tells it landed first.
+        row.editedAt ? eq(pricedPhotos.editedAt, row.editedAt) : isNull(pricedPhotos.editedAt),
+      ),
+    )
+    .returning();
+  if (!saved) throw new Error("PRICED_PHOTO_CHANGED");
+  return saved;
 }
 
 async function editable(orgId: string, quoteId: string, pricedId: string): Promise<PricedPhoto> {

@@ -13,15 +13,17 @@ import { getProfile } from "../../core/profile";
 import {
   assignPricedPhoto,
   createPricedPhoto,
+  drawInPricedPhoto,
   findInPricedPhoto,
   pricedPhotoOnQuote,
   pricedPhotoSize,
   pricedPhotosFor,
+  removeDrawnFromPricedPhoto,
   MAX_FIND_PHRASE,
   type PricedPhoto,
   type PricedPhotoResult,
 } from "../../core/priced-photo";
-import type { Assignment } from "../../core/priced-photo-select";
+import { MAX_DRAWN_POINTS, MIN_DRAWN_POINTS, type Assignment } from "../../core/priced-photo-select";
 import { customerLinkFor } from "../../core/quote-link";
 import { quoteTimeline, type TimelineEntry } from "../../core/quote-timeline";
 import { callToAction, POST_FORMATS, postLines, SOCIAL_POST_DRAWING, socialCaption, socialPostFor, type PostFormat } from "../../core/social-post";
@@ -377,12 +379,16 @@ export async function pricePhotoFromApp(caller: AppCaller, quoteId: string): Pro
 }
 
 // The priced photo editor on the quote page: anyone on the team who may see the quote moves the objects
-// SAM found between its lines, or asks SAM for one more thing. Refusals are 400s with a short reason.
+// SAM found between its lines, asks SAM for one more thing, or outlines one by hand. Refusals are 400s with
+// a short reason.
 const EDIT_REFUSALS = {
   PRICED_PHOTO_NOT_FOUND: [404, "That isn't here."],
   UNKNOWN_CANDIDATE: [400, "That object isn't on this photo."],
   UNKNOWN_LINE: [400, "That line isn't on this photo."],
   BAD_PHRASE: [400, `Say what to look for in 1 to ${MAX_FIND_PHRASE} characters.`],
+  BAD_OUTLINE: [400, `Draw an outline of ${MIN_DRAWN_POINTS} to ${MAX_DRAWN_POINTS} points around something on the photo.`],
+  NOT_DRAWN: [400, "Only an outline drawn by hand can be removed."],
+  ON_A_LINE: [409, "Take that outline off its lines first."],
   UNREADABLE_PHOTO: [409, "The photo can't be read anymore."],
   PRICED_PHOTO_CHANGED: [409, "The photo changed while this was saved. Open it again."],
   SAM_FAILED: [502, "The photo couldn't be searched just now. Try again."],
@@ -420,6 +426,39 @@ export async function findInPricedPhotoFromApp(
     const { photo, found } = await findInPricedPhoto(actor, quoteId, pricedId, ask);
     const editedBy = photo.editedBy === actor.memberId ? actor.name : ((await pricedPhotoOnQuote(caller.orgId, quoteId, pricedId))?.editedByName ?? null);
     return { ...(await editorState(caller, photo, editedBy)), found };
+  } catch (error) {
+    refuse(error, EDIT_REFUSALS);
+  }
+}
+
+/**
+ * Keeps an outline the member drew as one of the photo's objects, on a line when one is named, and draws
+ * the photo again without SAM. `candidateId` is the object it is now: an object already kept there, when
+ * the outline was drawn over one (`added` false).
+ */
+export async function drawInPricedPhotoFromApp(
+  caller: AppCaller,
+  quoteId: string,
+  pricedId: string,
+  ask: { points: Array<{ x: number; y: number }>; lineIndex?: number },
+): Promise<PricedPhotoEditorState & { candidateId: string; added: boolean }> {
+  const actor = memberCaller(caller);
+  await assertVisible(caller, quoteId);
+  try {
+    const { photo, candidateId, added } = await drawInPricedPhoto(actor, quoteId, pricedId, ask);
+    const editedBy = photo.editedBy === actor.memberId ? actor.name : ((await pricedPhotoOnQuote(caller.orgId, quoteId, pricedId))?.editedByName ?? null);
+    return { ...(await editorState(caller, photo, editedBy)), candidateId, added };
+  } catch (error) {
+    refuse(error, EDIT_REFUSALS);
+  }
+}
+
+/** Takes an outline the member drew, and no line uses, off the photo. */
+export async function removeDrawnFromApp(caller: AppCaller, quoteId: string, pricedId: string, candidateId: string): Promise<PricedPhotoEditorState> {
+  const actor = memberCaller(caller);
+  await assertVisible(caller, quoteId);
+  try {
+    return await editorState(caller, await removeDrawnFromPricedPhoto(actor, quoteId, pricedId, candidateId), actor.name);
   } catch (error) {
     refuse(error, EDIT_REFUSALS);
   }

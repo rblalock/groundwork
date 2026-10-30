@@ -9,6 +9,9 @@ import {
   centeredIn,
   compactPath,
   distinctCandidates,
+  drawnCandidate,
+  MAX_DRAWN_POINTS,
+  polygonArea,
   SAME_OBJECT_IOU,
   selectRegions,
   withKept,
@@ -205,4 +208,70 @@ test("a line's objects follow a dropped candidate to the one kept in its place, 
   assert.equal(moved.located, true);
   // Adding a candidate already on the line doesn't add it twice.
   assert.equal(addToLine([moved], 0, [shrub])[0].objects.length, 1);
+});
+
+test("a hand-drawn polygon is a candidate: a closed path in whole pixels, its bounds, and its area", () => {
+  const points = [
+    { x: 10.4, y: 20.2 },
+    { x: 110, y: 20 },
+    { x: 110, y: 20 },
+    { x: 110.2, y: 80 },
+    { x: 10, y: 80 },
+    { x: 10, y: 20 },
+  ];
+  const drawn = drawnCandidate(points, IMAGE, "cand_d", "drawn");
+  assert.deepEqual(drawn, {
+    id: "cand_d",
+    phrase: "drawn",
+    box: { left: 10, top: 20, right: 110, bottom: 80 },
+    areaPx: 6000,
+    confidence: null,
+    svgPath: "M10 20L110 20L110 80L10 80Z",
+    source: "hand",
+  });
+  // Either way round, the same area.
+  assert.equal(polygonArea([[0, 0], [0, 10], [10, 10], [10, 0]]), 100);
+  assert.equal(polygonArea([[0, 0], [4, 0], [0, 3]]), 6);
+});
+
+test("a hand-drawn polygon with too few or too many points, off the photo, or too small is refused", () => {
+  const square = (side: number) => [
+    { x: 0, y: 0 },
+    { x: side, y: 0 },
+    { x: side, y: side },
+    { x: 0, y: side },
+  ];
+  assert.throws(() => drawnCandidate(square(20).slice(0, 2), IMAGE, "c", "drawn"), /BAD_OUTLINE/);
+  // Three taps, two on the same pixel, are two points.
+  assert.throws(() => drawnCandidate([{ x: 0, y: 0 }, { x: 0.2, y: 0.1 }, { x: 50, y: 50 }], IMAGE, "c", "drawn"), /BAD_OUTLINE/);
+  const many = Array.from({ length: MAX_DRAWN_POINTS + 1 }, (_, i) => ({ x: 500 + 400 * Math.cos(i / 40), y: 500 + 400 * Math.sin(i / 40) }));
+  assert.throws(() => drawnCandidate(many, IMAGE, "c", "drawn"), /too many points/);
+  assert.ok(drawnCandidate(many.slice(0, MAX_DRAWN_POINTS), IMAGE, "c", "drawn"));
+  assert.throws(() => drawnCandidate([...square(20), { x: 1025, y: 10 }], IMAGE, "c", "drawn"), /off the photo/);
+  assert.throws(() => drawnCandidate([{ x: -1, y: 0 }, ...square(20).slice(1)], IMAGE, "c", "drawn"), /off the photo/);
+  assert.throws(() => drawnCandidate([...square(20), { x: Number.NaN, y: 0 }], IMAGE, "c", "drawn"), /off the photo/);
+  // A line, however long, encloses nothing.
+  assert.throws(() => drawnCandidate([{ x: 0, y: 0 }, { x: 500, y: 500 }, { x: 1000, y: 1000 }], IMAGE, "c", "drawn"), /too small/);
+  assert.throws(() => drawnCandidate(square(9), IMAGE, "c", "drawn"), /too small/);
+  assert.equal(drawnCandidate(square(10), IMAGE, "c", "drawn").areaPx, 100);
+  // The photo's own edge is on it.
+  assert.deepEqual(drawnCandidate(square(1024), IMAGE, "c", "drawn").box, { left: 0, top: 0, right: 1024, bottom: 1024 });
+});
+
+test("a hand-drawn outline over an object SAM found gives way to it", () => {
+  const sam = { ...obj(0, [0, 588, 1024, 1024], 407680, 0.942), phrase: "lawn" };
+  const drawn = drawnCandidate(
+    [
+      { x: 0, y: 590 },
+      { x: 1024, y: 590 },
+      { x: 1024, y: 1024 },
+      { x: 0, y: 1024 },
+    ],
+    IMAGE,
+    "cand_d",
+    "Lawn mowing",
+  );
+  const { kept, same } = distinctCandidates([sam, drawn]);
+  assert.deepEqual(kept, [sam]);
+  assert.equal(same.get("cand_d"), sam);
 });

@@ -116,6 +116,59 @@ export function candidatesFrom(phrase: string, objects: SamObject[], newId: () =
 
 const sameBox = (a: PricedBox, b: PricedBox) => a.left === b.left && a.top === b.top && a.right === b.right && a.bottom === b.bottom;
 
+/** The fewest and most points a hand-drawn outline takes. */
+export const MIN_DRAWN_POINTS = 3;
+export const MAX_DRAWN_POINTS = 200;
+/** A hand-drawn outline enclosing less than this many pixels is a slip, not a thing. */
+export const MIN_DRAWN_AREA = 100;
+/** What a hand-drawn outline not put on a line is called. */
+export const DRAWN_PHRASE = "drawn";
+
+/**
+ * A member's polygon as a candidate: its points rounded to whole pixels, with a point repeating the
+ * one before it (or the first, closing it) dropped, as one closed path, with its bounds and the area it
+ * encloses. No confidence: a drawn outline gives way to an object SAM found in the same place. Throws
+ * `BAD_OUTLINE` for fewer than `MIN_DRAWN_POINTS` or more than `MAX_DRAWN_POINTS` points, a point off the
+ * photo, or an area under `MIN_DRAWN_AREA`.
+ */
+export function drawnCandidate(points: Array<{ x: number; y: number }>, image: { width: number; height: number }, id: string, phrase: string): PricedCandidate {
+  if (points.length > MAX_DRAWN_POINTS) throw new Error("BAD_OUTLINE: too many points");
+  if (points.some(({ x, y }) => !Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > image.width || y > image.height)) {
+    throw new Error("BAD_OUTLINE: off the photo");
+  }
+  const kept: Array<[number, number]> = [];
+  for (const { x, y } of points) {
+    const point: [number, number] = [Math.round(x), Math.round(y)];
+    const last = kept.at(-1);
+    if (!last || last[0] !== point[0] || last[1] !== point[1]) kept.push(point);
+  }
+  if (kept.length > 1 && kept[0][0] === kept.at(-1)![0] && kept[0][1] === kept.at(-1)![1]) kept.pop();
+  if (kept.length < MIN_DRAWN_POINTS) throw new Error("BAD_OUTLINE: too few points");
+  const areaPx = polygonArea(kept);
+  if (areaPx < MIN_DRAWN_AREA) throw new Error("BAD_OUTLINE: too small");
+  const xs = kept.map(([x]) => x);
+  const ys = kept.map(([, y]) => y);
+  return {
+    id,
+    phrase,
+    box: { left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys) },
+    areaPx,
+    confidence: null,
+    svgPath: `M${kept.map(([x, y]) => `${x} ${y}`).join("L")}Z`,
+    source: "hand",
+  };
+}
+
+/** The area a polygon encloses, in whole pixels (the shoelace formula; a crossing outline's lobes offset). */
+export function polygonArea(points: Array<[number, number]>): number {
+  let twice = 0;
+  points.forEach(([x, y], i) => {
+    const [nextX, nextY] = points[(i + 1) % points.length];
+    twice += x * nextY - nextX * y;
+  });
+  return Math.round(Math.abs(twice) / 2);
+}
+
 /** `found` without any whose phrase and box match a candidate already kept. */
 export function newCandidates(existing: PricedCandidate[], found: PricedCandidate[]): PricedCandidate[] {
   return found.filter((c) => !existing.some((e) => e.phrase === c.phrase && sameBox(e.box, c.box)));

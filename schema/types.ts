@@ -129,8 +129,11 @@ export type TraceUsage = {
 /** A box in a priced photo's pixels, `right` and `bottom` exclusive. */
 export type PricedBox = { left: number; top: number; right: number; bottom: number };
 
-/** One object SAM found in the photo, kept whether or not a line uses it. svgPath is the mask outline in image pixel coordinates. */
-export type PricedCandidate = { id: string; phrase: string; box: PricedBox; areaPx: number; confidence: number | null; svgPath: string };
+/**
+ * One object SAM found in the photo, or one a member outlined by hand (`source: "hand"`; absent means
+ * SAM), kept whether or not a line uses it. svgPath is the outline in image pixel coordinates.
+ */
+export type PricedCandidate = { id: string; phrase: string; box: PricedBox; areaPx: number; confidence: number | null; svgPath: string; source?: "hand" };
 
 /**
  * One quote line on a priced photo (`priced_photos.regions`): the line as quoted, the noun phrase it was

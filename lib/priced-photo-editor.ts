@@ -1,7 +1,7 @@
 import type { Language } from "../core/language";
 
 // Editing a priced photo by hand: which of the objects SAM found in the photo goes with which quote line,
-// and asking SAM to look again in one spot. The routes are under /api/quotes/[id]/priced/[pricedId]; the
+// asking SAM to look again in one spot, and outlining what it never finds. The routes are under /api/quotes/[id]/priced/[pricedId]; the
 // pure helpers below keep the screen's regions in step with a change before the server answers.
 
 import type { PricedBox, PricedCandidate, PricedPhotoEditorState, PricedRegion } from "../schema/types";
@@ -15,7 +15,11 @@ export type PricedPhotoApi = {
   load: () => Promise<PricedPhotoEditorState>;
   save: (assignments: Assignment[]) => Promise<PricedPhotoEditorState>;
   find: (request: { phrase: string; box?: PricedBox; lineIndex?: number }) => Promise<PricedPhotoEditorState & { found: number }>;
+  draw: (request: { points: Point[]; lineIndex?: number }) => Promise<PricedPhotoEditorState & { candidateId: string; added: boolean }>;
+  removeDrawn: (candidateId: string) => Promise<PricedPhotoEditorState>;
 };
+
+export type Point = { x: number; y: number };
 
 /** A route's refusal: its status and its short text. */
 export class PricedPhotoError extends Error {
@@ -49,10 +53,20 @@ export const saveAssignments = (quoteId: string, pricedId: string, assignments: 
 export const findInPhoto = (quoteId: string, pricedId: string, request: { phrase: string; box?: PricedBox; lineIndex?: number }) =>
   call<PricedPhotoEditorState & { found: number }>(`${base(quoteId, pricedId)}/find`, "POST", request);
 
+/** An outline drawn by hand, in the photo's pixels, onto `lineIndex` when given; no SAM call. */
+export const drawInPhoto = (quoteId: string, pricedId: string, request: { points: Point[]; lineIndex?: number }) =>
+  call<PricedPhotoEditorState & { candidateId: string; added: boolean }>(`${base(quoteId, pricedId)}/candidates`, "POST", request);
+
+/** Takes an outline drawn by hand, on no line, off the photo. */
+export const removeDrawn = (quoteId: string, pricedId: string, candidateId: string) =>
+  call<PricedPhotoEditorState>(`${base(quoteId, pricedId)}/candidates/${encodeURIComponent(candidateId)}`, "DELETE");
+
 export const pricedPhotoApi = (quoteId: string, pricedId: string): PricedPhotoApi => ({
   load: () => fetchEditorState(quoteId, pricedId),
   save: (assignments) => saveAssignments(quoteId, pricedId, assignments),
   find: (request) => findInPhoto(quoteId, pricedId, request),
+  draw: (request) => drawInPhoto(quoteId, pricedId, request),
+  removeDrawn: (candidateId) => removeDrawn(quoteId, pricedId, candidateId),
 });
 
 /** Which lines each candidate is on, in the order the candidates first appear; objects with no candidate are left out. */
