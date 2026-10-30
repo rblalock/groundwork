@@ -504,6 +504,30 @@ async function drawPhotos(ctx: Ctx, photos: QuotePdfPhoto[], heading = ctx.copy.
   }
 }
 
+// The before-and-after may take the whole page under its heading.
+const BEFORE_AFTER_MAX_HEIGHT = PAGE_HEIGHT - MARGIN - BOTTOM - 30;
+
+/** One image under `heading`, in the flow after what came before, on a new page when it doesn't fit. One that won't embed is skipped. */
+async function drawFigure(ctx: Ctx, photo: QuotePdfPhoto | null | undefined, heading: string): Promise<void> {
+  if (!photo) return;
+  let image: PDFImage;
+  try {
+    image = /png/i.test(photo.mimeType) ? await ctx.pdf.embedPng(photo.bytes) : await ctx.pdf.embedJpg(photo.bytes);
+  } catch (error) {
+    console.warn("pdf: an image could not be embedded, skipped", error);
+    return;
+  }
+  const scale = Math.min((RIGHT - LEFT) / image.width, BEFORE_AFTER_MAX_HEIGHT / image.height, 1);
+  const width = image.width * scale;
+  const height = image.height * scale;
+  ctx.y -= 18;
+  newPageIfNeeded(ctx, 20 + height);
+  textBlock(ctx, [clean(ctx, heading.toUpperCase(), true)], 8, { strong: true, color: MUTED });
+  ctx.y -= 8;
+  ctx.page.drawImage(image, { x: LEFT + (RIGHT - LEFT - width) / 2, y: ctx.y - height, width, height });
+  ctx.y -= height;
+}
+
 /** ASCII-safe download name, e.g. "Quote - 4512 Palm Ave - r2.pdf". */
 export function pdfFileName(title: string, revisionNumber: number, language: Language): string {
   const stem = title
@@ -550,6 +574,8 @@ export interface InvoicePdfDocument {
   logo?: PdfLogo | null;
   /** Photos of the work chosen for it, printed after the invoice. JPEG and PNG only. */
   photos?: QuotePdfPhoto[];
+  /** The quote's before-and-after, printed after the invoice and before the photos of the work. */
+  beforeAfter?: QuotePdfPhoto | null;
 }
 
 function drawBillTo(ctx: Ctx, doc: InvoicePdfDocument): void {
@@ -633,7 +659,10 @@ function drawFooters(ctx: Ctx, preparedBy: string): void {
   });
 }
 
-/** The customer-facing invoice: dates, lines, totals, what's been paid, the balance, the pay link, and any photos of the work. */
+/**
+ * The customer-facing invoice: dates, lines, totals, what's been paid, the balance, the pay link, the
+ * quote's before-and-after, and any photos of the work.
+ */
 export async function renderInvoicePdf(doc: InvoicePdfDocument): Promise<Uint8Array> {
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
@@ -689,6 +718,7 @@ export async function renderInvoicePdf(doc: InvoicePdfDocument): Promise<Uint8Ar
   }
   ctx.y -= 18;
   textBlock(ctx, wrapUser(ctx, doc.profile.invoiceFooter?.trim() || copy.invoiceThanks, BODY, RIGHT - LEFT), BODY, { color: MUTED });
+  await drawFigure(ctx, doc.beforeAfter, copy.beforeAfter);
   await drawPhotos(ctx, doc.photos ?? [], copy.workPhotos);
   drawFooters(ctx, `${doc.label} · ${doc.profile.name}`);
   return pdf.save();

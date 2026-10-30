@@ -19,6 +19,8 @@ export type PdfCopy = {
   photos: string;
   /** Heading over the work's photos on an invoice. */
   workPhotos: string;
+  /** Heading over the quote's before-and-after on an invoice. */
+  beforeAfter: string;
   license: string;
   revision: (n: number) => string;
   draftWatermark: string;
@@ -64,6 +66,7 @@ const EN: PdfCopy = {
   notes: "Notes",
   photos: "Photos",
   workPhotos: "Completed work",
+  beforeAfter: "Before and after",
   license: "License",
   revision: (n) => `Revision ${n}`,
   draftWatermark: "DRAFT",
@@ -109,6 +112,7 @@ const ES: PdfCopy = {
   notes: "Notas",
   photos: "Fotos",
   workPhotos: "Trabajo realizado",
+  beforeAfter: "Antes y después",
   license: "Licencia",
   revision: (n) => `Revisión ${n}`,
   draftWatermark: "BORRADOR",

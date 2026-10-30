@@ -18,6 +18,7 @@
 // - Photos of its work go on its PDF only as an owner or admin picks them (`setInvoicePhotos`), any time
 //   before it's void; none by default.
 import { randomBytes } from "node:crypto";
+import sharp from "sharp";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import {
   businessProfile,
@@ -32,6 +33,7 @@ import {
   serviceJobs,
 } from "../schema/schema";
 import { appOrigin } from "./app-url";
+import { beforeAfterFor, renderBeforeAfter } from "./before-after";
 import { deleteBlob, readStoredFile, storeInvoicePdf } from "./blob";
 import { calculate, type Adjustment, type LineInput, type LineResult, type RuleLine } from "./calculator";
 import { getCustomer } from "./customers";
@@ -897,6 +899,24 @@ async function pdfPhotosOf(orgId: string, invoice: Invoice): Promise<QuotePdfPho
   return loaded.filter((p): p is QuotePdfPhoto => p !== null);
 }
 
+/**
+ * The invoice's quote's before-and-after for the PDF, as a JPEG to keep the PDF small, with the total
+ * only when the business shows customers line prices. Null without one; one that fails to draw is logged
+ * and left off, never failing the invoice.
+ */
+async function pdfBeforeAfterOf(orgId: string, invoice: Invoice, language: Language, linePrices: boolean): Promise<QuotePdfPhoto | null> {
+  if (!invoice.quoteId) return null;
+  try {
+    const pair = await beforeAfterFor(orgId, invoice.quoteId);
+    if (!pair) return null;
+    const { png } = await renderBeforeAfter(pair, language, { linePrices });
+    return { bytes: new Uint8Array(await sharp(png).jpeg({ quality: 85 }).toBuffer()), mimeType: "image/jpeg" };
+  } catch (error) {
+    console.error("invoices: the before-and-after could not be drawn for the PDF", error);
+    return null;
+  }
+}
+
 export type RenderedInvoicePdf = { bytes: Uint8Array; pdfUrl: string; filename: string };
 
 /** Renders the invoice as it stands and stores it as its PDF, replacing the one before. */
@@ -932,6 +952,7 @@ export async function renderInvoice(orgId: string, invoiceId: string): Promise<R
     language,
     logo: await loadLogo(orgId),
     photos: await pdfPhotosOf(orgId, invoice),
+    beforeAfter: await pdfBeforeAfterOf(orgId, invoice, language, profile.customerLinePrices),
   });
   const pdfUrl = await storeInvoicePdf(invoice.id, `${invoice.label}-${Date.now().toString(36)}`, bytes);
   await db().update(invoices).set({ pdfUrl }).where(and(eq(invoices.orgId, orgId), eq(invoices.id, invoiceId)));

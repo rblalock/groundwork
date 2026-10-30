@@ -394,3 +394,45 @@ test("a receipt PDF with many payments runs onto a second page", async () => {
   const pdf = await PDFDocument.load(await renderReceiptPdf(receiptDoc({ payments: many })));
   assert.ok(pdf.getPageCount() >= 2);
 });
+
+test("an invoice PDF prints the quote's before-and-after after the invoice, before the work photos", async () => {
+  const invoice = {
+    profile,
+    label: "INV-0002",
+    title: "412 Oak St front yard",
+    status: "sent" as const,
+    issueDate: "2026-10-28",
+    dueDate: "2026-11-12",
+    lines: [line(1)],
+    ruleLines: [],
+    adjustments: [],
+    subtotalCents: 25_000,
+    minimumAppliedCents: 0,
+    adjustmentCents: 0,
+    taxRateBp: null,
+    taxCents: 0,
+    totalCents: 25_000,
+    amountPaidCents: 0,
+    notes: null,
+    customer: { name: "Pat Example", phones: [], emails: [] },
+    property: null,
+    payUrl: null,
+    language: "en" as const,
+  };
+  const heading = hexOf(pdfCopy("en").beforeAfter.toUpperCase());
+  const without = await PDFDocument.load(await renderInvoicePdf(invoice));
+  assert.ok(!contentOf(without).includes(heading));
+  // A wide composite fits under the invoice on its first page; the work photos still start their own.
+  const withPair = await PDFDocument.load(await renderInvoicePdf({ ...invoice, beforeAfter: { bytes: photo(808, 340), mimeType: "image/jpeg" } }));
+  assert.ok(contentOf(withPair).includes(heading));
+  assert.equal(withPair.getPageCount(), 1);
+  const both = await PDFDocument.load(
+    await renderInvoicePdf({ ...invoice, beforeAfter: { bytes: photo(808, 340), mimeType: "image/jpeg" }, photos: [{ bytes: photo(40, 30), mimeType: "image/jpeg" }] }),
+  );
+  assert.equal(both.getPageCount(), 2);
+  const spanish = await PDFDocument.load(await renderInvoicePdf({ ...invoice, language: "es", beforeAfter: { bytes: photo(808, 340), mimeType: "image/jpeg" } }));
+  assert.ok(contentOf(spanish).includes(hexOf("ANTES Y DESPUÉS")));
+  // One that won't embed is left off; the invoice still renders.
+  const broken = await PDFDocument.load(await renderInvoicePdf({ ...invoice, beforeAfter: { bytes: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" } }));
+  assert.ok(!contentOf(broken).includes(heading));
+});
