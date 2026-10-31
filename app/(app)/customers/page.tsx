@@ -1,5 +1,6 @@
 import { Users } from "lucide-react";
 import { SearchBox } from "@/components/pages/client-kit";
+import { NewCustomerButton } from "@/components/pages/customer-editors";
 import { Card, LinkRow, Nothing, PageBody, Table, Td, Th, ViewingNotice } from "@/components/pages/kit";
 import { EmptyState, PaperPage } from "@/components/paper";
 import { getProfile } from "@/core/profile";
@@ -22,7 +23,12 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
 
   return (
     <PaperPage
-      actions={<AskAssistantButton icon="new" label={copyFor(language).rail.newCustomer} start={{ topic: "customer" }} />}
+      actions={
+        <div className="flex items-center gap-1">
+          {caller.memberId !== null ? <NewCustomerButton businessLanguage={profile.language} language={language} /> : null}
+          <AskAssistantButton label={copyFor(language).rail.ask} start={{ topic: "customer" }} />
+        </div>
+      }
       title={c.title}
     >
       <PageBody>

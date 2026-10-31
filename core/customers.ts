@@ -148,6 +148,31 @@ export async function searchCustomers(
   return withDetails(orgId, rows);
 }
 
+/**
+ * Customers who may be the one about to be added: the same name (case and accents aside), or a phone or
+ * email already on file. A phone that can't be read and an email without an @ match nothing. Archived
+ * customers are left out. At most 3, by name.
+ */
+export async function likelySameCustomers(
+  orgId: string,
+  input: { name?: string; phone?: string; email?: string },
+): Promise<Customer[]> {
+  const matches: SQL[] = [];
+  const name = input.name?.trim();
+  if (name) matches.push(sql`${foldedSql(customers.name)} = ${fold(name.replace(/\s+/g, " "))}`);
+  const phone = input.phone?.trim() ? normalizeE164(input.phone) : null;
+  if (phone) matches.push(sql`${phone} = any(${customers.phones})`);
+  const email = input.email?.trim().toLowerCase();
+  if (email?.includes("@")) matches.push(sql`${email} = any(${customers.emails})`);
+  if (matches.length === 0) return [];
+  return db()
+    .select()
+    .from(customers)
+    .where(and(eq(customers.orgId, orgId), isNull(customers.archivedAt), sql`(${sql.join(matches, sql` or `)})`))
+    .orderBy(asc(customers.name), asc(customers.id))
+    .limit(3);
+}
+
 export type CustomerListRow = Customer & { quoteCount: number; lastActivityAt: Date };
 
 /**

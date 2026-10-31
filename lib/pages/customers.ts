@@ -6,6 +6,7 @@ import {
   archiveCustomer,
   customerHistory,
   getCustomer,
+  likelySameCustomers,
   listCustomers,
   mergeCustomers,
   removeContact,
@@ -107,6 +108,35 @@ function errorsFor(caller: AppCaller) {
     CUSTOMER_MERGED: [409, errors.merged],
     SAME_CUSTOMER: [400, errors.sameCustomer],
   } as const;
+}
+
+export const newCustomerSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    phone: z.preprocess(blankToUndefined, z.string().max(40).optional()),
+    email: z.preprocess(blankToUndefined, z.string().trim().email().max(200).optional()),
+    address: z.preprocess(blankToUndefined, z.string().trim().max(300).optional()),
+    language: languageSchema.optional(),
+  })
+  .strict();
+
+/**
+ * Anyone on the team adds a customer through `saveCustomer`, as the assistant's `save_customer` does: the
+ * phone and email go on their preferred contact, and the address becomes a property and is placed.
+ */
+export async function createCustomerFromApp(caller: AppCaller, input: z.infer<typeof newCustomerSchema>): Promise<CustomerWithProperties> {
+  const actor = memberCaller(caller);
+  try {
+    return await saveCustomer(caller.orgId, input, actor.memberId);
+  } catch (error) {
+    refuse(error, errorsFor(caller));
+  }
+}
+
+/** Customers already saved who may be the one being added, a few fields each, for the new-customer form. */
+export async function sameCustomersFor(caller: AppCaller, input: { name?: string; phone?: string; email?: string }) {
+  const found = await likelySameCustomers(caller.orgId, input);
+  return found.map((c) => ({ id: c.id, name: c.name }));
 }
 
 /** An owner or admin edits a customer through `saveCustomer`, as the assistant does. */

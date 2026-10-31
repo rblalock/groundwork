@@ -1,6 +1,8 @@
 "use client";
 
 import { Plus } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
 import { Button } from "@/ui/beautiful/atoms/Button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/ui/components/dialog";
@@ -504,6 +506,116 @@ export function MergeCustomerButton({ customer, language }: { customer: { id: st
               ) : null}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+type SameCustomer = { id: string; name: string };
+
+/**
+ * Adds a customer from the customers page, for anyone on the team. While the name, phone, or email is
+ * typed it looks for a customer already saved with it and says so, without stopping the save. Opens the
+ * new customer's page once saved.
+ */
+export function NewCustomerButton({ language, businessLanguage }: { language: Language; businessLanguage: Language }) {
+  const copy = pageCopyFor(language);
+  const c = copy.customers;
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState({ name: "", phone: "", email: "" });
+  const [same, setSame] = useState<SameCustomer | null>(null);
+  const { send, busy, error, setError } = useMutation(copy.common.failed);
+
+  useEffect(() => {
+    if (!open || !(typed.name.trim() || typed.phone.trim() || typed.email.trim())) {
+      setSame(null);
+      return;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({ name: typed.name.trim(), phone: typed.phone.trim(), email: typed.email.trim() });
+        const response = await fetch(`/api/customers/matches?${params}`, { signal: controller.signal });
+        const data = (await response.json()) as { customers?: SameCustomer[] };
+        setSame(data.customers?.[0] ?? null);
+      } catch {
+        // A newer lookup replaced this one.
+      }
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [open, typed.name, typed.phone, typed.email]);
+
+  function close(next: boolean) {
+    setOpen(next);
+    if (!next) {
+      setTyped({ name: "", phone: "", email: "" });
+      setSame(null);
+      setError(undefined);
+    }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const saved = await send<{ customer: { id: string } }>("save", "/api/customers", {
+      method: "POST",
+      body: {
+        name: typed.name,
+        phone: typed.phone,
+        email: typed.email,
+        address: String(form.get("address") ?? ""),
+        language: String(form.get("language") ?? businessLanguage),
+      },
+      refresh: false,
+    });
+    if (saved) router.push(`/customers/${saved.customer.id}`);
+  }
+
+  const type = (key: keyof typeof typed) => (event: { target: { value: string } }) => setTyped((t) => ({ ...t, [key]: event.target.value }));
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)} size="sm" variant="primary">
+        <Plus aria-hidden="true" className="size-3.5" /> {c.newCustomer}
+      </Button>
+      <Dialog onOpenChange={close} open={open}>
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle>{c.newCustomer}</DialogTitle>
+          <form className="grid gap-4" onSubmit={submit}>
+            <Field autoComplete="off" id="name" label={c.name} maxLength={200} onChange={type("name")} required value={typed.name} />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field autoComplete="off" id="phone" inputMode="tel" label={c.phone} maxLength={40} onChange={type("phone")} type="tel" value={typed.phone} />
+              <Field autoComplete="off" id="email" label={c.email} maxLength={200} onChange={type("email")} type="email" value={typed.email} />
+            </div>
+            <Field autoComplete="off" id="address" label={c.address} maxLength={300} />
+            <Field id="language" label={c.language}>
+              <NativeSelect defaultValue={businessLanguage} id="language" name="language">
+                <option value="en">{copy.common.languages.en}</option>
+                <option value="es">{copy.common.languages.es}</option>
+              </NativeSelect>
+            </Field>
+            {same ? (
+              <p className="text-[13px] text-ink-2" role="status">
+                {c.alreadySaved.lead}{" "}
+                <Link className="font-medium text-ink underline underline-offset-2" href={`/customers/${same.id}`}>
+                  {same.name}
+                </Link>{" "}
+                {c.alreadySaved.tail}
+              </p>
+            ) : null}
+            <ErrorLine>{error}</ErrorLine>
+            <div className="flex justify-end gap-2">
+              <DialogClose render={<Button size="sm" type="button" variant="quiet" />}>{copy.common.cancel}</DialogClose>
+              <Button disabled={busy !== null || !typed.name.trim()} size="sm" type="submit" variant="primary">
+                {busy ? copy.common.saving : copy.common.save}
+              </Button>
+            </div>
+          </form>
         </DialogContent>
       </Dialog>
     </>

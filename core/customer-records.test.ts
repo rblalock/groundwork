@@ -5,6 +5,7 @@ import {
   archiveCustomer,
   customerHistory,
   getCustomer,
+  likelySameCustomers,
   listCustomers,
   mergeCustomers,
   removeContact,
@@ -323,4 +324,20 @@ withTestDb("a phone or email written straight to a customer is filed under a con
   const final = (await getCustomer(TEST_ORG, c.id))!;
   assert.equal(final.contacts.length, 1);
   assert.deepEqual(final.contacts[0].emails, ["old@example.test", "new@example.test"]);
+});
+
+withTestDb("likely same: a new customer's name, phone, or email already on file finds who has it", async () => {
+  const o = await owner();
+  const ana = await saveCustomer(TEST_ORG, { name: "Ana Núñez", phone: "(305) 555-0144", email: "ana@example.com" }, o.memberId);
+  const gone = await saveCustomer(TEST_ORG, { name: "Bo Archived", phone: "305 555 0145" }, o.memberId);
+  await archiveCustomer(TEST_ORG, gone.id, o.memberId);
+  const ids = async (input: Parameters<typeof likelySameCustomers>[1]) => (await likelySameCustomers(TEST_ORG, input)).map((c) => c.id);
+
+  assert.deepEqual(await ids({ name: "  ana nunez " }), [ana.id]);
+  assert.deepEqual(await ids({ name: "Someone Else", phone: "+1 305-555-0144" }), [ana.id]);
+  assert.deepEqual(await ids({ email: "ANA@example.com" }), [ana.id]);
+  assert.deepEqual(await ids({ name: "Ana" }), []);
+  assert.deepEqual(await ids({ phone: "555" }), []);
+  assert.deepEqual(await ids({ phone: "305 555 0145" }), []);
+  assert.deepEqual(await ids({}), []);
 });

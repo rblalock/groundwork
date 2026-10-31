@@ -7,7 +7,7 @@ import { saveItems } from "../../core/pricebook";
 import { approveQuote, createQuote, type Poster } from "../../core/quotes";
 import { TEST_ORG, withTestDb } from "../../core/test-db";
 import { PATCH as customerRoute } from "../../app/api/customers/[id]/route";
-import { GET as searchRoute } from "../../app/api/customers/route";
+import { POST as newCustomerRoute, GET as searchRoute } from "../../app/api/customers/route";
 import { POST as contactsRoute } from "../../app/api/customers/[id]/contacts/route";
 import { DELETE as contactDeleteRoute, PATCH as contactPatchRoute } from "../../app/api/customers/[id]/contacts/[contactId]/route";
 import { POST as archiveRoute } from "../../app/api/customers/[id]/archive/route";
@@ -157,4 +157,23 @@ withTestDb("customers: owners manage contacts, archive, and merge from the page,
   const history = (await customerFor(await appCaller(ownerHeaders), id)).history.map((h) => h.kind);
   assert.deepEqual(history.slice(0, 3), ["customer.restored", "customer.archived", "customer.merged"]);
   assert.deepEqual((await customerFor(await appCaller(crewHeaders), s.onCrewQuote.id)).history, [], "crew see no history");
+});
+
+withTestDb("customers: anyone on the team adds a customer from the page, as the assistant saves one", async () => {
+  await seed();
+  const crewHeaders = await signIn("+15555550102");
+  refused(await call(newCustomerRoute, crewHeaders, { body: { name: "  " } }), 400);
+  refused(await call(newCustomerRoute, crewHeaders, { body: { name: "Dee Sample", phone: "555" } }), 400, "INVALID_PHONE");
+
+  const saved = await call(newCustomerRoute, crewHeaders, {
+    body: { name: "Dee Sample", phone: "(305) 555-0177", email: "dee@example.com", address: "4 Sample St", language: "es" },
+  });
+  assert.equal(saved.status, 201, JSON.stringify(saved.body));
+  const id = (saved.body?.customer as { id: string }).id;
+  const page = await customerFor(await appCaller(crewHeaders), id);
+  assert.deepEqual(
+    [page.customer.language, page.customer.contacts.map((c) => [c.name, c.phones, c.emails, c.preferred]), page.customer.properties.map((p) => p.address)],
+    ["es", [["Dee Sample", ["+13055550177"], ["dee@example.com"], true]], ["4 Sample St"]],
+  );
+  refused(await call(newCustomerRoute, await superAdminViewing(TEST_ORG), { body: { name: "Eve Sample" } }), 403);
 });
