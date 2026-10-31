@@ -69,18 +69,36 @@ Still to do, in this order. Each step has a number to record before the next sta
    didn't price. Keep the list in `docs/evals/` beside the scorecard. It decides what the set has to
    teach and which evals' examples to weight or multiply.
 
-3. **Build the set.** The teacher is Muse Wonder with the pack through `npm run evals:capture`: one
-   passing run is 19 examples of about 30,000 tokens, each mostly the instructions and tool schemas.
-   That has to be multiplied, keeping only turns that pass the gates and with redaction on:
-   paraphrases of each eval's messages (a list of phrasings per eval, sent in turn), several seeded
-   businesses so item ids, prices, and totals vary, the other packs' evals, and any real turns the
-   filter labels `quote_approved_unchanged` or `visit_booked_clean`. Target 100 to 200 examples, more
-   of the evals the failure list names. Use the `openai` format: Fireworks' training format is
-   chat-completions JSONL with tool calls, multi-turn, and per-message weights. The `llama` format is
-   Llama 3.x's template and does not fit Spark Open, whose template is channel-based (an assistant
-   turn addresses `self` for reasoning, a tool by name, or `user` for the reply); the renderer in
-   Fireworks' training SDK does that rendering from the openai lines, so the examples never spell
-   the template out.
+3. **Build the set from a synthetic landscaping company.** The teacher is Muse Wonder with the pack,
+   and the trace of every passing turn is an example (`npm run evals:capture` writes them). One run of
+   the 17 evals is 19 examples of about 30,000 tokens; the set needs a hundred or two, and they have
+   to look like a real company's work, not one eval repeated. So, in two parts:
+
+   - **A synthetic company, shaped like a real one.** A generator (`npm run synth:business`) writes a
+     business the size of a real crew-and-a-half landscaper into a fresh database through the same
+     provisioning the demo uses: a price book with real-world rates and the pack's rules, 40 to 80
+     customers with properties placed around one town, a mix of weekly mowing accounts, seasonal
+     mulch and cleanups, one-off installs, a few commercial lots, two or three crew with their
+     equipment, a year of history (quotes approved and declined, revisions, invoices paid late and on
+     time, visits done, moved, and rained out, recurring jobs rolling forward). Names, addresses, and
+     numbers are made up (555 phones, example.com mail); the model never sees a real customer. The
+     shape (how many accounts, what sells in which month, what a mulch job runs) is set from public
+     price surveys and a real company's rough counts, written down in `docs/synthetic-business.md`.
+   - **Workflows run against it.** A driver (`npm run synth:workflows`) sends the agent a day's worth
+     of what the owner and crew would say, written by Muse Wonder from the company's records in both
+     languages and in the messy phrasings people text in: new estimates from a description or a photo,
+     repeats of last year's job, approvals, reschedules, a crew running late, an invoice question, a
+     price-book change. Each workflow is a short script of turns with gates like the evals' (the right
+     tool, a quote total the calculator produced, the confirm asked once), and each passing turn is
+     captured the same way. Several seeded variants of the company (other prices, other towns) and the
+     other packs' evals add variety. Target 150 to 300 examples, weighted toward what the failure
+     list names, redaction on, only passing turns.
+
+   Use the `openai` format: Fireworks' training format is chat-completions JSONL with tool calls,
+   multi-turn, and per-message weights. The `llama` format is Llama 3.x's template and does not fit
+   Spark Open, whose template is channel-based (an assistant turn addresses `self` for reasoning, a
+   tool by name, or `user` for the reply); the renderer in Fireworks' training SDK does that
+   rendering from the openai lines, so the examples never spell the template out.
 
 4. **Train a LoRA adapter on Spark Open.** Fireworks' Serverless Training API is LoRA only, which is
    what a set this size wants anyway: base model `accounts/fireworks/models/muse-spark-open-nvfp4`,
@@ -88,7 +106,7 @@ Still to do, in this order. Each step has a number to record before the next sta
    (response-only loss: weight 0 on the system prompt, the member's text, and tool results, 1 on the
    model's tool calls and replies). Rank 8 to 16, one or two epochs, the cookbook's learning rate. At
    list the training meter is $18.58 per million tokens, so 100 examples of 30,000 tokens is 3
-   million tokens and about $56 an epoch; 200 examples or two epochs doubles it. A second experiment
+   million tokens and about $56 an epoch; 200 to 300 examples, or two epochs, is two to three times that. A second experiment
    if the budget allows: DPO (`recipes/dpo_loop.py`) with the stock model's failing turn as the
    rejected answer and Wonder's passing turn as the chosen one, for the same prompt. That is the
    failure list made literal. A cheaper rehearsal of the same pipeline is Muse Glimmer 30B on the same
