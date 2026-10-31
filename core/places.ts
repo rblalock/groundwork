@@ -2,7 +2,8 @@
 // business profile's address). v1 asks the US Census geocoder, which needs no key; a paid one can replace
 // it behind `geocode`. Placing never guesses: no match (or more than one far apart) is `not_found`, an
 // error is `failed`, and either leaves the place out of drive math. Placing is fail-soft: it never throws
-// to the save that asked for it.
+// to the save that asked for it. A street-only address ("412 Oak St") is tried again in the yard's city and
+// state, since the business works near its yard.
 //
 // A drive is the straight-line distance times a road factor at a town speed, rounded up to 5 minutes.
 // No road graph: a crew's day is one county, and the number only has to be honest to the quarter hour.
@@ -216,10 +217,55 @@ export async function geocode(address: string): Promise<Place | null> {
   return censusGeocode(text);
 }
 
-/** `geocode`, never throwing: the place and how it went. */
-async function tryGeocode(address: string): Promise<{ status: GeocodeStatus; place: Place | null }> {
+const STATES = new Set(
+  ("AL AK AZ AR CA CO CT DE FL GA HI ID IL IN IA KS KY LA ME MD MA MI MN MS MO MT NE NV NH NJ NM NY NC ND OH OK OR PA RI SC SD TN TX " +
+    "UT VT VA WA WV WI WY DC PR VI GU AS MP").split(" "),
+);
+
+/**
+ * Whether an address says where it is beyond the street: a comma, a zip at the end, or a state's
+ * two capitals at the end ("412 Oak St" doesn't; "412 Oak St, Tequesta" and "412 Oak St FL" do).
+ */
+export function hasLocality(address: string): boolean {
+  const text = address.trim();
+  if (text.includes(",") || /\b\d{5}(?:-\d{4})?$/.test(text)) return true;
+  const last = /\b([A-Z]{2})$/.exec(text)?.[1];
+  return last !== undefined && STATES.has(last);
+}
+
+/** The city and state of an address written out in full ("100 Bridge Rd, Tequesta, FL 33469" is "Tequesta, FL"), else null. */
+export function localityOf(address: string): string | null {
+  const parts = address
+    .replace(/,?\s*(?:USA|US|United States)\.?$/i, "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length < 2) return null;
+  const last = parts[parts.length - 1];
+  const stateZip = /^([A-Za-z]{2})(?:\s+\d{5}(?:-\d{4})?)?$/.exec(last);
+  const cityStateZip = /^(.*\S)\s+([A-Za-z]{2})(?:\s+\d{5}(?:-\d{4})?)?$/.exec(last);
+  const [city, state] =
+    stateZip && parts.length >= 3 ? [parts[parts.length - 2], stateZip[1]] : cityStateZip ? [cityStateZip[1], cityStateZip[2]] : [null, null];
+  if (!city || !state || /^\d/.test(city) || !STATES.has(state.toUpperCase())) return null;
+  return `${city}, ${state.toUpperCase()}`;
+}
+
+/** A street-only address with the yard's city and state after it, to place it near the business; null when it can't be. */
+export function nearYard(address: string, yardAddress: string | null): string | null {
+  if (hasLocality(address) || !yardAddress) return null;
+  const locality = localityOf(yardAddress);
+  return locality ? `${address.trim()}, ${locality}` : null;
+}
+
+/**
+ * `geocode`, never throwing: the place and how it went. A street-only address the real geocoder can't
+ * match is tried once more in the yard's city and state (`yardAddress`), since the business works near it.
+ */
+async function tryGeocode(address: string, yardAddress: string | null = null): Promise<{ status: GeocodeStatus; place: Place | null }> {
   try {
-    const place = await geocode(address);
+    let place = await geocode(address);
+    const nearby = place || (placesFake() && !geocoderForTests) ? null : nearYard(address, yardAddress);
+    if (nearby) place = await geocode(nearby);
     return { status: place ? "ok" : "not_found", place };
   } catch (error) {
     console.error("places: geocoding failed", error instanceof Error ? error.message : error);
@@ -238,7 +284,8 @@ export async function placeProperty(orgId: string, propertyId: string, executor:
       .from(properties)
       .where(and(eq(properties.orgId, orgId), eq(properties.id, propertyId)));
     if (!row) return null;
-    const { status, place } = await tryGeocode(row.address);
+    const [yard] = await executor.select({ address: businessProfile.address }).from(businessProfile).where(eq(businessProfile.orgId, orgId));
+    const { status, place } = await tryGeocode(row.address, yard?.address ?? null);
     await executor
       .update(properties)
       .set({ lat: place?.lat ?? null, lng: place?.lng ?? null, placeLabel: place?.label ?? null, geocodeStatus: status, geocodedAt: new Date() })

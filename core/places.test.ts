@@ -12,8 +12,12 @@ import {
   DEFAULT_DRIVE,
   driveMinutes,
   geocode,
+  hasLocality,
   haversineMeters,
   legsAround,
+  localityOf,
+  nearYard,
+  placeProperty,
   placesFake,
   placeUnplaced,
   setGeocoderForTests,
@@ -175,6 +179,27 @@ test("the fake is the default locally, never in production, and PLACES_FAKE=0 as
   }
 });
 
+test("a street-only address is tried in the yard's city and state; one that says where it is, or an unreadable yard, isn't", () => {
+  assert.equal(hasLocality("412 Oak St"), false);
+  assert.equal(hasLocality("412 Oak Ct"), false, "a street type isn't a state");
+  assert.equal(hasLocality("12345 Main St"), false, "a five-digit house number isn't a zip");
+  assert.equal(hasLocality("412 Oak St, Tequesta"), true);
+  assert.equal(hasLocality("412 Oak St 33469"), true);
+  assert.equal(hasLocality("412 Oak St FL"), true);
+
+  assert.equal(localityOf("100 Bridge Rd, Tequesta, FL 33469"), "Tequesta, FL");
+  assert.equal(localityOf("100 Bridge Rd, Suite 4, Tequesta, fl"), "Tequesta, FL");
+  assert.equal(localityOf("100 Bridge Rd, Tequesta FL 33469, USA"), "Tequesta, FL");
+  assert.equal(localityOf("100 Bridge Rd"), null);
+  assert.equal(localityOf("100 Bridge Rd, Tequesta"), null, "no state");
+  assert.equal(localityOf("100 Bridge Rd, Tequesta, Florida"), null);
+
+  assert.equal(nearYard("412 Oak St", "100 Bridge Rd, Tequesta, FL 33469"), "412 Oak St, Tequesta, FL");
+  assert.equal(nearYard("412 Oak St, Jupiter, FL", "100 Bridge Rd, Tequesta, FL 33469"), null);
+  assert.equal(nearYard("412 Oak St", "100 Bridge Rd"), null);
+  assert.equal(nearYard("412 Oak St", null), null);
+});
+
 test("a geocoder that fails throws from geocode, for the caller to record", async () => {
   setGeocoderForTests(async () => {
     throw new Error("timeout");
@@ -211,6 +236,26 @@ withTestDb("a saved address is placed; one with no match says so; a failing geoc
   assert.equal(pine.geocodeStatus, "ok");
   const [still] = await db().select().from(properties).where(and(eq(properties.orgId, TEST_ORG), eq(properties.id, unplaced.id)));
   assert.equal(still.geocodeStatus, "not_found");
+});
+
+withTestDb("a street-only address the geocoder can't match is placed in the yard's city and state", async () => {
+  const owner = await createMember({ orgId: TEST_ORG, name: "Pat Ortega", role: "owner" });
+  await updateProfile(TEST_ORG, { address: "100 Bridge Rd, Tequesta, FL 33469" }, owner.id);
+  const asked: string[] = [];
+  setGeocoderForTests(async (address) => {
+    asked.push(address);
+    return address === "88 Palm Way, Tequesta, FL" ? { lat: 26.95, lng: -80.1, label: "88 PALM WAY, TEQUESTA, FL, 33469" } : null;
+  });
+  const c = await saveCustomer(TEST_ORG, { name: "Dee Sample", address: "88 Palm Way" }, owner.id);
+  assert.deepEqual([c.properties[0].geocodeStatus, c.properties[0].lat, c.properties[0].placeLabel], ["ok", 26.95, "88 PALM WAY, TEQUESTA, FL, 33469"]);
+  assert.deepEqual(asked.slice(-2), ["88 Palm Way", "88 Palm Way, Tequesta, FL"]);
+
+  asked.length = 0;
+  const far = await saveCustomer(TEST_ORG, { customerId: c.id, address: "88 Palm Way, Jupiter, FL" }, owner.id);
+  const jupiter = far.properties.find((p) => p.address === "88 Palm Way, Jupiter, FL")!;
+  assert.equal(jupiter.geocodeStatus, "not_found");
+  assert.deepEqual(asked, ["88 Palm Way, Jupiter, FL"], "an address that says where it is isn't moved");
+  assert.equal(await placeProperty(TEST_ORG, jupiter.id), "not_found");
 });
 
 withTestDb("the yard is placed when the profile's address changes, and unplaced when it's cleared", async () => {
