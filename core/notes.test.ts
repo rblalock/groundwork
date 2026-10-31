@@ -60,6 +60,16 @@ withTestDb("notes: owners and admins write business-wide notes; crew read them a
   assert.deepEqual(await businessNotes(TEST_ORG), []);
   assert.deepEqual(await listNotes(s.owner), []);
   assert.equal((await listNotes(s.owner, { includeArchived: true })).length, 1);
+  assert.deepEqual((await listNotes(s.crew, { archived: true })).map((n) => n.id), [note.id]);
+
+  // Brought back from the revision the archived view showed, it's live again and no longer archived.
+  const archived = await getNote(s.owner, note.id);
+  await assert.rejects(saveNote(s.owner, { noteId: note.id, archived: false }, { expectedRevision: (archived?.revision ?? 0) - 1 }), /REVISION_CHANGED/);
+  const back = await saveNote(s.owner, { noteId: note.id, archived: false }, { expectedRevision: archived?.revision });
+  assert.equal(back.archivedAt, null);
+  assert.deepEqual((await listNotes(s.owner)).map((n) => n.id), [note.id]);
+  assert.deepEqual(await listNotes(s.owner, { archived: true }), []);
+  assert.deepEqual((await businessNotes(TEST_ORG)).map((n) => n.id), [note.id]);
 });
 
 withTestDb("notes: everyone reads every note and adds site notes anywhere; crew change only their own", async () => {

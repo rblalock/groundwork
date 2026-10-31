@@ -413,6 +413,11 @@ const en = {
     archive: "Archive",
     archiveTitle: (title: string) => `Archive "${title}"?`,
     archiveBody: "It leaves the notes, and the assistant stops using it.",
+    views: { live: "In use", archived: "Archived" },
+    archivedTitle: "Archived",
+    archivedHelp: "Kept, but the assistant doesn't use them. Bring one back to use it again.",
+    noArchived: "No archived notes.",
+    restore: "Bring back",
     by: (name: string, when: string) => `${name}, ${when}`,
     errors: {
       titleRequired: "A note needs a title.",
@@ -1741,6 +1746,11 @@ const es: PageCopy = {
     archive: "Archivar",
     archiveTitle: (title: string) => `¿Archivar "${title}"?`,
     archiveBody: "Sale de las notas y el asistente deja de usarla.",
+    views: { live: "En uso", archived: "Archivadas" },
+    archivedTitle: "Archivadas",
+    archivedHelp: "Se guardan, pero el asistente no las usa. Regresa una para volver a usarla.",
+    noArchived: "No hay notas archivadas.",
+    restore: "Regresar",
     by: (name: string, when: string) => `${name}, ${when}`,
     errors: {
       titleRequired: "Una nota necesita un título.",

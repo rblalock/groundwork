@@ -185,3 +185,21 @@ export function ArchiveNoteButton({ note, language }: { note: { id: string; titl
     </>
   );
 }
+
+/** Brings an archived note back, so the notes and the assistant have it again. */
+export function RestoreNoteButton({ note, language }: { note: { id: string; revision: number }; language: Language }) {
+  const copy = pageCopyFor(language);
+  const { send, busy, error } = useMutation(copy.common.failed);
+  return (
+    <span className="grid justify-items-end gap-1">
+      <Button
+        disabled={busy !== null}
+        onClick={() => void send("restore", `/api/notes/${note.id}`, { method: "PATCH", body: { archived: false, expectedRevision: note.revision } })}
+        size="xs"
+      >
+        {copy.notes.restore}
+      </Button>
+      <ErrorLine>{error}</ErrorLine>
+    </span>
+  );
+}

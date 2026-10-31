@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { customers, members, messages, notes, properties, quotes } from "../schema/schema";
 import type { InboundAttachment, NoteFile } from "../schema/types";
@@ -83,6 +83,8 @@ export type NoteFilter = {
   propertyId?: string;
   quoteId?: string;
   includeArchived?: boolean;
+  /** Only archived notes, for bringing one back. */
+  archived?: boolean;
   limit?: number;
 };
 
@@ -92,7 +94,7 @@ export async function listNotes(viewer: NoteViewer, filter: NoteFilter = {}): Pr
     .where(
       and(
         eq(notes.orgId, viewer.orgId),
-        filter.includeArchived ? undefined : isNull(notes.archivedAt),
+        filter.archived ? isNotNull(notes.archivedAt) : filter.includeArchived ? undefined : isNull(notes.archivedAt),
         filter.scope === "business" ? businessWide : filter.scope === "linked" ? sql`not ${businessWide}` : undefined,
         filter.customerId ? eq(notes.customerId, filter.customerId) : undefined,
         filter.propertyId ? eq(notes.propertyId, filter.propertyId) : undefined,

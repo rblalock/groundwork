@@ -5,12 +5,12 @@ import type { Language } from "@/core/language";
 import type { NoteView } from "@/core/notes";
 import { formatDate } from "@/lib/format";
 import { pageCopyFor } from "@/lib/page-copy";
-import { ArchiveNoteButton, NoteEditor, type NoteCustomer } from "./note-editors";
+import { ArchiveNoteButton, NoteEditor, RestoreNoteButton, type NoteCustomer } from "./note-editors";
 
 /**
  * Notes as a list of hairline rows: title, where it's from, the text as written, tags, files, and who
- * last changed it. `editable` decides each row's edit and archive buttons; `customer` lets an edit move
- * a note between that customer's places.
+ * last changed it. `editable` decides each row's edit and archive buttons (with `archived`, its restore
+ * button); `customer` lets an edit move a note between that customer's places.
  */
 export function NoteList({
   notes,
@@ -19,6 +19,7 @@ export function NoteList({
   editable,
   customer,
   showPlace = true,
+  archived = false,
 }: {
   notes: NoteView[];
   language: Language;
@@ -26,6 +27,7 @@ export function NoteList({
   editable: (note: NoteView) => boolean;
   customer?: NoteCustomer;
   showPlace?: boolean;
+  archived?: boolean;
 }) {
   const n = pageCopyFor(language).notes;
   return (
@@ -54,7 +56,11 @@ export function NoteList({
                   <p className="text-[12px] text-ink-3">{place}</p>
                 ) : null}
               </div>
-              {editable(note) ? (
+              {editable(note) && archived ? (
+                <div className="-mt-0.5 flex shrink-0 gap-1">
+                  <RestoreNoteButton language={language} note={{ id: note.id, revision: note.revision }} />
+                </div>
+              ) : editable(note) ? (
                 <div className="-mt-0.5 flex shrink-0 gap-1">
                   <NoteEditor
                     customer={customer}

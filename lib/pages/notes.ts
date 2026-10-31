@@ -17,11 +17,16 @@ const viewerOf = (caller: AppCaller): NoteViewer => ({ orgId: caller.orgId, memb
 
 export type NotesPage = { business: NoteView[]; linked: NoteView[]; query: string };
 
-/** The notes the caller may read: business-wide first, then site notes; with words, the ones that match. */
-export async function notesFor(caller: AppCaller, query = ""): Promise<NotesPage> {
+/**
+ * The notes the caller may read: business-wide first, then site notes; with words, the ones that match.
+ * `archived` lists the archived ones instead, to bring back, and ignores the words.
+ */
+export async function notesFor(caller: AppCaller, query = "", options: { archived?: boolean } = {}): Promise<NotesPage> {
   const viewer = viewerOf(caller);
   let notes: NoteView[];
-  if (query.trim()) {
+  if (options.archived) {
+    notes = await listNotes(viewer, { archived: true, limit: 300 });
+  } else if (query.trim()) {
     const { results } = await searchRecords(viewer, query, { kinds: ["note"], limit: 30 });
     const found = await Promise.all(results.map((r) => getNote(viewer, r.id)));
     notes = found.filter((n): n is NoteView => n !== null);
@@ -30,6 +35,11 @@ export async function notesFor(caller: AppCaller, query = ""): Promise<NotesPage
   }
   const business = notes.filter((n) => !n.customerId && !n.propertyId && !n.quoteId);
   return { business, linked: notes.filter((n) => !business.includes(n)), query: query.trim() };
+}
+
+/** Whether the caller has archived notes to look back at. */
+export async function anyArchivedNotes(caller: AppCaller): Promise<boolean> {
+  return (await listNotes(viewerOf(caller), { archived: true, limit: 1 })).length > 0;
 }
 
 /** A customer's notes, on it, its properties, and its quotes. The page has already checked the caller may see the customer. */
