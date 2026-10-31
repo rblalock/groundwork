@@ -175,21 +175,39 @@ export async function likelySameCustomers(
 
 export type CustomerListRow = Customer & { quoteCount: number; lastActivityAt: Date };
 
+/** Where a page of the customers list starts or ends: one customer's last activity (to the millisecond) and id. */
+export type CustomerCursor = { at: string; id: string };
+
+/** The cursor for a customer, as the Customers page passes it back to list the page after or before it. */
+export const customerCursor = (row: Pick<CustomerListRow, "lastActivityAt" | "id">): CustomerCursor => ({
+  at: row.lastActivityAt.toISOString(),
+  id: row.id,
+});
+
 /**
  * Customers for the web app's list, most recently active first: an optional search (as
  * `searchCustomers`), each with how many quotes they have and when they or a quote last changed.
- * Archived customers are left out.
+ * Without a search it pages by a customer's cursor (keyset, so pages never overlap or skip): older than
+ * `before`, newer than `after`, still most recent first. Archived customers are left out.
  */
 export async function listCustomers(
   orgId: string,
-  options: { query?: string; limit?: number } = {},
+  options: { query?: string; before?: CustomerCursor; after?: CustomerCursor; limit?: number } = {},
 ): Promise<CustomerListRow[]> {
-  const conditions = options.query?.trim() ? searchConditions(orgId, options.query) : [];
+  const searching = Boolean(options.query?.trim());
+  const conditions = searching ? searchConditions(orgId, options.query ?? "") : [];
   if (!conditions) return [];
+  const before = searching ? undefined : options.before;
+  const after = searching || before ? undefined : options.after;
   const quoteCount = sql<number>`count(${quotes.id})::int`;
-  const lastQuoteAt = sql<Date | null>`max(${quotes.updatedAt})`.mapWith(quotes.updatedAt);
+  // When they or a quote last changed. Changes are kept to the microsecond but a cursor carries
+  // milliseconds, so both sides compare at milliseconds.
+  const activity = sql`date_trunc('milliseconds', greatest(${customers.updatedAt}, max(${quotes.updatedAt})))`;
+  const lastActivityAt = sql<Date>`${activity}`.mapWith(customers.updatedAt);
+  const key = sql`(${activity}, ${customers.id})`;
+  const cursorKey = (cursor: CustomerCursor) => sql`(${cursor.at}::timestamptz, ${cursor.id})`;
   const rows = await db()
-    .select({ customer: customers, quoteCount, lastQuoteAt })
+    .select({ customer: customers, quoteCount, lastActivityAt })
     .from(customers)
     .leftJoin(
       quotes,
@@ -203,13 +221,11 @@ export async function listCustomers(
       ),
     )
     .groupBy(customers.id)
-    .orderBy(desc(sql`greatest(${customers.updatedAt}, max(${quotes.updatedAt}))`), asc(customers.id))
+    .having(before ? sql`${key} < ${cursorKey(before)}` : after ? sql`${key} > ${cursorKey(after)}` : undefined)
+    .orderBy(...(after ? [sql`${activity} asc`, asc(customers.id)] : [sql`${activity} desc`, desc(customers.id)]))
     .limit(Math.min(Math.max(Math.trunc(options.limit ?? 100), 1), 200));
-  return rows.map(({ customer, quoteCount, lastQuoteAt }) => ({
-    ...customer,
-    quoteCount,
-    lastActivityAt: lastQuoteAt && lastQuoteAt > customer.updatedAt ? lastQuoteAt : customer.updatedAt,
-  }));
+  const list = rows.map(({ customer, quoteCount, lastActivityAt }) => ({ ...customer, quoteCount, lastActivityAt }));
+  return after ? list.reverse() : list;
 }
 
 /** One customer, archived or not, with their properties and contacts. */

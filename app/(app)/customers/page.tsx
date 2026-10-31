@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Users } from "lucide-react";
 import { SearchBox } from "@/components/pages/client-kit";
 import { NewCustomerButton } from "@/components/pages/customer-editors";
@@ -7,16 +8,31 @@ import { getProfile } from "@/core/profile";
 import { formatDate, formatPhone } from "@/lib/format";
 import { pageCopyFor } from "@/lib/page-copy";
 import { pageMember } from "@/lib/page-session";
-import { customersFor } from "@/lib/pages/customers";
+import { customerCursor, type CustomerCursor } from "@/core/customers";
+import { customerListFor, formatCustomerCursor, parseCustomerCursor } from "@/lib/pages/customers";
 import { AskAssistantButton } from "@/components/threads/thread-rail";
 import { copyFor } from "@/lib/copy";
 
-export default async function CustomersPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+const pagerClass = "flex h-7 items-center rounded-full bg-surface px-3 text-ink shadow-hairline transition-colors hover:bg-hover";
+
+type Search = Promise<{ q?: string; before?: string; after?: string }>;
+
+export default async function CustomersPage({ searchParams }: { searchParams: Search }) {
   const caller = await pageMember();
-  const query = (await searchParams).q?.trim() ?? "";
-  const [customers, profile] = await Promise.all([customersFor(caller, query), getProfile(caller.orgId)]);
-  // Whether there are any at all, so an empty search isn't mistaken for an empty business.
-  const any = query ? (await customersFor(caller)).length > 0 : customers.length > 0;
+  const { q, before, after } = await searchParams;
+  const query = q?.trim() ?? "";
+  const [{ customers, hasOlder, hasNewer, any }, profile] = await Promise.all([
+    customerListFor(caller, { query, before: parseCustomerCursor(before), after: parseCustomerCursor(after) }),
+    getProfile(caller.orgId),
+  ]);
+  const paged = !query && Boolean(before || after);
+  const href = (page?: { before?: CustomerCursor; after?: CustomerCursor }) => {
+    const params = new URLSearchParams();
+    if (page?.before) params.set("before", formatCustomerCursor(page.before));
+    if (page?.after) params.set("after", formatCustomerCursor(page.after));
+    const s = params.toString();
+    return s ? `/customers?${s}` : "/customers";
+  };
   const { language } = caller;
   const copy = pageCopyFor(language);
   const c = copy.customers;
@@ -43,7 +59,15 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
             </div>
             <Card flush>
               {customers.length === 0 ? (
-                <Nothing>{c.noMatch}</Nothing>
+                <Nothing>
+                  {paged ? (
+                    <Link className="underline underline-offset-2" href={href()}>
+                      {c.backToNewest}
+                    </Link>
+                  ) : (
+                    c.noMatch
+                  )}
+                </Nothing>
               ) : (
                 <Table
                   head={
@@ -82,6 +106,20 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
                 </Table>
               )}
             </Card>
+            {customers.length > 0 && (hasOlder || hasNewer) ? (
+              <nav aria-label={c.paging} className="flex items-center justify-end gap-1 text-[13px]">
+                {hasNewer ? (
+                  <Link className={pagerClass} href={href({ after: customerCursor(customers[0]) })} rel="prev" scroll={false}>
+                    {c.newer}
+                  </Link>
+                ) : null}
+                {hasOlder ? (
+                  <Link className={pagerClass} href={href({ before: customerCursor(customers.at(-1)!) })} rel="next" scroll={false}>
+                    {c.older}
+                  </Link>
+                ) : null}
+              </nav>
+            ) : null}
           </>
         )}
       </PageBody>

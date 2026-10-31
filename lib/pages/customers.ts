@@ -4,6 +4,7 @@ import { notes, serviceJobs, workPhotos } from "../../schema/schema";
 import { db } from "../../core/db";
 import {
   archiveCustomer,
+  customerCursor,
   customerHistory,
   getCustomer,
   likelySameCustomers,
@@ -17,6 +18,7 @@ import {
   saveProperty,
   searchCustomers,
   type CustomerChange,
+  type CustomerCursor,
   type CustomerListRow,
   type CustomerWithProperties,
 } from "../../core/customers";
@@ -30,6 +32,61 @@ import { notFound, privilegedActor, refuse } from "./access";
 /** The business's customers, for everyone on the team. */
 export function customersFor(caller: AppCaller, query?: string): Promise<CustomerListRow[]> {
   return listCustomers(caller.orgId, { query });
+}
+
+/** Customers per page of the list. */
+export const CUSTOMER_PAGE_SIZE = 50;
+
+/** A customer cursor from a page link (`?before=` / `?after=`), `<last activity>~<id>`, or nothing for anything malformed. */
+export function parseCustomerCursor(value: unknown): CustomerCursor | undefined {
+  const match = typeof value === "string" ? value.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)~(cus_[\w-]{1,64})$/) : null;
+  if (!match || Number.isNaN(Date.parse(match[1]))) return undefined;
+  return { at: match[1], id: match[2] };
+}
+
+export const formatCustomerCursor = (cursor: CustomerCursor) => `${cursor.at}~${cursor.id}`;
+
+export type CustomerList = {
+  customers: CustomerListRow[];
+  /** Whether there are customers past this page: less recently active ones, and more recently active ones. */
+  hasOlder: boolean;
+  hasNewer: boolean;
+  /** Whether the business has any customers at all, so an empty search or page isn't taken for none. */
+  any: boolean;
+};
+
+/**
+ * One page of the business's customers, most recently active first, paged from a customer (`before` it
+ * for older ones, `after` it for newer). A search shows its top matches, with no pages.
+ */
+export async function customerListFor(
+  caller: AppCaller,
+  filter: { query?: string; before?: CustomerCursor; after?: CustomerCursor },
+): Promise<CustomerList> {
+  const { orgId } = caller;
+  if (filter.query?.trim()) {
+    const [customers, first] = await Promise.all([listCustomers(orgId, { query: filter.query }), listCustomers(orgId, { limit: 1 })]);
+    return { customers, hasOlder: false, hasNewer: false, any: first.length > 0 };
+  }
+  const newer = filter.after !== undefined && filter.before === undefined;
+  const fetched = await listCustomers(orgId, { before: newer ? undefined : filter.before, after: newer ? filter.after : undefined, limit: CUSTOMER_PAGE_SIZE + 1 });
+  const more = fetched.length > CUSTOMER_PAGE_SIZE;
+  // Newer pages come back most recent first, so their extra customer is the first.
+  const customers = more ? (newer ? fetched.slice(1) : fetched.slice(0, CUSTOMER_PAGE_SIZE)) : fetched;
+  const paged = filter.before !== undefined || filter.after !== undefined;
+  const first = customers[0];
+  const last = customers.at(-1);
+  const [ahead, behind, anyAtAll] = await Promise.all([
+    !newer && paged && first ? listCustomers(orgId, { after: customerCursor(first), limit: 1 }) : Promise.resolve([]),
+    newer && last ? listCustomers(orgId, { before: customerCursor(last), limit: 1 }) : Promise.resolve([]),
+    paged && customers.length === 0 ? listCustomers(orgId, { limit: 1 }) : Promise.resolve(customers),
+  ]);
+  return {
+    customers,
+    hasOlder: newer ? behind.length > 0 : more,
+    hasNewer: newer ? more : ahead.length > 0,
+    any: anyAtAll.length > 0,
+  };
 }
 
 /**

@@ -3,6 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { conversations, customerContacts, customers, invoices, notes, properties, quotes, serviceJobs } from "../schema/schema";
 import {
   archiveCustomer,
+  customerCursor,
   customerHistory,
   getCustomer,
   likelySameCustomers,
@@ -340,4 +341,34 @@ withTestDb("likely same: a new customer's name, phone, or email already on file 
   assert.deepEqual(await ids({ phone: "555" }), []);
   assert.deepEqual(await ids({ phone: "305 555 0145" }), []);
   assert.deepEqual(await ids({}), []);
+});
+
+withTestDb("list: customers page by their last activity, a quote's change counting, with no overlap or gap", async () => {
+  const o = await owner();
+  const [item] = await saveItems(TEST_ORG, [{ name: "mulch", unitKind: "each", unitLabel: "bag", priceCents: 500 }], o.memberId);
+  const names = ["Ann", "Ben", "Cal", "Dee", "Eli"];
+  const saved = [];
+  for (const [i, name] of names.entries()) {
+    const c = await saveCustomer(TEST_ORG, { name: `${name} Sample` }, o.memberId);
+    await db().update(customers).set({ updatedAt: new Date(Date.UTC(2026, 9, 1 + i, 12, 0, 0, 123)) }).where(eq(customers.id, c.id));
+    saved.push(c);
+  }
+  // Ann's quote changed last of all, so she's the most recent.
+  const quote = await createQuote({ title: "1 Sample St", customerId: saved[0].id, lines: [{ itemId: item.id, quantity: 1 }] }, o, { post: quiet, now: NOW });
+  await db().update(quotes).set({ updatedAt: new Date("2026-10-15T12:00:00.456789Z") }).where(eq(quotes.id, quote.quoteId));
+  const first = (row: { name: string }) => row.name.split(" ")[0];
+
+  const page1 = await listCustomers(TEST_ORG, { limit: 2 });
+  assert.deepEqual(page1.map(first), ["Ann", "Eli"]);
+  assert.equal(page1[0].lastActivityAt.toISOString(), "2026-10-15T12:00:00.456Z");
+  const page2 = await listCustomers(TEST_ORG, { before: customerCursor(page1[1]), limit: 2 });
+  assert.deepEqual(page2.map(first), ["Dee", "Cal"]);
+  const page3 = await listCustomers(TEST_ORG, { before: customerCursor(page2[1]), limit: 2 });
+  assert.deepEqual(page3.map(first), ["Ben"]);
+  assert.deepEqual(await listCustomers(TEST_ORG, { before: customerCursor(page3[0]), limit: 2 }), []);
+  // Back the other way, still most recent first.
+  assert.deepEqual((await listCustomers(TEST_ORG, { after: customerCursor(page3[0]), limit: 2 })).map(first), ["Dee", "Cal"]);
+  assert.deepEqual((await listCustomers(TEST_ORG, { after: customerCursor(page2[0]), limit: 2 })).map(first), ["Ann", "Eli"]);
+  // A search keeps its top matches and ignores a cursor.
+  assert.deepEqual((await listCustomers(TEST_ORG, { query: "ben", before: customerCursor(page1[0]) })).map(first), ["Ben"]);
 });

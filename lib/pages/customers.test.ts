@@ -12,7 +12,7 @@ import { POST as contactsRoute } from "../../app/api/customers/[id]/contacts/rou
 import { DELETE as contactDeleteRoute, PATCH as contactPatchRoute } from "../../app/api/customers/[id]/contacts/[contactId]/route";
 import { POST as archiveRoute } from "../../app/api/customers/[id]/archive/route";
 import { POST as mergeRoute } from "../../app/api/customers/[id]/merge/route";
-import { customerFor, customersFor } from "./customers";
+import { customerFor, customerListFor, customersFor } from "./customers";
 import { appCaller, call, installTransport, otherBusiness, person, refused, signIn, superAdminViewing } from "./test-support";
 
 const quiet: Poster = async () => ({ posted: true });
@@ -176,4 +176,15 @@ withTestDb("customers: anyone on the team adds a customer from the page, as the 
     ["es", [["Dee Sample", ["+13055550177"], ["dee@example.com"], true]], ["4 Sample St"]],
   );
   refused(await call(newCustomerRoute, await superAdminViewing(TEST_ORG), { body: { name: "Eve Sample" } }), 403);
+});
+
+withTestDb("customers: the list pages, and a page past the last isn't taken for no customers", async () => {
+  await seed();
+  const owner = await appCaller(await signIn("+15555550101"));
+  const first = await customerListFor(owner, {});
+  assert.deepEqual([first.customers.length, first.hasOlder, first.hasNewer, first.any], [3, false, false, true]);
+  const past = await customerListFor(owner, { before: { at: "2000-01-01T00:00:00.000Z", id: "cus_0" } });
+  assert.deepEqual([past.customers.length, past.any], [0, true]);
+  const searched = await customerListFor(owner, { query: "nobody here" });
+  assert.deepEqual([searched.customers.length, searched.any, searched.hasOlder], [0, true, false]);
 });
