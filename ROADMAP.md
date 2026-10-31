@@ -30,8 +30,11 @@ quote page or sent to the thread by `make_post`. Still to do:
 ## Post-train Muse Spark Open on the agent's traces
 
 The point of this one: traces of the agent doing a landscaping business's work right, turned into
-training data for Muse Spark Open, Meta's open-weight model, and a measured difference on the same
-evals between the stock model and the tuned one. Pricing stays in code either way. What the model
+training data for Meta's open-weight Muse models, and a measured difference on the same evals between
+the stock model and the tuned one. Two open models are in play: Muse Glimmer 30B, small enough to
+train and serve for almost nothing (its LoRA fine-tuning on Fireworks is free until December 1,
+2026), and Muse Spark Open, the 816B frontier open model, which costs real money per token to train.
+The plan tunes Glimmer first and Spark Open if the budget is left; the measurement is the same. Pricing stays in code either way. What the model
 learns is the shape of the work: which tool to call, its arguments (saved item ids, quantities in the
 trade's units, rule ids), the one numbered confirm or question, and never a price the calculator
 didn't return. The recipe is [docs/post-training.md](docs/post-training.md).
@@ -49,22 +52,25 @@ Shipped so far:
 
 Still to do, in this order. Each step has a number to record before the next starts.
 
-1. **Baseline on stock Muse Spark Open.** Fireworks serves it serverless with tool calling
-   (`accounts/fireworks/models/muse-spark-open`, 1M context, list price $1.25 per million input tokens
-   and $4.25 output). The condition is one command:
+1. **Baselines on the stock open models.** Fireworks serves Spark Open serverless with tool calling
+   (`accounts/fireworks/models/muse-spark-open` on the US endpoint, 1M context, list price $1.25 per
+   million input tokens and $4.25 output). The condition is one command:
 
    ```bash
    npm run scorecard -- --model accounts/fireworks/models/muse-spark-open \
-     --base-url https://api.fireworks.ai/inference/v1 --api-key-env FIREWORKS_API_KEY
+     --base-url https://us.api.fireworks.ai/inference/v1 --api-key-env FIREWORKS_API_KEY
    ```
 
-   This is the number to beat, beside Muse Wonder with the pack (16 or 17 of 17). A scorecard
-   condition is about 2 million input tokens, so about $3 at list. One check first: every call sends
+   A scorecard condition is about 2 million input tokens, so about $3 at list. Stock Glimmer 30B is
+   no longer on Fireworks' public serverless pool, so its baseline runs the same way the tuned
+   adapter is scored in step 5 (an on-demand deployment of the base model for the length of the run,
+   or sampling through the training endpoint). Both stock numbers sit beside Muse Wonder with the
+   pack (16 or 17 of 17); the stock Glimmer number is the one the tuned Glimmer has to beat. One check first: every call sends
    `reasoning_effort` (`core/model-provider.ts`); Spark Open takes low, medium, high, and xhigh and
    can't turn reasoning off, so confirm Fireworks passes the field through, or send it only when the
    base URL is Meta's.
 
-2. **Mine the failures.** From that run, one line per eval on what stock Spark Open gets wrong: the
+2. **Mine the failures.** From those runs, one line per eval on what each stock model gets wrong: the
    wrong tool, quantities in the wrong units, a price it made up, a confirm it skipped, a photo it
    didn't price. Keep the list in `docs/evals/` beside the scorecard. It decides what the set has to
    teach and which evals' examples to weight or multiply.
@@ -100,43 +106,57 @@ Still to do, in this order. Each step has a number to record before the next sta
    tool by name, or `user` for the reply); the renderer in Fireworks' training SDK does that
    rendering from the openai lines, so the examples never spell the template out.
 
-4. **Train a LoRA adapter on Spark Open.** Fireworks' Serverless Training API is LoRA only, which is
-   what a set this size wants anyway: base model `accounts/fireworks/models/muse-spark-open-nvfp4`,
-   256K context, the `fireworks-ai[training]` Python SDK, and the cookbook's `recipes/sft_loop.py`
-   (response-only loss: weight 0 on the system prompt, the member's text, and tool results, 1 on the
-   model's tool calls and replies). Rank 8 to 16, one or two epochs, the cookbook's learning rate. At
-   list the training meter is $18.58 per million tokens, so 100 examples of 30,000 tokens is 3
-   million tokens and about $56 an epoch; 200 to 300 examples, or two epochs, is two to three times that. A second experiment
-   if the budget allows: DPO (`recipes/dpo_loop.py`) with the stock model's failing turn as the
-   rejected answer and Wonder's passing turn as the chosen one, for the same prompt. That is the
-   failure list made literal. A cheaper rehearsal of the same pipeline is Muse Glimmer 30B on the same
-   pool (the same tokenizer family and template), but it isn't the model the result is about.
+4. **Train a LoRA adapter.** Fireworks' Serverless Training API is LoRA only, which is what a set
+   this size wants anyway. The `fireworks-ai[training]` Python SDK and the cookbook's
+   `recipes/sft_loop.py` (response-only loss: weight 0 on the system prompt, the member's text, and
+   tool results, 1 on the model's tool calls and replies). Rank 8 to 16, one or two epochs, the
+   cookbook's learning rate, `max_seq_len` above the longest example (they run about 30,000 tokens).
 
-5. **Score the adapter.** Fireworks doesn't serve a trained LoRA on its per-token serverless pool.
-   Two ways to put it behind the scorecard:
+   - **Glimmer 30B first** (`accounts/fireworks/models/muse-glimmer-30b`, 128K context). Training is
+     free until December 1, 2026, so the set's size is bounded by the capture budget, not the
+     training meter. The hackathon workshop's own example is this path: 560 examples, rank 8, one
+     epoch, 35 steps, and a tuned model that went from 22% to 90% on its task against the base.
+   - **Spark Open if budget is left** (`accounts/fireworks/models/muse-spark-open-nvfp4`, 256K
+     context). At list the training meter is $18.58 per million tokens, so 100 examples of 30,000
+     tokens is 3 million tokens and about $56 an epoch; 200 to 300 examples, or two epochs, is two to
+     three times that.
+   - **DPO as a second experiment** (`recipes/dpo_loop.py`): the stock model's failing turn as the
+     rejected answer and Wonder's passing turn as the chosen one, for the same prompt. That is the
+     failure list made literal.
 
-   - **Sample the checkpoint through the training endpoint.** Saved checkpoints answer the
-     Completions API at `https://api.fireworks.ai/training/v1/serverless` per token ($6.19 per
-     million prompt tokens, $1.24 when cached, $15.48 sampled). That API takes a rendered prompt, so a
-     small local shim speaks Chat Completions to the agent: it renders the messages and tools with
-     Spark Open's template, calls completions with the checkpoint's path, and parses the model's
-     tool-call blocks back into `tool_calls`. Then
-     `npm run scorecard -- --model <checkpoint> --base-url http://localhost:<port>/v1`. About $5 to
-     $13 a run, since the system prompt is cached after the first call.
-   - **An on-demand deployment.** Promote the checkpoint to a model and deploy it, billed by the
-     GPU-second (B200s at $13 an hour each; an 816B model needs several). A 20-minute scorecard run
-     fits in a few tens of dollars if the deployment comes up quickly and is deleted right after.
+5. **Score the adapter.** Fireworks doesn't serve a trained LoRA on its per-token serverless pool
+   ("LoRA model ids are not serverless-callable"). Two ways to put one behind the scorecard:
 
-   The judge stays Muse Wonder. The photo evals send an image with the message; if the sampling path
-   is text-only, score them apart from the rest.
+   - **An on-demand deployment**, the plain way and the one the workshop used. Promote the checkpoint
+     to a model, then `firectl deployment create <model> --deployment-shape default --deployment-id
+     <id> --min-replica-count 1 --wait`; the agent calls it at `https://api.fireworks.ai/inference/v1`
+     with the model id `accounts/<account>/deployments/<id>`, so the scorecard condition is
+     `--model accounts/<account>/deployments/<id> --base-url https://api.fireworks.ai/inference/v1`.
+     Billed by the GPU-second while up: Glimmer 30B fits one GPU (H200 at $8 an hour, B200 at $13),
+     so a 25-minute scorecard run is a few dollars; Spark Open needs several B200s and a run is a few
+     tens of dollars. Delete the deployment right after (`firectl deployment delete <id> --wait`,
+     with `--ignore-checks` inside the first hour). Confirm the deployment parses tool calls before
+     the run.
+   - **Sampling the checkpoint through the training endpoint**, for a model too big to deploy
+     cheaply. Saved checkpoints answer the Completions API at
+     `https://api.fireworks.ai/training/v1/serverless` per token (Spark Open: $6.19 per million
+     prompt tokens, $1.24 cached, $15.48 sampled). That API takes a rendered prompt, so a small local
+     shim speaks Chat Completions to the agent: it renders the messages and tools with the model's
+     template, calls completions with the checkpoint's path, and parses the tool-call blocks back
+     into `tool_calls`. Text-only unless the sampling path takes images, so the photo evals would be
+     scored apart.
 
-6. **Report it.** Three conditions on the same seeded business, all judged by Muse Wonder: Muse Wonder
-   with the pack, stock Spark Open with the pack, tuned Spark Open with the pack: pass rate, judge
-   mean, completion, and cost per quote. HACKATHON.md gets the numbers whichever way they fall. A set
+   The judge stays Muse Wonder either way.
+
+6. **Report it.** The conditions on the same seeded business, all judged by Muse Wonder: Muse Wonder
+   with the pack, stock Glimmer 30B, tuned Glimmer 30B, stock Spark Open, and tuned Spark Open if it
+   ran, all with the pack: pass rate, judge mean, completion, and cost per quote. The story to look
+   for is a 30B open model, tuned on the agent's own traces, doing the landscaping workflow as well as
+   the frontier model at a fraction of the cost per quote. HACKATHON.md gets the numbers whichever way they fall. A set
    of a hundred or two moves the evals it was built from, not all of them, and the write-up says so;
    the result is the measured difference and the pipeline that produced it.
 
-Open before step 4: whether Fireworks' renderer for Spark Open renders a `tools` list the same way its
+Open before step 4: whether Fireworks' renderers for Glimmer and Spark Open render a `tools` list the same way its
 serverless inference does (the cookbook ships a parity check under `training/renderer/`); the exact
 tool-call block the model emits, so the shim's parser matches the checkpoint; and the Muse Model
 License's attribution line if the adapter is ever published.

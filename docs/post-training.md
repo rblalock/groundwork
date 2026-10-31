@@ -125,14 +125,16 @@ Sizes: the 17 landscaping evals send 19 member messages, so a passing run gives 
 repeats: paraphrases of each eval's messages (a list of phrasings per eval, sent in turn with
 `t.send`), more seeded businesses, and other packs' evals.
 
-## 4. Train a LoRA adapter for Muse Spark Open
+## 4. Train a LoRA adapter for a Muse open model
 
 Muse Spark Open is an 816B mixture-of-experts model (42B active per token) with a channel-based chat
 template: an assistant turn addresses `self` for its reasoning, a tool by name for a call, or `user`
-for the reply, and tools go in as OpenAI-style function schemas. Full fine-tuning is cluster work; a
-LoRA adapter on Fireworks' shared Serverless Training pool is what a set of a few hundred examples
-wants. The base model there is `accounts/fireworks/models/muse-spark-open-nvfp4` with a 256K context;
-the examples here are about 30,000 tokens each.
+for the reply, and tools go in as OpenAI-style function schemas. Muse Glimmer 30B shares its tokenizer
+and template. Full fine-tuning is cluster work; a LoRA adapter on Fireworks' shared Serverless
+Training pool is what a set of a few hundred examples wants. The base models there are
+`accounts/fireworks/models/muse-glimmer-30b` (128K context; LoRA fine-tuning free until December 1,
+2026) and `accounts/fireworks/models/muse-spark-open-nvfp4` (256K context, billed per training
+token); the examples here are about 30,000 tokens each. ROADMAP.md tunes Glimmer first.
 
 The SDK is Python (`pip install "fireworks-ai[training]"`, key in `FIREWORKS_API_KEY`), and the
 starting point is the cookbook's `recipes/sft_loop.py` (github.com/fw-ai/cookbook, `training/`):
@@ -149,8 +151,9 @@ starting point is the cookbook's `recipes/sft_loop.py` (github.com/fw-ai/cookboo
   (`training/renderer/`) against a serverless chat completion first, so the rendered tool list matches
   what the model sees when the agent calls it.
 
-Billing is per token on three meters; at list, Spark Open trains at $18.58 per million tokens, so 100
-examples is about 3 million tokens and $56 an epoch. A DPO run (`recipes/dpo_loop.py`) takes
+Billing is per token on three meters; Glimmer's training meter is waived until December 1, 2026, and
+at list Spark Open trains at $18.58 per million tokens, so 100 examples is about 3 million tokens and
+$56 an epoch. A DPO run (`recipes/dpo_loop.py`) takes
 preference pairs: for one prompt, the stock model's failing turn as `rejected` and Wonder's passing
 turn as `chosen`.
 
@@ -164,17 +167,23 @@ npm run scorecard -- --model accounts/fireworks/models/muse-spark-open \
   --base-url https://api.fireworks.ai/inference/v1 --api-key-env FIREWORKS_API_KEY
 ```
 
-A trained adapter isn't served on that pool. Either sample the saved checkpoint through the training
-endpoint's Completions API (`https://api.fireworks.ai/training/v1/serverless`, per token) behind a
-small local shim that renders the agent's messages and tools with Spark Open's template and parses the
-tool-call blocks back into `tool_calls`, then point the scorecard at the shim:
+A trained adapter isn't served on that pool. Promote the checkpoint to a model and put it on an
+on-demand deployment, billed by the GPU-second while it is up (one GPU for Glimmer 30B), then point
+the scorecard at the deployment:
 
 ```bash
-npm run scorecard -- --model <checkpoint> --base-url http://localhost:8010/v1
+firectl deployment create accounts/<account>/models/<model> --deployment-shape default \\
+  --deployment-id groundwork-tuned --min-replica-count 1 --wait
+npm run scorecard -- --model accounts/<account>/deployments/groundwork-tuned \\
+  --base-url https://api.fireworks.ai/inference/v1 --api-key-env FIREWORKS_API_KEY
+firectl deployment delete groundwork-tuned --wait
 ```
 
-or promote the checkpoint to a model and put it on an on-demand deployment, billed by the GPU-second
-while it is up, and point the scorecard at Fireworks' inference URL with the model's id.
+The stock Glimmer baseline is the same with the base model deployed. For a model too big to deploy
+cheaply, sample the saved checkpoint through the training endpoint's Completions API
+(`https://api.fireworks.ai/training/v1/serverless`, per token) behind a small local shim that renders
+the agent's messages and tools with the model's template and parses the tool-call blocks back into
+`tool_calls`, and point the scorecard at the shim (`--base-url http://localhost:8010/v1`).
 
 Either way that adds a condition, "Groundwork (tuned <id>)", beside the baseline and the pack: the
 same evals on the same seeded business, with the pack's instructions, and the agent on the tuned model
@@ -185,8 +194,8 @@ Wonder's rates unless `MODEL_PRICES` names the tuned model's.
 
 ## What to expect
 
-Three numbers side by side: Muse Wonder with the pack, stock Spark Open with the pack, tuned Spark Open
-with the pack, on pass rate, judge mean, completion, and cost per quote. A set of one or two hundred
+The conditions side by side: Muse Wonder with the pack, stock and tuned Glimmer 30B, stock Spark Open
+(and tuned, if it ran), all with the pack, on pass rate, judge mean, completion, and cost per quote. A set of one or two hundred
 distilled turns moves the evals it was built from, the ones the stock model failed, and not much else;
 the write-up reports whatever the difference is. A dataset worth more needs hundreds of real turns
 from working businesses, labelled by what happened after (approved, booked, not corrected), across
