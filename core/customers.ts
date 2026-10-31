@@ -347,13 +347,58 @@ async function addToContact(
   return true;
 }
 
+export type PropertyView = { id: string; address: string; notes: string | null };
+
+const propertyView = (p: Property): PropertyView => ({ id: p.id, address: p.address, notes: p.notes });
+
+/**
+ * Changes one of the customer's properties: its address, its notes (null or blank clears them), or both.
+ * A new address is unplaced until the caller places it again. Records the change. Returns whether the
+ * address changed, null when nothing did.
+ */
+async function changeProperty(
+  tx: Tx,
+  input: { orgId: string; customer: Customer; propertyId: string; address?: string; notes?: string | null; memberId: string | null },
+): Promise<{ moved: boolean } | null> {
+  const { orgId, customer } = input;
+  const [existing] = await tx
+    .select()
+    .from(properties)
+    .where(and(eq(properties.orgId, orgId), eq(properties.customerId, customer.id), eq(properties.id, input.propertyId)));
+  if (!existing) throw new Error("PROPERTY_NOT_FOUND");
+  const address = input.address?.trim() || existing.address;
+  const notes = input.notes === undefined ? existing.notes : input.notes?.trim() || null;
+  const moved = address !== existing.address;
+  if (!moved && notes === existing.notes) return null;
+  const [saved] = await tx
+    .update(properties)
+    .set({
+      address,
+      notes,
+      // A place found for the old address isn't this one's; placing runs again once it's saved.
+      ...(moved ? { lat: null, lng: null, placeLabel: null, geocodeStatus: "pending" as const, geocodedAt: null } : {}),
+    })
+    .where(and(eq(properties.orgId, orgId), eq(properties.id, existing.id)))
+    .returning();
+  await recordChange(tx, {
+    orgId,
+    customerId: customer.id,
+    memberId: input.memberId,
+    kind: "property.changed",
+    before: propertyView(existing),
+    after: propertyView(saved),
+  });
+  return { moved };
+}
+
 /**
  * Creates (no customerId; name required) or updates a customer. A phone or email is added to a contact
  * (`contactId`, else the preferred one, else a new one named after the customer); an address becomes a
- * property when that customer does not have it yet. Every change is kept in the customer's history and
- * moves its revision on. `expectedRevision` refuses a change made from an older read.
+ * property when that customer does not have it yet, or with `propertyId` replaces that property's address.
+ * Every change is kept in the customer's history and moves its revision on. `expectedRevision` refuses a
+ * change made from an older read.
  * Throws `NAME_REQUIRED`, `INVALID_PHONE`, `INVALID_EMAIL`, `CUSTOMER_NOT_FOUND`, `CUSTOMER_ARCHIVED`,
- * `CONTACT_NOT_FOUND`, or `REVISION_CHANGED`.
+ * `CONTACT_NOT_FOUND`, `PROPERTY_NOT_FOUND`, or `REVISION_CHANGED`.
  */
 export async function saveCustomer(
   orgId: string,
@@ -366,6 +411,8 @@ export async function saveCustomer(
     address?: string;
     notes?: string;
     contactId?: string;
+    /** With `address`: the property whose address this is, in place of a new one. */
+    propertyId?: string;
   },
   memberId: string,
   options: { expectedRevision?: number } = {},
@@ -374,7 +421,7 @@ export async function saveCustomer(
   const email = input.email === undefined || input.email.trim() === "" ? undefined : cleanEmail(input.email);
   const address = input.address?.trim() || undefined;
 
-  const added: string[] = [];
+  const toPlace: string[] = [];
   const id = await db().transaction(async (tx) => {
     let customer: Customer;
     let changed = false;
@@ -413,7 +460,11 @@ export async function saveCustomer(
       changed = true;
     }
 
-    if (address) {
+    if (address && input.propertyId) {
+      const result = await changeProperty(tx, { orgId, customer, propertyId: input.propertyId, address, memberId });
+      if (result?.moved) toPlace.push(input.propertyId);
+      if (result) changed = true;
+    } else if (address) {
       const existing = await tx
         .select()
         .from(properties)
@@ -421,7 +472,7 @@ export async function saveCustomer(
       if (!existing.some((p) => addressKey(p.address) === addressKey(address))) {
         const [property] = await tx.insert(properties).values({ id: newId("prop"), orgId, customerId: customer.id, address }).returning();
         await recordChange(tx, { orgId, customerId: customer.id, memberId, kind: "property.added", after: { id: property.id, address } });
-        added.push(property.id);
+        toPlace.push(property.id);
         changed = true;
       }
     }
@@ -433,8 +484,8 @@ export async function saveCustomer(
     );
     return customer.id;
   });
-  // A new property is placed for drive times once it's saved; a failure leaves it unplaced and saves anyway.
-  for (const propertyId of added) await placeProperty(orgId, propertyId);
+  // A new or moved property is placed for drive times once it's saved; a failure leaves it unplaced and saves anyway.
+  for (const propertyId of toPlace) await placeProperty(orgId, propertyId);
   return (await getCustomer(orgId, id)) as CustomerWithProperties;
 }
 
@@ -555,6 +606,62 @@ export async function removeContact(
     await recordChange(tx, { orgId, customerId: customer.id, memberId, kind: "contact.removed", before: contactView(removed) });
     await bumpRevision(tx, orgId, customer.id);
     await syncContactMirror(tx, orgId, customer.id);
+  });
+  return (await getCustomer(orgId, input.customerId)) as CustomerWithProperties;
+}
+
+/**
+ * Changes one of a customer's properties: a corrected address (placed again for drive times once it's
+ * saved), its notes (null or blank clears them), or both. Throws `CUSTOMER_NOT_FOUND`, `CUSTOMER_ARCHIVED`,
+ * `PROPERTY_NOT_FOUND`, or `REVISION_CHANGED`.
+ */
+export async function saveProperty(
+  orgId: string,
+  input: { customerId: string; propertyId: string; address?: string; notes?: string | null },
+  memberId: string,
+  options: { expectedRevision?: number } = {},
+): Promise<CustomerWithProperties> {
+  const moved = await db().transaction(async (tx) => {
+    const customer = await lockCustomer(tx, orgId, input.customerId, options);
+    const result = await changeProperty(tx, { orgId, customer, propertyId: input.propertyId, address: input.address, notes: input.notes, memberId });
+    if (!result) return false;
+    await bumpRevision(tx, orgId, customer.id);
+    return result.moved;
+  });
+  if (moved) await placeProperty(orgId, input.propertyId);
+  return (await getCustomer(orgId, input.customerId)) as CustomerWithProperties;
+}
+
+/**
+ * Removes one of a customer's properties; their history keeps it. One that a quote, a job, an invoice, or a
+ * note is on stays: `PROPERTY_IN_USE:<count>`, so the records keep their address. Throws
+ * `CUSTOMER_NOT_FOUND`, `CUSTOMER_ARCHIVED`, `PROPERTY_NOT_FOUND`, `PROPERTY_IN_USE`, or `REVISION_CHANGED`.
+ */
+export async function removeProperty(
+  orgId: string,
+  input: { customerId: string; propertyId: string },
+  memberId: string,
+  options: { expectedRevision?: number } = {},
+): Promise<CustomerWithProperties> {
+  await db().transaction(async (tx) => {
+    const customer = await lockCustomer(tx, orgId, input.customerId, options);
+    const [property] = await tx
+      .select()
+      .from(properties)
+      .where(and(eq(properties.orgId, orgId), eq(properties.customerId, customer.id), eq(properties.id, input.propertyId)));
+    if (!property) throw new Error("PROPERTY_NOT_FOUND");
+    let uses = 0;
+    for (const table of [quotes, serviceJobs, invoices, notes] as const) {
+      const [row] = await tx
+        .select({ n: count() })
+        .from(table)
+        .where(and(eq(table.orgId, orgId), eq(table.propertyId, property.id)));
+      uses += row?.n ?? 0;
+    }
+    if (uses > 0) throw new Error(`PROPERTY_IN_USE:${uses}`);
+    await tx.delete(properties).where(and(eq(properties.orgId, orgId), eq(properties.id, property.id)));
+    await recordChange(tx, { orgId, customerId: customer.id, memberId, kind: "property.removed", before: propertyView(property) });
+    await bumpRevision(tx, orgId, customer.id);
   });
   return (await getCustomer(orgId, input.customerId)) as CustomerWithProperties;
 }

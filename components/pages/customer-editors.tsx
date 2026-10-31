@@ -258,6 +258,100 @@ export function AddPropertyForm({ customerId, revision, language }: { customerId
   );
 }
 
+export type PropertyRow = { id: string; address: string; notes: string | null };
+
+/** Corrects one of a customer's addresses, or its notes. A changed address is placed again. */
+export function PropertyEditor({ customerId, revision, property, language }: { customerId: string; revision: number; property: PropertyRow; language: Language }) {
+  const copy = pageCopyFor(language);
+  const c = copy.customers;
+  const [open, setOpen] = useState(false);
+  const { send, busy, error, setError } = useMutation(copy.common.failed);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const saved = await send("save", `/api/customers/${customerId}/properties/${property.id}`, {
+      method: "PATCH",
+      body: { address: String(form.get("address") ?? ""), notes: String(form.get("notes") ?? ""), expectedRevision: revision },
+    });
+    if (saved) setOpen(false);
+  }
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)} size="xs" variant="quiet">
+        {c.editAddress}
+      </Button>
+      <Dialog
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setError(undefined);
+        }}
+        open={open}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle>{c.address}</DialogTitle>
+          <form className="grid gap-4" onSubmit={submit}>
+            <Field autoComplete="off" defaultValue={property.address} id="address" label={c.address} required />
+            <Field id="notes" label={c.notes}>
+              <Textarea defaultValue={property.notes ?? ""} id="notes" name="notes" rows={3} />
+            </Field>
+            <ErrorLine>{error}</ErrorLine>
+            <div className="flex justify-end gap-2">
+              <DialogClose render={<Button size="sm" type="button" variant="quiet" />}>{copy.common.cancel}</DialogClose>
+              <Button disabled={busy !== null} size="sm" type="submit" variant="primary">
+                {busy ? copy.common.saving : copy.common.save}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
+/** Removes an address, after asking. One a quote, job, invoice, or note is on is refused with how many. */
+export function RemovePropertyButton({ customerId, revision, property, language }: { customerId: string; revision: number; property: PropertyRow; language: Language }) {
+  const copy = pageCopyFor(language);
+  const c = copy.customers;
+  const [open, setOpen] = useState(false);
+  const { send, busy, error, setError } = useMutation(copy.common.failed);
+  return (
+    <>
+      <Button onClick={() => setOpen(true)} size="xs" variant="quiet">
+        {c.removeAddress}
+      </Button>
+      <Dialog
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setError(undefined);
+        }}
+        open={open}
+      >
+        <DialogContent showCloseButton={false}>
+          <DialogTitle>{c.removeAddressTitle(property.address)}</DialogTitle>
+          <DialogDescription>{c.removeAddressBody}</DialogDescription>
+          <ErrorLine>{error}</ErrorLine>
+          <DialogFooter>
+            <DialogClose render={<Button size="sm" variant="quiet" />}>{copy.common.cancel}</DialogClose>
+            <Button
+              disabled={busy !== null}
+              onClick={async () => {
+                const done = await send("remove", `/api/customers/${customerId}/properties/${property.id}`, { method: "DELETE", body: { expectedRevision: revision } });
+                if (done) setOpen(false);
+              }}
+              size="sm"
+              variant="primary"
+            >
+              {c.removeAddress}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 /** Archives a customer, after asking, or brings an archived one back. */
 export function ArchiveCustomerButton({
   customer,

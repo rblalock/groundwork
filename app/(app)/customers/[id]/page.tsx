@@ -5,7 +5,9 @@ import {
   ContactEditor,
   CustomerDetailsEditor,
   MergeCustomerButton,
+  PropertyEditor,
   RemoveContactButton,
+  RemovePropertyButton,
 } from "@/components/pages/customer-editors";
 import { NoteEditor } from "@/components/pages/note-editors";
 import { NoteList } from "@/components/pages/note-list";
@@ -374,11 +376,19 @@ export default async function CustomerDetailPage({ params, searchParams }: { par
                     ) : (
                       <ul className="space-y-2">
                         {customer.properties.map((property) => (
-                          <li key={property.id}>
-                            {property.address}
-                            {property.notes ? <span className="block text-[12px] text-ink-3">{property.notes}</span> : null}
-                            {property.geocodeStatus !== "ok" ? (
-                              <span className="block text-[12px] text-ink-3">{property.geocodeStatus === "not_found" ? c.notPlaced : c.notPlacedYet}</span>
+                          <li className="flex items-start gap-2" key={property.id}>
+                            <div className="min-w-0 flex-1">
+                              {property.address}
+                              {property.notes ? <span className="block text-[12px] text-ink-3">{property.notes}</span> : null}
+                              {property.geocodeStatus !== "ok" ? (
+                                <span className="block text-[12px] text-ink-3">{property.geocodeStatus === "not_found" ? c.notPlaced : c.notPlacedYet}</span>
+                              ) : null}
+                            </div>
+                            {canEdit ? (
+                              <div className="-mt-0.5 flex shrink-0">
+                                <PropertyEditor customerId={customer.id} language={language} property={property} revision={customer.revision} />
+                                <RemovePropertyButton customerId={customer.id} language={language} property={property} revision={customer.revision} />
+                              </div>
                             ) : null}
                           </li>
                         ))}
@@ -461,6 +471,10 @@ function describeChange(change: CustomerChange, c: PageCopy["customers"]): strin
       return h.contactMigrated(name(change.after));
     case "property.added":
       return h.propertyAdded(String(change.after?.address ?? ""));
+    case "property.changed":
+      return h.propertyChanged(String(change.before?.address ?? ""), String(change.after?.address ?? ""));
+    case "property.removed":
+      return h.propertyRemoved(String(change.before?.address ?? ""));
     case "customer.archived":
       return h.archived;
     case "customer.restored":

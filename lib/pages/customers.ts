@@ -9,9 +9,11 @@ import {
   listCustomers,
   mergeCustomers,
   removeContact,
+  removeProperty,
   restoreCustomer,
   saveContact,
   saveCustomer,
+  saveProperty,
   searchCustomers,
   type CustomerChange,
   type CustomerListRow,
@@ -20,7 +22,7 @@ import {
 import { isPrivileged } from "../../core/members";
 import { listQuotes, type QuoteSummary } from "../../core/quotes";
 import { languageSchema } from "../../core/tool-schemas";
-import { memberCaller, type AppCaller } from "../guards";
+import { HttpError, memberCaller, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { notFound, privilegedActor, refuse } from "./access";
 
@@ -95,6 +97,7 @@ function errorsFor(caller: AppCaller) {
   return {
     CUSTOMER_NOT_FOUND: [404, "That isn't here."],
     CONTACT_NOT_FOUND: [404, "That isn't here."],
+    PROPERTY_NOT_FOUND: [404, "That isn't here."],
     INVALID_PHONE: [400, errors.invalidPhone],
     INVALID_EMAIL: [400, errors.invalidEmail],
     NAME_REQUIRED: [400, errors.nameRequired],
@@ -158,6 +161,42 @@ export async function removeContactFromApp(caller: AppCaller, customerId: string
   try {
     return await removeContact(caller.orgId, { customerId, contactId }, actor.memberId, { expectedRevision });
   } catch (error) {
+    refuse(error, errorsFor(caller));
+  }
+}
+
+export const propertyBodySchema = z
+  .object({
+    address: z.preprocess(blankToUndefined, z.string().trim().max(300).optional()),
+    notes: z.string().max(2000).nullable().optional(),
+    expectedRevision: revision,
+  })
+  .strict();
+
+/** An owner or admin corrects a property's address or changes its notes. */
+export async function savePropertyFromApp(
+  caller: AppCaller,
+  customerId: string,
+  propertyId: string,
+  body: z.infer<typeof propertyBodySchema>,
+): Promise<CustomerWithProperties> {
+  const actor = memberCaller(caller);
+  const { expectedRevision, ...fields } = body;
+  try {
+    return await saveProperty(caller.orgId, { customerId, propertyId, ...fields }, actor.memberId, { expectedRevision });
+  } catch (error) {
+    refuse(error, errorsFor(caller));
+  }
+}
+
+/** An owner or admin removes a property no quote, job, invoice, or note is on. */
+export async function removePropertyFromApp(caller: AppCaller, customerId: string, propertyId: string, expectedRevision: number): Promise<CustomerWithProperties> {
+  const actor = memberCaller(caller);
+  try {
+    return await removeProperty(caller.orgId, { customerId, propertyId }, actor.memberId, { expectedRevision });
+  } catch (error) {
+    const inUse = error instanceof Error ? /^PROPERTY_IN_USE:(\d+)$/.exec(error.message) : null;
+    if (inUse) throw new HttpError(409, "PROPERTY_IN_USE", pageCopyFor(caller.language).customers.errors.addressInUse(Number(inUse[1])));
     refuse(error, errorsFor(caller));
   }
 }

@@ -8,9 +8,11 @@ import {
   listCustomers,
   mergeCustomers,
   removeContact,
+  removeProperty,
   restoreCustomer,
   saveContact,
   saveCustomer,
+  saveProperty,
   searchCustomers,
 } from "./customers";
 import { db } from "./db";
@@ -112,6 +114,63 @@ withTestDb("an edit made from an older read is refused, and changes nothing", as
   assert.equal(now?.contacts.length, 0);
   await saveCustomer(TEST_ORG, { customerId: c.id, name: "Kimberly Sample" }, o.memberId, { expectedRevision: 2 });
   assert.equal((await getCustomer(TEST_ORG, c.id))?.name, "Kimberly Sample");
+});
+
+withTestDb("properties: an address is corrected and placed again, notes alone leave the place, and history keeps both", async () => {
+  const o = await owner();
+  const maria = await saveCustomer(TEST_ORG, { name: "Maria Sample", address: "412 Oak St" }, o.memberId);
+  const oak = maria.properties[0];
+  assert.equal(oak.geocodeStatus, "ok");
+
+  const noted = await saveProperty(TEST_ORG, { customerId: maria.id, propertyId: oak.id, notes: "Side gate" }, o.memberId, { expectedRevision: maria.revision });
+  assert.deepEqual([noted.properties[0].notes, noted.properties[0].lat, noted.properties[0].placeLabel], ["Side gate", 26.9617, "412 Oak St, Tequesta, FL 33469"]);
+  assert.equal(noted.revision, maria.revision + 1);
+
+  const moved = await saveProperty(TEST_ORG, { customerId: maria.id, propertyId: oak.id, address: "7 Pine Ave" }, o.memberId, { expectedRevision: noted.revision });
+  assert.deepEqual(
+    [moved.properties[0].address, moved.properties[0].notes, moved.properties[0].lat, moved.properties[0].placeLabel],
+    ["7 Pine Ave", "Side gate", 26.9452, "7 Pine Ave, Tequesta, FL 33469"],
+  );
+  const lost = await saveProperty(TEST_ORG, { customerId: maria.id, propertyId: oak.id, address: "999 Nowhere Ln" }, o.memberId);
+  assert.deepEqual([lost.properties[0].geocodeStatus, lost.properties[0].lat, lost.properties[0].placeLabel], ["not_found", null, null], "never the old place");
+
+  const same = await saveProperty(TEST_ORG, { customerId: maria.id, propertyId: oak.id, address: "999 Nowhere Ln" }, o.memberId);
+  assert.equal(same.revision, lost.revision, "nothing changed, nothing recorded");
+  await assert.rejects(saveProperty(TEST_ORG, { customerId: maria.id, propertyId: oak.id, notes: "x" }, o.memberId, { expectedRevision: 1 }), /REVISION_CHANGED/);
+  const other = await saveCustomer(TEST_ORG, { name: "Other Sample", address: "4 Elm Rd" }, o.memberId);
+  await assert.rejects(saveProperty(TEST_ORG, { customerId: maria.id, propertyId: other.properties[0].id, address: "x" }, o.memberId), /PROPERTY_NOT_FOUND/);
+  await assert.rejects(removeProperty(TEST_ORG, { customerId: maria.id, propertyId: other.properties[0].id }, o.memberId), /PROPERTY_NOT_FOUND/);
+
+  // The assistant's way: an address with the property it corrects.
+  const fixed = await saveCustomer(TEST_ORG, { customerId: maria.id, propertyId: oak.id, address: "412 Oak St" }, o.memberId);
+  assert.deepEqual([fixed.properties.length, fixed.properties[0].address, fixed.properties[0].lat], [1, "412 Oak St", 26.9617]);
+
+  await assert.rejects(removeProperty(TEST_ORG, { customerId: maria.id, propertyId: oak.id }, o.memberId, { expectedRevision: maria.revision }), /REVISION_CHANGED/);
+  const gone = await removeProperty(TEST_ORG, { customerId: maria.id, propertyId: oak.id }, o.memberId, { expectedRevision: fixed.revision });
+  assert.deepEqual(gone.properties, [], "the last address too: it's their choice");
+  assert.deepEqual(
+    (await customerHistory(TEST_ORG, maria.id)).slice(0, 5).map((h) => [h.kind, h.before?.address ?? null, h.after?.address ?? null]),
+    [
+      ["property.removed", "412 Oak St", null],
+      ["property.changed", "999 Nowhere Ln", "412 Oak St"],
+      ["property.changed", "7 Pine Ave", "999 Nowhere Ln"],
+      ["property.changed", "412 Oak St", "7 Pine Ave"],
+      ["property.changed", "412 Oak St", "412 Oak St"],
+    ],
+  );
+});
+
+withTestDb("a property a quote is on can't be removed, and says how many records use it", async () => {
+  const o = await owner();
+  const [item] = await saveItems(TEST_ORG, [{ name: "Widget service", unitKind: "each", unitLabel: "widget", priceCents: 1000 }], o.memberId);
+  const c = await saveCustomer(TEST_ORG, { name: "Ray Sample", address: "12 Oak St" }, o.memberId);
+  const prop = c.properties[0];
+  await createQuote({ title: "12 Oak St", customerId: c.id, propertyId: prop.id, lines: [{ itemId: item.id, quantity: 1 }] }, o, { post: quiet, now: NOW });
+  await saveNote(o, { title: "Gate code", body: "Gate code 4821", propertyId: prop.id });
+  const now = (await getCustomer(TEST_ORG, c.id))!;
+  await assert.rejects(removeProperty(TEST_ORG, { customerId: c.id, propertyId: prop.id }, o.memberId, { expectedRevision: now.revision }), /^Error: PROPERTY_IN_USE:2$/);
+  const after = (await getCustomer(TEST_ORG, c.id))!;
+  assert.deepEqual([after.properties.length, after.revision], [1, now.revision], "nothing changed");
 });
 
 withTestDb("archive takes a customer off lists and search, keeps their quotes and invoices, and can be undone", async () => {
