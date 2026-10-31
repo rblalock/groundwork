@@ -5,7 +5,7 @@ import { db } from "../../core/db";
 import { saveItems, saveRule, versions } from "../../core/pricebook";
 import { TEST_ORG, withTestDb } from "../../core/test-db";
 import { PATCH as itemRoute } from "../../app/api/price-book/items/[id]/route";
-import { POST as ruleRoute } from "../../app/api/price-book/rules/[id]/route";
+import { PATCH as ruleEditRoute, POST as ruleRoute } from "../../app/api/price-book/rules/[id]/route";
 import { pricebookFor } from "./pricebook";
 import { appCaller, call, installTransport, otherBusiness, person, refused, signIn, superAdminViewing } from "./test-support";
 
@@ -94,4 +94,21 @@ withTestDb("price book: a super admin looking can read it and change nothing", a
   assert.equal((await pricebookFor(await appCaller(headers))).items.length, 1);
   refused(await call(itemRoute, headers, { method: "PATCH", params: { id: s.item.id }, body: { priceCents: 1 } }), 403, "NOT_A_MEMBER");
   refused(await call(ruleRoute, headers, { params: { id: s.suggested.id }, body: { action: "accept" } }), 403, "NOT_A_MEMBER");
+});
+
+withTestDb("price book: owners edit a rule's words and kind, crew can't", async () => {
+  const s = await seed();
+  const ownerHeaders = await signIn("+15555550101");
+  const crewHeaders = await signIn("+15555550102");
+  const edit = (headers: Headers, id: string, body: unknown) => call(ruleEditRoute, headers, { method: "PATCH", params: { id }, body });
+
+  refused(await edit(crewHeaders, s.active.id, { text: "x", kind: "pricing_modifier", expectedVersion: 1 }), 403, "NOT_PRIVILEGED");
+  refused(await edit(ownerHeaders, s.otherRule.id, { text: "x", kind: "other", expectedVersion: 1 }), 404);
+  refused(await edit(ownerHeaders, s.active.id, { text: "Add $50 for rush", kind: "scope", expectedVersion: 1 }), 400, "RULE_EFFECT_NEEDS_PRICING");
+
+  const saved = await edit(ownerHeaders, s.active.id, { text: "Add $50 for same-day jobs", kind: "pricing_modifier", expectedVersion: 1 });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  const [row] = await db().select().from(rules).where(eq(rules.id, s.active.id));
+  assert.deepEqual([row.text, row.version, row.effect], ["Add $50 for same-day jobs", 2, s.active.effect]);
+  refused(await edit(ownerHeaders, s.active.id, { text: "stale", kind: "pricing_modifier", expectedVersion: 1 }), 409, "REVISION_CHANGED");
 });

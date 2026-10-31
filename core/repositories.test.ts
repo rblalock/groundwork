@@ -17,7 +17,7 @@ import {
 import { recordEvent } from "./events";
 import { db } from "./db";
 import { pricebookChanges } from "../schema/schema";
-import { listItems, listRules, retireRule, saveItems, saveItemsWithOutcome, saveRule, updateItem, versions } from "./pricebook";
+import { listItems, listRules, retireRule, saveItems, saveItemsWithOutcome, saveRule, updateItem, updateRule, versions } from "./pricebook";
 import { getCustomer, saveCustomer, searchCustomers } from "./customers";
 import { updateTeamMember } from "./team";
 
@@ -135,6 +135,33 @@ withTestDb("rules save, suggest, and retire", async () => {
   assert.equal((await listRules(TEST_ORG, { includeSuggested: true })).length, 2);
   await retireRule(TEST_ORG, r.id, owner.id);
   assert.equal((await listRules(TEST_ORG)).length, 0);
+});
+
+withTestDb("rules edit in place: an active rule's change bumps rulesVersion, a suggestion's doesn't, and the price change stays", async () => {
+  const owner = await createMember({ orgId: TEST_ORG, name: "Pat", role: "owner" });
+  const effect = { op: "add_fixed" as const, amount: 5000, appliesTo: "any" as const };
+  const priced = await saveRule(TEST_ORG, { text: "add $50 for 3rd story", kind: "pricing_modifier", effect }, owner.id);
+  const plain = await saveRule(TEST_ORG, { text: "we don't do roofs", kind: "exclusion", status: "suggested" }, owner.id);
+  const start = (await versions(TEST_ORG)).rulesVersion;
+
+  const edited = await updateRule(TEST_ORG, priced.id, { text: "  add $50 for a 3rd story or higher " }, owner.id, { expectedVersion: 1 });
+  assert.deepEqual([edited.text, edited.kind, edited.effect, edited.version, edited.status], ["add $50 for a 3rd story or higher", "pricing_modifier", effect, 2, "active"]);
+  assert.equal((await versions(TEST_ORG)).rulesVersion, start + 1);
+  assert.equal((await listRules(TEST_ORG))[0].text, "add $50 for a 3rd story or higher");
+  await assert.rejects(updateRule(TEST_ORG, priced.id, { text: "x" }, owner.id, { expectedVersion: 1 }), /REVISION_CHANGED/);
+  await assert.rejects(updateRule(TEST_ORG, priced.id, { kind: "scope" }, owner.id), /RULE_EFFECT_NEEDS_PRICING/);
+  await assert.rejects(updateRule(TEST_ORG, priced.id, { text: "  " }, owner.id), /RULE_TEXT_REQUIRED/);
+  // Nothing changed: no new version.
+  assert.equal((await updateRule(TEST_ORG, priced.id, { text: "add $50 for a 3rd story or higher" }, owner.id)).version, 2);
+  assert.equal((await versions(TEST_ORG)).rulesVersion, start + 1);
+
+  const suggestion = await updateRule(TEST_ORG, plain.id, { text: "we don't do roofs or gutters", kind: "scope" }, owner.id);
+  assert.deepEqual([suggestion.kind, suggestion.status], ["scope", "suggested"]);
+  assert.equal((await versions(TEST_ORG)).rulesVersion, start + 1);
+
+  await retireRule(TEST_ORG, priced.id, owner.id);
+  await assert.rejects(updateRule(TEST_ORG, priced.id, { text: "x" }, owner.id), /RULE_RETIRED/);
+  await assert.rejects(updateRule("org_other", plain.id, { text: "x" }, owner.id), /RULE_NOT_FOUND/);
 });
 
 withTestDb("customers search is accent-insensitive and adds properties", async () => {

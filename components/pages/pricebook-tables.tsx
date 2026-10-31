@@ -36,6 +36,8 @@ export type RuleRow = {
   effect: RuleEffect | null;
   status: "active" | "suggested" | "retired";
   by: string | null;
+  /** Counts changes, so an edit made on a stale page is refused. */
+  version: number;
 };
 
 const UNIT_KINDS: UnitKind[] = ["each", "sqft", "linear_ft", "hour", "visit", "flat", "other"];
@@ -323,9 +325,77 @@ function effectText(effect: RuleEffect | null, language: Language): string | nul
   return effect.op === "add_fixed" ? p.effect.add_fixed(amount) : p.effect.add_per_unit(amount);
 }
 
+/**
+ * Changes an active or suggested rule's words and kind. A price change on it is shown, not edited: that
+ * goes through the assistant, and keeps the rule a pricing one.
+ */
+function RuleEditor({ rule, language }: { rule: RuleRow; language: Language }) {
+  const copy = pageCopyFor(language);
+  const p = copy.pricebook;
+  const [open, setOpen] = useState(false);
+  const { send, busy, error, setError } = useMutation(copy.common.failed);
+  const effect = effectText(rule.effect, language);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const saved = await send("save", `/api/price-book/rules/${rule.id}`, {
+      method: "PATCH",
+      body: { text: String(form.get("text") ?? "").trim(), kind: rule.effect ? rule.kind : String(form.get("kind") ?? rule.kind), expectedVersion: rule.version },
+    });
+    if (saved) setOpen(false);
+  }
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)} size="xs" variant="quiet">
+        {copy.common.edit}
+      </Button>
+      <Dialog
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setError(undefined);
+        }}
+        open={open}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogTitle>{p.editRuleTitle}</DialogTitle>
+          <form className="grid gap-4" onSubmit={submit}>
+            <Field autoComplete="off" defaultValue={rule.text} id="text" label={p.ruleFields.text} maxLength={500} required />
+            <Field id="kind" label={p.ruleFields.kind}>
+              <NativeSelect defaultValue={rule.kind} disabled={rule.effect !== null} id="kind" name="kind">
+                {RULE_KINDS.map((k) => (
+                  <option key={k} value={k}>
+                    {p.kinds[k]}
+                  </option>
+                ))}
+              </NativeSelect>
+            </Field>
+            {effect ? (
+              <div className="grid gap-1">
+                <p className="text-[13px] text-ink">
+                  {p.ruleFields.op}: <span className="tabular-nums">{effect}</span>
+                </p>
+                <p className="text-[12px] text-ink-3 text-pretty">{p.effectLocked}</p>
+              </div>
+            ) : null}
+            <ErrorLine>{error}</ErrorLine>
+            <DialogFooter>
+              <DialogClose render={<Button size="sm" type="button" variant="quiet" />}>{copy.common.cancel}</DialogClose>
+              <Button disabled={busy !== null} size="sm" type="submit" variant="primary">
+                {busy ? copy.common.saving : copy.common.save}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 const RULE_TONES = { active: "green", suggested: "orange", retired: "neutral" } as const;
 
-/** The rules: crew suggestions to accept or turn down, and active rules to retire. */
+/** The rules: crew suggestions to accept, turn down, or edit, and active rules to edit or retire. */
 export function PricebookRules({ rules, language, canEdit }: { rules: RuleRow[]; language: Language; canEdit: boolean }) {
   const copy = pageCopyFor(language);
   const p = copy.pricebook;
@@ -369,14 +439,18 @@ export function PricebookRules({ rules, language, canEdit }: { rules: RuleRow[];
                       <Button disabled={busy !== null} onClick={() => act(rule, "accept")} size="xs" variant="primary">
                         {p.accept}
                       </Button>
+                      <RuleEditor language={language} rule={rule} />
                       <Button disabled={busy !== null} onClick={() => act(rule, "retire")} size="xs" variant="quiet">
                         {p.decline}
                       </Button>
                     </span>
                   ) : rule.status === "active" ? (
-                    <Button disabled={busy !== null} onClick={() => act(rule, "retire")} size="xs" variant="quiet">
-                      {p.retire}
-                    </Button>
+                    <span className="inline-flex flex-col items-end gap-1 sm:flex-row">
+                      <RuleEditor language={language} rule={rule} />
+                      <Button disabled={busy !== null} onClick={() => act(rule, "retire")} size="xs" variant="quiet">
+                        {p.retire}
+                      </Button>
+                    </span>
                   ) : null}
                 </Td>
               ) : null}

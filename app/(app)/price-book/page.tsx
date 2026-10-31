@@ -36,7 +36,7 @@ export default async function PricebookPage() {
           <PricebookRules
             canEdit={canEdit}
             language={language}
-            rules={rules.map(({ id, text, kind, effect, status, by }) => ({ id, text, kind, effect, status, by }))}
+            rules={rules.map(({ id, text, kind, effect, status, by, version }) => ({ id, text, kind, effect, status, by, version }))}
           />
         </Card>
       </PageBody>

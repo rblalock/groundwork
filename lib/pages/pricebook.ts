@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { listMembers } from "../../core/members";
-import { acceptRule, findItemByName, listItems, listRules, nameKey, retireRule, saveItems, saveRule, updateItem, type Item, type Rule } from "../../core/pricebook";
+import { acceptRule, findItemByName, listItems, listRules, nameKey, retireRule, saveItems, saveRule, updateItem, updateRule, type Item, type Rule } from "../../core/pricebook";
 import { cents, equipmentSchema, ruleKindSchema } from "../../core/tool-schemas";
 import { HttpError, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
@@ -129,6 +129,32 @@ export async function ruleActionFromApp(caller: AppCaller, ruleId: string, actio
     refuse(error, {
       RULE_NOT_FOUND: [404, "That isn't here."],
       RULE_NOT_SUGGESTED: [409, pageCopyFor(caller.language).pricebook.errors.notSuggested],
+    });
+  }
+}
+
+export const rulePatchSchema = z
+  .object({
+    text: z.string().trim().min(1).max(500),
+    kind: ruleKindSchema,
+    /** The rule's version the page showed: a change made on a stale page is refused. */
+    expectedVersion: z.number().int().min(1),
+  })
+  .strict();
+
+/** Changes an active or suggested rule's words and kind, through `updateRule`. Its price change stays as it is. */
+export async function updateRuleFromApp(caller: AppCaller, ruleId: string, patch: z.infer<typeof rulePatchSchema>): Promise<Rule> {
+  const actor = privilegedActor(caller);
+  const e = pageCopyFor(caller.language).pricebook.errors;
+  try {
+    return await updateRule(caller.orgId, ruleId, { text: patch.text, kind: patch.kind }, actor.memberId, { expectedVersion: patch.expectedVersion });
+  } catch (error) {
+    refuse(error, {
+      RULE_NOT_FOUND: [404, "That isn't here."],
+      RULE_RETIRED: [409, e.ruleRetired],
+      RULE_TEXT_REQUIRED: [400, e.ruleTextRequired],
+      RULE_EFFECT_NEEDS_PRICING: [400, e.effectNeedsPricing],
+      REVISION_CHANGED: [409, e.ruleChanged],
     });
   }
 }

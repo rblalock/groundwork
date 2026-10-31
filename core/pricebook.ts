@@ -297,6 +297,48 @@ export async function retireRule(orgId: string, ruleId: string, memberId: string
 }
 
 /**
+ * Changes an active or suggested rule's words and kind in place. Its price change, if it has one, stays as
+ * it is (only a pricing rule may have one). An active rule's change bumps rulesVersion; a suggestion's
+ * waits for the owner like the suggestion does. `expectedVersion` refuses a change made from an older
+ * read. Throws `RULE_NOT_FOUND`, `RULE_RETIRED`, `RULE_TEXT_REQUIRED`, `RULE_EFFECT_NEEDS_PRICING`, or
+ * `REVISION_CHANGED`.
+ */
+export async function updateRule(
+  orgId: string,
+  ruleId: string,
+  patch: { text?: string; kind?: Rule["kind"] },
+  memberId: string,
+  options: { expectedVersion?: number } = {},
+): Promise<Rule> {
+  return db().transaction(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(rules)
+      .where(and(eq(rules.orgId, orgId), eq(rules.id, ruleId)))
+      .for("update");
+    if (!current) throw new Error("RULE_NOT_FOUND");
+    if (current.status === "retired") throw new Error("RULE_RETIRED");
+    if (options.expectedVersion !== undefined && current.version !== options.expectedVersion) throw new Error("REVISION_CHANGED");
+    const text = patch.text === undefined ? current.text : patch.text.trim();
+    if (!text) throw new Error("RULE_TEXT_REQUIRED");
+    const kind = patch.kind ?? current.kind;
+    if (current.effect && kind !== "pricing_modifier") throw new Error("RULE_EFFECT_NEEDS_PRICING");
+    if (text === current.text && kind === current.kind) return current;
+    const [row] = await tx
+      .update(rules)
+      .set({ text, kind, version: sql`${rules.version} + 1` })
+      .where(and(eq(rules.orgId, orgId), eq(rules.id, ruleId)))
+      .returning();
+    if (current.status === "active") await bumpVersion(orgId, "rules", tx);
+    await recordEvent(
+      { orgId, kind: "rule.updated", refId: ruleId, memberId, data: { before: { text: current.text, kind: current.kind }, after: { text, kind } } },
+      tx,
+    );
+    return row;
+  });
+}
+
+/**
  * The owner accepts a crew member's suggested rule: it is saved again as theirs, active from now, and
  * the suggestion is retired (what the assistant does on "add the rule"). Throws `RULE_NOT_FOUND`, or
  * `RULE_NOT_SUGGESTED` for a rule that isn't waiting on the owner.
