@@ -32,6 +32,7 @@ import {
   addToLine,
   applyAssignments,
   candidatesFrom,
+  compactPath,
   centeredIn,
   distinctCandidates,
   DRAWN_PHRASE,
@@ -206,7 +207,8 @@ async function lookAt(
       phrase: item?.photoPrompt?.trim() || null,
     };
   });
-  const kept = before?.candidates ?? [];
+  // Outlines SAM found before are kept as they were stored; dropping specks again cleans ones stored before specks were dropped.
+  const kept = (before?.candidates ?? []).map((c) => (c.source === "hand" ? c : { ...c, svgPath: compactPath(c.svgPath) }));
   const prompts = [
     ...lines.flatMap((line) => (line.phrase ? [line.phrase] : [])),
     ...priceBook.flatMap((item) => (item.status === "active" && item.photoPrompt?.trim() ? [item.photoPrompt.trim()] : [])),
