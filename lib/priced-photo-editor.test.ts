@@ -70,6 +70,19 @@ test("applyAssignment takes a candidate off a line, and the line is not located 
   assert.deepEqual(empty[1].objects, []);
 });
 
+test("applyAssignment moves a candidate: putting it on a line takes it off the line it was on", () => {
+  const regions = [region(0, ["a", "b"]), region(1), region(2, ["c"])];
+  const next = applyAssignment(regions, [candidate("a"), candidate("b"), candidate("c")], "a", 1, true);
+  assert.deepEqual(assignmentsOf(next), [
+    { candidateId: "b", lineIndexes: [0] },
+    { candidateId: "a", lineIndexes: [1] },
+    { candidateId: "c", lineIndexes: [2] },
+  ]);
+  assert.equal(next[2], regions[2], "a line without it is untouched");
+  const last = applyAssignment(regions, [candidate("c")], "c", 0, true);
+  assert.equal(last[2].located, false);
+});
+
 test("applyAssignment ignores a candidate it doesn't know", () => {
   const regions = [region(0)];
   assert.equal(applyAssignment(regions, [], "missing", 0, true), regions);

@@ -14,6 +14,8 @@ import {
   offLines,
   polygonArea,
   SAME_OBJECT_IOU,
+  sameObject,
+  maskIntersection,
   selectRegions,
   withKept,
   type PhotoLine,
@@ -80,14 +82,101 @@ test("an each line keeps up to its quantity; the neighbor's small palm stays out
   assert.deepEqual(selectRegions([line(0, "Palm trimming", "each", 2, "palm tree")], two, IMAGE)[0].objects.map((o) => o.areaPx), [32000, 31000]);
 });
 
-test("two lines with one phrase share its objects", () => {
+test("two lines with one phrase share out its objects, never the same one", () => {
   const [mulch, edging] = selectRegions(
     [line(0, "Mulch installed", "each", 3, "mulch bed"), line(1, "Bed edging", "linear_ft", 40, "mulch bed")],
     PROBE,
     IMAGE,
   );
-  assert.deepEqual(mulch.objects, edging.objects);
-  assert.equal(mulch.objects.length, 2);
+  // Units differ, so line order: the larger bed to the mulch, the next to the edging.
+  assert.deepEqual(mulch.objects.map((o) => o.areaPx), [17054]);
+  assert.deepEqual(edging.objects.map((o) => o.areaPx), [3384]);
+});
+
+// Two hedges side by side, as SAM outlines them: polygons with their mask areas.
+const rect = (id: number, phrase: string, [left, top, right, bottom]: number[], confidence = 0.9): PricedCandidate => ({
+  id: `cand_${id}`,
+  phrase,
+  box: { left, top, right, bottom },
+  areaPx: (right - left) * (bottom - top),
+  confidence,
+  svgPath: `M${left} ${top}L${right} ${top}L${right} ${bottom}L${left} ${bottom}Z`,
+});
+const hedges = (...found: PricedCandidate[]) => new Map([["hedge", found]]);
+const HEDGE_360 = line(1, "Hedge trimming", "other", 360, "hedge");
+const HEDGE_112 = line(2, "Hedge trimming", "other", 112, "hedge");
+
+test("two lines of one phrase and two hedges get one each: the larger hedge to the larger quantity", () => {
+  const big = rect(1, "hedge", [0, 500, 400, 640]);
+  const small = rect(2, "hedge", [600, 520, 800, 600]);
+  const [, h360, h112] = selectRegions([line(0, "Lawn mowing", "visit", 1, "lawn"), HEDGE_112, HEDGE_360].sort((a, b) => a.index - b.index), new Map([...PROBE, ...hedges(small, big)]), IMAGE);
+  assert.deepEqual(h360.objects.map((o) => o.candidateId), ["cand_1"]);
+  assert.deepEqual(h112.objects.map((o) => o.candidateId), ["cand_2"]);
+  // In line order the quantities still decide.
+  const [first, second] = selectRegions([{ ...HEDGE_112, index: 0 }, { ...HEDGE_360, index: 1 }], hedges(small, big), IMAGE);
+  assert.deepEqual([first.objects.map((o) => o.candidateId), second.objects.map((o) => o.candidateId)], [["cand_2"], ["cand_1"]]);
+});
+
+test("one hedge for two lines goes to the larger quantity only", () => {
+  const [h360, h112] = selectRegions([HEDGE_360, HEDGE_112], hedges(rect(1, "hedge", [0, 500, 400, 640])), IMAGE);
+  assert.deepEqual(h360.objects.map((o) => o.candidateId), ["cand_1"]);
+  assert.equal(h112.located, false);
+  assert.deepEqual(h112.objects, []);
+});
+
+test("a hedge found twice, overlapping or one inside the other, is one object", () => {
+  const whole = rect(1, "hedge", [0, 500, 400, 640]);
+  const again = rect(2, "hedge", [10, 505, 400, 640]);
+  const end = rect(3, "hedge", [0, 500, 120, 640]);
+  const [h360, h112] = selectRegions([HEDGE_360, HEDGE_112], hedges(whole, again, end), IMAGE);
+  assert.deepEqual(h360.objects.map((o) => o.candidateId), ["cand_1"]);
+  assert.equal(h112.located, false, "both copies were the one hedge");
+  // A second, separate hedge is still a second object.
+  const other = rect(4, "hedge", [600, 520, 800, 600]);
+  assert.deepEqual(selectRegions([HEDGE_360, HEDGE_112], hedges(whole, again, end, other), IMAGE)[1].objects.map((o) => o.candidateId), ["cand_4"]);
+});
+
+test("one object goes to one line across phrases too; a thing inside another of a different phrase is its own", () => {
+  const hedge = rect(1, "hedge", [0, 500, 400, 640]);
+  const shrub = rect(2, "shrub", [5, 502, 400, 640]);
+  const bed = rect(3, "mulch bed", [0, 600, 900, 900]);
+  const plant = rect(4, "shrub", [100, 650, 200, 750]);
+  const found = new Map([
+    ["hedge", [hedge]],
+    ["shrub", [shrub, plant]],
+    ["mulch bed", [bed]],
+  ]);
+  const [hedging, shrubs, mulch] = selectRegions(
+    [line(0, "Hedge trimming", "visit", 1, "hedge"), line(1, "Shrub pruning", "each", 2, "shrub"), line(2, "Mulch", "visit", 1, "mulch bed")],
+    found,
+    IMAGE,
+  );
+  assert.deepEqual(hedging.objects.map((o) => o.candidateId), ["cand_1"]);
+  assert.deepEqual(shrubs.objects.map((o) => o.candidateId), ["cand_4"], "the hedge's other outline isn't offered again");
+  assert.deepEqual(mulch.objects.map((o) => o.candidateId), ["cand_3"], "the shrub in the bed doesn't make the bed the shrub");
+});
+
+test("two masks are one object by their overlap, or one mostly inside the other of the same phrase", () => {
+  const a = rect(1, "hedge", [0, 0, 100, 100]);
+  assert.equal(sameObject(a, rect(2, "hedge", [20, 0, 120, 100]), false), true, "IoU 0.67");
+  assert.equal(sameObject(a, rect(3, "hedge", [50, 0, 150, 100]), false), false, "IoU 0.33");
+  assert.equal(sameObject(a, rect(4, "hedge", [20, 20, 80, 80]), true), true, "inside, same phrase");
+  assert.equal(sameObject(a, rect(5, "shrub", [20, 20, 80, 80]), false), false, "inside, another phrase");
+  assert.equal(sameObject(a, rect(6, "hedge", [200, 0, 300, 100]), true), false);
+  // An L whose box holds the other hedge, but whose mask doesn't.
+  const ell = { ...rect(7, "hedge", [0, 0, 200, 200]), svgPath: "M0 0L40 0L40 160L200 160L200 200L0 200Z", areaPx: 40 * 160 + 200 * 40 };
+  assert.equal(sameObject(ell, rect(8, "hedge", [60, 20, 180, 140]), true), false);
+  assert.ok(Math.abs(maskIntersection(a, rect(9, "hedge", [50, 0, 150, 100])) - 5000) < 200);
+  // Without outlines the boxes stand in, for overlap only.
+  assert.equal(sameObject(obj(10, [0, 0, 100, 100], 10000, 0.9), obj(11, [10, 10, 90, 90], 6400, 0.9), true), true);
+  assert.equal(sameObject(obj(12, [0, 0, 100, 100], 10000, 0.9), obj(13, [30, 30, 70, 70], 1600, 0.9), true), false);
+});
+
+test("three hedges for two lines: one each by size, then round again while lines have room", () => {
+  const found = hedges(rect(1, "hedge", [0, 500, 400, 640]), rect(2, "hedge", [450, 500, 700, 640]), rect(3, "hedge", [750, 500, 900, 640]));
+  const [h360, h112] = selectRegions([HEDGE_360, HEDGE_112], found, IMAGE);
+  assert.deepEqual(h360.objects.map((o) => o.candidateId), ["cand_1", "cand_3"]);
+  assert.deepEqual(h112.objects.map((o) => o.candidateId), ["cand_2"]);
 });
 
 test("a phrase with no objects, or a line with no phrase, is not located", () => {
@@ -144,14 +233,24 @@ test("assignments set every line's objects; one not listed is on no line", () =>
   assert.deepEqual(regions.map((r) => r.located), [true, false]);
   const moved = applyAssignments(candidates, regions, [
     { candidateId: "cand_3", lineIndexes: [1] },
-    { candidateId: "cand_1", lineIndexes: [0, 1] },
+    { candidateId: "cand_2", lineIndexes: [1] },
+    { candidateId: "cand_1", lineIndexes: [0] },
   ]);
   assert.deepEqual(
     moved.map((r) => [r.located, r.objects.map((o) => o.candidateId)]),
     [
       [true, ["cand_1"]],
-      [true, ["cand_1", "cand_3"]],
+      [true, ["cand_2", "cand_3"]],
     ],
+  );
+  // An object goes on one line only: listed on two, or twice, it stays on the first.
+  const once = applyAssignments(candidates, regions, [
+    { candidateId: "cand_1", lineIndexes: [1, 0] },
+    { candidateId: "cand_1", lineIndexes: [0] },
+  ]);
+  assert.deepEqual(
+    once.map((r) => r.objects.map((o) => o.candidateId)),
+    [[], ["cand_1"]],
   );
   assert.deepEqual(applyAssignments(candidates, regions, []).map((r) => r.located), [false, false]);
   assert.throws(() => applyAssignments(candidates, regions, [{ candidateId: "cand_99", lineIndexes: [0] }]), /UNKNOWN_CANDIDATE/);
@@ -163,15 +262,20 @@ test("a candidate taken off every line leaves the rest, and a line left with not
   const candidates = PROBE.get("hedge")!;
   const regions = selectRegions([line(0, "Hedge trimming", "hour", 1, "hedge"), line(1, "Shrub trimming", "hour", 1, null)], PROBE, IMAGE);
   const both = applyAssignments(candidates, regions, [
-    { candidateId: "cand_1", lineIndexes: [0, 1] },
+    { candidateId: "cand_1", lineIndexes: [0] },
     { candidateId: "cand_3", lineIndexes: [0] },
+    { candidateId: "cand_2", lineIndexes: [1] },
   ]);
   assert.deepEqual(
     offLines(both, "cand_1").map((r) => [r.located, r.objects.map((o) => o.candidateId)]),
     [
       [true, ["cand_3"]],
-      [false, []],
+      [true, ["cand_2"]],
     ],
+  );
+  assert.deepEqual(
+    offLines(both, "cand_2").map((r) => r.located),
+    [true, false],
   );
   assert.equal(offLines(both, "cand_99")[0], both[0], "a line without it is left as it was");
 });
@@ -292,4 +396,17 @@ test("a hand-drawn outline over an object SAM found gives way to it", () => {
   const { kept, same } = distinctCandidates([sam, drawn]);
   assert.deepEqual(kept, [sam]);
   assert.equal(same.get("cand_d"), sam);
+});
+
+test("a candidate added to a line comes off any other line it was on", () => {
+  const hedge = rect(1, "hedge", [0, 500, 400, 640]);
+  const [h360, h112] = selectRegions([HEDGE_360, HEDGE_112], hedges(hedge), IMAGE);
+  const moved = addToLine([h360, h112], HEDGE_112.index, [hedge]);
+  assert.deepEqual(
+    moved.map((r) => [r.located, r.objects.map((o) => o.candidateId)]),
+    [
+      [false, []],
+      [true, ["cand_1"]],
+    ],
+  );
 });

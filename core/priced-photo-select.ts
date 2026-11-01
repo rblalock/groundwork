@@ -33,24 +33,51 @@ export type PhotoLine = {
   phrase: string | null;
 };
 
+/** Two of one phrase's objects whose masks overlap this much (intersection over union) are one object, found twice. */
+export const SAME_MASK_IOU = 0.6;
+/** Two of one phrase's objects are one object, too, when this share of the smaller lies inside the larger: a hedge and one end of it. */
+export const SAME_MASK_INSIDE = 0.8;
+
 /**
  * One region per line, in line order, from the candidates found for each phrase. Objects too small
- * (for the image, or beside the largest one found) or too unsure are dropped; of the rest, an `each`
- * line keeps up to its quantity of the largest and any other line the largest two. Two lines with the
- * same phrase keep from the same objects. A line with no phrase, or nothing left, is `located: false`.
+ * (for the image, or beside the largest one found) or too unsure are dropped, and one found twice
+ * (`sameObject`) is kept once, the larger. Each object goes on one line at most: lines that share a
+ * phrase share out its objects, the largest to the line with the largest quantity (in line order when
+ * their units differ), the next to the next, and round again while lines have room and objects are left;
+ * an `each` line has room for its quantity, any other line for two. A phrase's lines come in the order of
+ * the first of them, and an object an earlier line has (or one with the same mask) isn't offered again.
+ * A line with no phrase, or nothing left, is `located: false`.
  */
 export function selectRegions(lines: PhotoLine[], results: Map<string, PricedCandidate[]>, image: { width: number; height: number }): PricedRegion[] {
   const minArea = image.width * image.height * MIN_BOX_SHARE;
-  return lines.map((line) => {
-    const found = line.phrase === null ? [] : (results.get(line.phrase) ?? []);
-    const keep = line.unitKind === "each" ? Math.max(1, Math.ceil(line.quantity)) : KEEP_UNCOUNTED;
+  const objectsOf = new Map<number, PricedCandidate[]>(lines.map((line) => [line.index, []]));
+  const claimed: PricedCandidate[] = [];
+  const phrases = new Map<string, PhotoLine[]>();
+  for (const line of lines) if (line.phrase !== null) phrases.set(line.phrase, [...(phrases.get(line.phrase) ?? []), line]);
+  for (const [phrase, sharing] of phrases) {
+    const found = results.get(phrase) ?? [];
     const largest = Math.max(0, ...found.map((o) => o.areaPx));
-    const objects = found
-      .filter((o) => (o.box.right - o.box.left) * (o.box.bottom - o.box.top) >= minArea && o.areaPx >= largest * MIN_SHARE_OF_LARGEST)
-      .filter((o) => o.confidence === null || o.confidence >= MIN_CONFIDENCE)
-      .sort((a, b) => b.areaPx - a.areaPx)
-      .slice(0, keep)
-      .map(regionObject);
+    const distinct: PricedCandidate[] = [];
+    for (const o of [...found].sort((a, b) => b.areaPx - a.areaPx)) {
+      if ((o.box.right - o.box.left) * (o.box.bottom - o.box.top) < minArea || o.areaPx < largest * MIN_SHARE_OF_LARGEST) continue;
+      if (o.confidence !== null && o.confidence < MIN_CONFIDENCE) continue;
+      if (distinct.some((kept) => sameObject(kept, o, true))) continue;
+      if (claimed.some((taken) => taken === o || sameObject(taken, o, false))) continue;
+      distinct.push(o);
+    }
+    const sameUnit = sharing.every((line) => line.unitKind === sharing[0].unitKind && line.unitLabel === sharing[0].unitLabel);
+    const order = sameUnit ? [...sharing].sort((a, b) => b.quantity - a.quantity || a.index - b.index) : sharing;
+    const room = (line: PhotoLine) => (line.unitKind === "each" ? Math.max(1, Math.ceil(line.quantity)) : KEEP_UNCOUNTED);
+    let next = 0;
+    while (next < distinct.length && order.some((line) => objectsOf.get(line.index)!.length < room(line))) {
+      for (const line of order) {
+        if (next < distinct.length && objectsOf.get(line.index)!.length < room(line)) objectsOf.get(line.index)!.push(distinct[next++]);
+      }
+    }
+    claimed.push(...distinct.slice(0, next));
+  }
+  return lines.map((line) => {
+    const objects = objectsOf.get(line.index)!.map(regionObject);
     return {
       lineIndex: line.index,
       itemId: line.itemId,
@@ -63,6 +90,73 @@ export function selectRegions(lines: PhotoLine[], results: Map<string, PricedCan
       located: objects.length > 0,
     };
   });
+}
+
+/**
+ * Whether two candidates are one object: their masks overlap by `SAME_MASK_IOU` or more, or, for two of
+ * one phrase (`samePhrase`), `SAME_MASK_INSIDE` of the smaller lies inside the larger. Of two phrases, one
+ * inside the other is a thing on another (a shrub in a mulch bed), not the same one. Masks are read from
+ * the outlines; without an outline, the boxes' overlap stands in, and only for intersection over union.
+ */
+export function sameObject(a: PricedCandidate, b: PricedCandidate, samePhrase: boolean): boolean {
+  if (boxIou(a.box, b.box) === 0) return false;
+  if (!a.svgPath || !b.svgPath) return boxIou(a.box, b.box) >= SAME_MASK_IOU;
+  const inter = maskIntersection(a, b);
+  const areaA = a.areaPx || polygonsArea(a);
+  const areaB = b.areaPx || polygonsArea(b);
+  const union = areaA + areaB - inter;
+  if (union > 0 && inter / union >= SAME_MASK_IOU) return true;
+  return samePhrase && Math.min(areaA, areaB) > 0 && inter / Math.min(areaA, areaB) >= SAME_MASK_INSIDE;
+}
+
+/** How many sample rows and columns across two boxes' overlap a mask intersection is counted at. */
+const MASK_SAMPLES = 64;
+const outlines = new WeakMap<PricedCandidate, Array<Array<[number, number]>>>();
+
+/** A candidate's outline as closed polygons, from its absolute M and L points. */
+function polygonsOf(candidate: PricedCandidate): Array<Array<[number, number]>> {
+  let polygons = outlines.get(candidate);
+  if (!polygons) {
+    polygons = (candidate.svgPath.match(/M[^M]*/g) ?? [])
+      .map((sub) => [...sub.matchAll(/[ML]\s*(-?[\d.]+)[\s,]+(-?[\d.]+)/g)].map(([, x, y]): [number, number] => [Number(x), Number(y)]))
+      .filter((points) => points.length >= 3);
+    outlines.set(candidate, polygons);
+  }
+  return polygons;
+}
+
+const polygonsArea = (candidate: PricedCandidate) => polygonsOf(candidate).reduce((sum, points) => sum + polygonArea(points), 0);
+
+/** Where row `y` crosses a candidate's outline, left to right: a point is inside where an odd number lie left of it (even-odd, so holes stay out). */
+function crossings(polygons: Array<Array<[number, number]>>, y: number): number[] {
+  const xs: number[] = [];
+  for (const points of polygons) {
+    points.forEach(([x1, y1], i) => {
+      const [x2, y2] = points[(i + 1) % points.length];
+      if (y1 <= y !== y2 <= y) xs.push(x1 + ((y - y1) * (x2 - x1)) / (y2 - y1));
+    });
+  }
+  return xs.sort((p, q) => p - q);
+}
+
+const inside = (xs: number[], x: number) => xs.filter((crossing) => crossing < x).length % 2 === 1;
+
+/** About how many pixels two candidates' masks share, counted on a grid over their boxes' overlap. */
+export function maskIntersection(a: PricedCandidate, b: PricedCandidate): number {
+  const left = Math.max(a.box.left, b.box.left);
+  const top = Math.max(a.box.top, b.box.top);
+  const right = Math.min(a.box.right, b.box.right);
+  const bottom = Math.min(a.box.bottom, b.box.bottom);
+  if (right <= left || bottom <= top) return 0;
+  const stepX = Math.max(1, (right - left) / MASK_SAMPLES);
+  const stepY = Math.max(1, (bottom - top) / MASK_SAMPLES);
+  const [pa, pb] = [polygonsOf(a), polygonsOf(b)];
+  let hits = 0;
+  for (let y = top + stepY / 2; y < bottom; y += stepY) {
+    const [xa, xb] = [crossings(pa, y), crossings(pb, y)];
+    for (let x = left + stepX / 2; x < right; x += stepX) if (inside(xa, x) && inside(xb, x)) hits++;
+  }
+  return hits * stepX * stepY;
 }
 
 const regionObject = (candidate: PricedCandidate): PricedRegion["objects"][number] => ({
@@ -244,20 +338,25 @@ export function centeredIn(area: PricedBox, box: PricedBox): boolean {
 export type Assignment = { candidateId: string; lineIndexes: number[] };
 
 /**
- * Every region's objects as a member assigned them: each candidate on each line it lists, and a
- * candidate not listed on no line. A region's objects run largest first. Throws `UNKNOWN_CANDIDATE` for a
- * candidate the photo doesn't have and `UNKNOWN_LINE` for a line it has no region for.
+ * Every region's objects as a member assigned them: each candidate on the line it lists, and a candidate
+ * not listed on no line. An object is on one line at most: a candidate listed on several (or listed twice)
+ * goes on the first line listed for it only. A region's objects run largest first. Throws
+ * `UNKNOWN_CANDIDATE` for a candidate the photo doesn't have and `UNKNOWN_LINE` for a line it has no
+ * region for.
  */
 export function applyAssignments(candidates: PricedCandidate[], regions: PricedRegion[], assignments: Assignment[]): PricedRegion[] {
   const byId = new Map(candidates.map((c) => [c.id, c]));
   const lines = new Map<number, PricedCandidate[]>(regions.map((r) => [r.lineIndex, []]));
+  const placed = new Set<string>();
   for (const { candidateId, lineIndexes } of assignments) {
     const candidate = byId.get(candidateId);
     if (!candidate) throw new Error(`UNKNOWN_CANDIDATE: ${candidateId}`);
     for (const lineIndex of lineIndexes) {
       const kept = lines.get(lineIndex);
       if (!kept) throw new Error(`UNKNOWN_LINE: ${lineIndex}`);
-      if (!kept.includes(candidate)) kept.push(candidate);
+      if (placed.has(candidateId)) continue;
+      kept.push(candidate);
+      placed.add(candidateId);
     }
   }
   return regions.map((region) => {
@@ -266,19 +365,23 @@ export function applyAssignments(candidates: PricedCandidate[], regions: PricedR
   });
 }
 
-/** `regions` with the candidate off every line. */
-export function offLines(regions: PricedRegion[], candidateId: string): PricedRegion[] {
+/** `regions` with the candidate off every line (but the line at `except`, when given). */
+export function offLines(regions: PricedRegion[], candidateId: string, except?: number): PricedRegion[] {
   return regions.map((region) => {
-    if (!region.objects.some((o) => o.candidateId === candidateId)) return region;
+    if (region.lineIndex === except || !region.objects.some((o) => o.candidateId === candidateId)) return region;
     const objects = region.objects.filter((o) => o.candidateId !== candidateId);
     return { ...region, objects, located: objects.length > 0 };
   });
 }
 
-/** `regions` with `added` on the line at `lineIndex` too (once), largest first. Throws `UNKNOWN_LINE` for a line it has no region for. */
+/**
+ * `regions` with `added` on the line at `lineIndex` (once), largest first, and off any other line it was
+ * on: an object is on one line at most. Throws `UNKNOWN_LINE` for a line it has no region for.
+ */
 export function addToLine(regions: PricedRegion[], lineIndex: number, added: PricedCandidate[]): PricedRegion[] {
   if (!regions.some((r) => r.lineIndex === lineIndex)) throw new Error(`UNKNOWN_LINE: ${lineIndex}`);
-  return regions.map((region) => {
+  const elsewhere = added.reduce((moved, candidate) => offLines(moved, candidate.id, lineIndex), regions);
+  return elsewhere.map((region) => {
     if (region.lineIndex !== lineIndex) return region;
     const more = added.filter((c) => !region.objects.some((o) => o.candidateId === c.id)).map(regionObject);
     const objects = [...region.objects, ...more].sort((a, b) => b.areaPx - a.areaPx);

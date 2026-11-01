@@ -7,7 +7,8 @@
 // instead. When the business hides line prices from customers, the quote's link shows a second copy
 // labeled with quantities only, drawn beside the first from the same masks. Every object SAM found is
 // kept as a candidate with its outline (once, when two phrases found the same object), so a member can
-// move objects between lines and both copies are drawn again without SAM. A member can outline by hand
+// move objects between lines and both copies are drawn again without SAM. An object is on one line at most,
+// so no thing in a photo reads as billed twice; lines that look for the same thing share out what SAM found. A member can outline by hand
 // what SAM never finds; that outline is kept as a candidate like the rest.
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";

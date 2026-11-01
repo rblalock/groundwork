@@ -95,12 +95,19 @@ export function assignmentsOf(regions: PricedRegion[]): Assignment[] {
   return [...lines].map(([candidateId, on]) => ({ candidateId, lineIndexes: [...on].sort((a, b) => a - b) }));
 }
 
-/** The regions with one candidate put on (or taken off) one line; an unknown candidate changes nothing. */
+/**
+ * The regions with one candidate put on (or taken off) one line; an unknown candidate changes nothing. An
+ * object is on one line at most, so putting it on one takes it off any other, as the server would.
+ */
 export function applyAssignment(regions: PricedRegion[], candidates: PricedCandidate[], candidateId: string, lineIndex: number, on: boolean): PricedRegion[] {
   const candidate = candidates.find((c) => c.id === candidateId);
   if (!candidate) return regions;
   return regions.map((region) => {
-    if (region.lineIndex !== lineIndex) return region;
+    if (region.lineIndex !== lineIndex) {
+      if (!on || !region.objects.some((object) => object.candidateId === candidateId)) return region;
+      const objects = region.objects.filter((object) => object.candidateId !== candidateId);
+      return { ...region, objects, located: objects.length > 0 };
+    }
     const others = region.objects.filter((object) => object.candidateId !== candidateId);
     const objects = on ? [...others, { candidateId, box: candidate.box, areaPx: candidate.areaPx, confidence: candidate.confidence }] : others;
     return { ...region, objects, located: objects.length > 0 };

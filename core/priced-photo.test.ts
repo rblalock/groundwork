@@ -264,8 +264,8 @@ withTestDb("priced photo: every object SAM finds is kept, and a member moves the
   const same = await withFakeSam(() => findInPricedPhoto(owner, quote.quoteId, row.id, { phrase: " grass ", box, lineIndex: 0 }));
   assert.deepEqual([same.phrases, same.result.found], [["grass"], 0]);
 
-  // Kept less sure, and on the cleanup line too, the front lawn gives way to the grass SAM is surer of,
-  // which takes its place on the cleanup line and goes on the lawn line.
+  // Kept less sure, and on the cleanup line, the front lawn gives way to the grass SAM is surer of, which
+  // takes its place and moves to the lawn line: an object is on one line at most.
   const front = row.candidates.find((c) => c.phrase === "lawn" && c.areaPx === 407680)!;
   const [current] = await pricedPhotosFor(TEST_ORG, quote.quoteId);
   await db()
@@ -282,7 +282,7 @@ withTestDb("priced photo: every object SAM finds is kept, and a member moves the
   assert.ok(!find.result.photo.candidates.some((c) => c.id === front.id), "the front lawn's old candidate is gone");
   assert.deepEqual(
     find.result.photo.regions.map((r) => r.objects.map((o) => o.candidateId)),
-    [[grass[0].id], [grass[0].id, strip.id]],
+    [[grass[0].id], [strip.id]],
   );
   // Asked again, the same objects aren't added twice.
   const again = await withFakeSam(() => findInPricedPhoto(owner, quote.quoteId, row.id, { phrase: "grass", box }));
