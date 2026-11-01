@@ -32,7 +32,7 @@ const hidden: QuoteShown = {
     validUntil: "2099-12-31",
     notes: null,
     pdfUrl: null,
-    pricedPhoto: null,
+    pricedPhotos: [],
   },
   approval: null,
   deposit: null,

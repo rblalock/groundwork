@@ -168,7 +168,7 @@ function sampleQuote(business: QuoteShown["business"], orgId: string, state: str
       validUntil: "2099-12-31",
       notes: es ? "Esto es una muestra." : "This is a sample.",
       pdfUrl: "https://example.com/sample.pdf",
-      pricedPhoto: null,
+      pricedPhotos: [],
     },
     approval: kind === "approved" ? { name: es ? "Cliente de muestra" : "Sample Customer", at: "2099-01-15" } : null,
     deposit: { cents: 15000, paidCents: 0, dueCents: 15000, payable: true },

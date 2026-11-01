@@ -35,7 +35,7 @@ export function QuoteLinkHeader({ page, token }: { page: Shown; token: string })
 }
 
 /**
- * Who it's for, the priced photo when there is one, each line (its price too, unless the business hides
+ * Who it's for, the priced photos when there are any, each line (its price too, unless the business hides
  * line prices), the totals, how long it's good for, and the PDF.
  */
 export function QuoteLinkDetails({ page, token }: { page: Full; token: string }) {
@@ -54,14 +54,19 @@ export function QuoteLinkDetails({ page, token }: { page: Full; token: string })
           {quote.address ? <p className="text-ink-2">{quote.address}</p> : null}
         </div>
       ) : null}
-      {quote.pricedPhoto ? (
+      {quote.pricedPhotos.length > 0 ? (
         <figure className="space-y-1.5">
-          {/* eslint-disable-next-line @next/next/no-img-element -- served by this link's own route, no sign-in */}
-          <img
-            alt={q.pricedAlt}
-            className="block h-auto w-full rounded-card shadow-card"
-            src={`/q/${token}/priced/${quote.pricedPhoto.id}?v=${quote.pricedPhoto.version}`}
-          />
+          <div className="space-y-2">
+            {quote.pricedPhotos.map((photo, index) => (
+              // eslint-disable-next-line @next/next/no-img-element -- served by this link's own route, no sign-in
+              <img
+                alt={quote.pricedPhotos.length > 1 ? q.pricedNumberAlt(index + 1) : q.pricedAlt}
+                className="block h-auto w-full rounded-card shadow-card"
+                key={photo.id}
+                src={`/q/${token}/priced/${photo.id}?v=${photo.version}`}
+              />
+            ))}
+          </div>
           <figcaption className="px-1 text-[12px] text-ink-3">{q.pricedCaption}</figcaption>
         </figure>
       ) : null}

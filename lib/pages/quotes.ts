@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { workPhotos } from "../../schema/schema";
@@ -22,6 +21,7 @@ import {
   pricePhotos,
   quotePricedPhotos,
   removeDrawnFromPricedPhoto,
+  renderTag,
   MAX_FIND_PHRASE,
   type FindAsk,
   type PricedPhoto,
@@ -206,9 +206,6 @@ export type QuoteCard = {
   /** The quote's social post, when the card was asked for one and the quote has a before-and-after. */
   post: { format: PostFormat; url: string } | null;
 };
-
-/** A short tag of a render's stored address, which changes each time the photo is drawn. */
-export const renderTag = (url: string) => createHash("sha256").update(url).digest("hex").slice(0, 8);
 
 /**
  * Where the app serves a priced photo; the version changes when it's made again, edited, or drawn again

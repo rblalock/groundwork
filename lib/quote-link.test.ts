@@ -230,7 +230,7 @@ withTestDb("a quote's link shows its own priced photo of the current revision, a
 
   const page = await quoteLinkPage(token);
   assert.ok("quote" in page);
-  assert.equal(page.quote.pricedPhoto?.id, mine);
+  assert.deepEqual(page.quote.pricedPhotos.map((p) => p.id), [mine]);
   assert.deepEqual([...((await quoteLinkPricedPhoto(token, mine)) ?? [])], [1, 2, 3]);
   assert.equal(await quoteLinkPricedPhoto(token, theirs), null, "another quote's priced photo isn't served through this link");
   assert.equal(await quoteLinkPricedPhoto(otherToken, mine), null);
@@ -242,8 +242,18 @@ withTestDb("a quote's link shows its own priced photo of the current revision, a
   await approveQuote(quoteId, pat, { post: quiet });
   const again = await quoteLinkPage(token);
   assert.ok("quote" in again);
-  assert.equal(again.quote.pricedPhoto, null);
+  assert.deepEqual(again.quote.pricedPhotos, []);
   assert.equal(await quoteLinkPricedPhoto(token, mine), null);
+});
+
+withTestDb("a quote's link shows each of its priced photos, in the order they were attached", async () => {
+  const { token, quoteId } = await seed({ stripe: false });
+  const front = await pricedPhoto(quoteId, 1, new Uint8Array([1, 2, 3]));
+  const back = await pricedPhoto(quoteId, 1, new Uint8Array([4, 5, 6]));
+  const page = await quoteLinkPage(token);
+  assert.ok("quote" in page);
+  assert.deepEqual(page.quote.pricedPhotos.map((p) => p.id), [front, back]);
+  assert.deepEqual([...((await quoteLinkPricedPhoto(token, back)) ?? [])], [4, 5, 6]);
 });
 
 withTestDb("with line prices hidden, the link sends no line's price and shows only the quantity-only priced photo", async () => {
@@ -255,13 +265,13 @@ withTestDb("with line prices hidden, the link sends no line's price and shows on
   assert.equal(page.quote.linePrices, false);
   assert.deepEqual(page.quote.lines, [{ name: "Back porch cleaning", quantity: 1, unitLabel: "job", unitCents: null, totalCents: null }]);
   assert.equal(page.quote.totalCents, 40000);
-  assert.equal(page.quote.pricedPhoto, null, "a photo made with prices shown has no copy to show");
+  assert.deepEqual(page.quote.pricedPhotos, [], "a photo made with prices shown has no copy to show");
   assert.equal(await quoteLinkPricedPhoto(token, priced), null);
 
   const scoped = await pricedPhoto(quoteId, 1, new Uint8Array([1, 2, 3]), new Uint8Array([7, 8, 9]));
   const again = await quoteLinkPage(token);
   assert.ok("quote" in again);
-  assert.equal(again.quote.pricedPhoto?.id, scoped);
+  assert.deepEqual(again.quote.pricedPhotos.map((p) => p.id), [scoped]);
   assert.deepEqual([...((await quoteLinkPricedPhoto(token, scoped)) ?? [])], [7, 8, 9]);
 });
 

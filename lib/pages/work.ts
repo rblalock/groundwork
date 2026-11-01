@@ -6,7 +6,7 @@ import { checklistCounts, checklistFor, checklistPhotos, itemText, markOutlined,
 import { db } from "../../core/db";
 import { invoicesForJobs, type InvoiceRef } from "../../core/invoices";
 import { isPrivileged } from "../../core/members";
-import { crewCopy, pricedPhotosForCustomer } from "../../core/priced-photo";
+import { crewCopy, pricedPhotosForCustomer, renderTag } from "../../core/priced-photo";
 import { getServiceJob, type ServiceJobView } from "../../core/scheduling";
 import { addUploadedWorkPhoto, listWorkPhotos, removeWorkPhoto, workPhoto, type WorkPhotoView } from "../../core/work-photos";
 import { sniffImage } from "../../core/logo";
@@ -14,7 +14,7 @@ import { memberCaller, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { notFound, refuse } from "./access";
 import { preparePhoto } from "./photo-upload";
-import { beforeAfterHref, pricedPhotoHref, renderTag, type StoredFile } from "./quotes";
+import { beforeAfterHref, pricedPhotoHref, type StoredFile } from "./quotes";
 
 // A piece of work (a service job) on its own page: its customer, quote, invoice, visits, checklist, and
 // photos. Everyone on the team sees it, ticks its checklist, and adds photos; the invoice opens for owners

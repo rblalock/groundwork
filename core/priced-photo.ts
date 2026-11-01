@@ -9,6 +9,7 @@
 // kept as a candidate with its outline (once, when two phrases found the same object), so a member can
 // move objects between lines and both copies are drawn again without SAM. A member can outline by hand
 // what SAM never finds; that outline is kept as a candidate like the rest.
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -326,6 +327,9 @@ async function recordSamCalls(caller: Caller, quoteId: string, calls: Array<{ ph
     ),
   ).catch((error) => console.error("priced photo: SAM usage was not recorded", { quoteId, error }));
 }
+
+/** A short tag of a render's stored address, which changes each time the photo is drawn: for addresses that must change with it. */
+export const renderTag = (url: string) => createHash("sha256").update(url).digest("hex").slice(0, 8);
 
 /** The quote's priced photos, newest first. */
 export function pricedPhotosFor(orgId: string, quoteId: string): Promise<PricedPhoto[]> {
