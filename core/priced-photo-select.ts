@@ -18,6 +18,8 @@ const KEEP_UNCOUNTED = 2;
 export const MAX_CANDIDATES_PER_PHRASE = 12;
 /** A candidate whose outline is longer than this is dropped rather than stored. */
 export const MAX_PATH_CHARS = 60_000;
+/** A piece of an outline enclosing less than this share of its largest piece is a speck of the mask, and dropped. */
+export const SPECK_SHARE = 0.01;
 /** Two candidates of different phrases whose boxes overlap this much (intersection over union) are one object. */
 export const SAME_OBJECT_IOU = 0.9;
 
@@ -172,7 +174,7 @@ const regionObject = (candidate: PricedCandidate): PricedRegion["objects"][numbe
  * the mask decoder writes them.
  */
 export function compactPath(d: string): string {
-  const out: string[] = [];
+  const pieces: Array<Array<[number, number]>> = [];
   for (const sub of d.match(/M[^M]*/g) ?? []) {
     const points: Array<[number, number]> = [];
     for (const [, x, y] of sub.matchAll(/[ML]\s*(-?[\d.]+)[\s,]+(-?[\d.]+)/g)) {
@@ -185,9 +187,16 @@ export function compactPath(d: string): string {
       points.push(point);
     }
     if (points.length < 3) continue;
-    out.push(`M${points.map(([x, y]) => `${x} ${y}`).join("L")}Z`);
+    pieces.push(points);
   }
-  return out.join("");
+  // A mask often has stray specks apart from the object (a few pixels of lawn across the yard); each
+  // would draw as its own small outline. Holes are pieces too, and a hole that small is noise as well.
+  const areas = pieces.map((points) => Math.abs(polygonArea(points)));
+  const largest = Math.max(0, ...areas);
+  return pieces
+    .filter((_, i) => areas[i] > 0 && areas[i] >= largest * SPECK_SHARE)
+    .map((points) => `M${points.map(([x, y]) => `${x} ${y}`).join("L")}Z`)
+    .join("");
 }
 
 /**

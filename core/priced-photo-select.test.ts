@@ -211,6 +211,14 @@ test("an outline is rounded to whole pixels and its straight runs and repeats dr
   assert.equal(compactPath("M0 0L1 0Z"), "", "a sliver with no area is dropped");
 });
 
+test("an outline's specks, under 1% of its largest piece, are dropped; a real hole is kept", () => {
+  const lawn = "M0 0L100 0L100 100L0 100Z";
+  const hole = "M40 40L60 40L60 60L40 60Z"; // 400 of 10,000: kept
+  const speck = "M200 200L205 200L205 205L200 205Z"; // 25 of 10,000: dropped
+  assert.equal(compactPath(lawn + hole + speck), lawn + hole);
+  assert.equal(compactPath(speck), speck, "a speck alone is the object");
+});
+
 test("a phrase keeps its twelve largest objects as candidates, and drops one with an outline too long to store", () => {
   const sam = (area: number, svgPath = "M0 0L10 0L10 10Z"): SamObject => ({ id: area, box: { left: 0, top: 0, right: 10, bottom: 10 }, areaPx: area, confidence: 0.9, svgPath, width: 10, height: 10 });
   let n = 0;
