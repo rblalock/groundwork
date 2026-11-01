@@ -18,7 +18,21 @@ import { z } from "zod";
 import { memberAuth } from "./channel-dispatch";
 import { addPhone, createMember, findMemberById, type Caller } from "./members";
 import { saveItems } from "./pricebook";
-import { assignPricedPhoto, createPricedPhoto, findInPricedPhoto, lineLabel, pricedPhotosFor, renderOverlay, RERENDER_MS, rerenderTooSoon } from "./priced-photo";
+import {
+  assignPricedPhoto,
+  createPricedPhoto,
+  findInPricedPhoto,
+  legendLines,
+  lineLabel,
+  numberList,
+  photoPlaces,
+  pricedPhotosFor,
+  pricePhotos,
+  quotePricedPhotos,
+  renderOverlay,
+  RERENDER_MS,
+  rerenderTooSoon,
+} from "./priced-photo";
 import { updateProfile } from "./profile";
 import { createQuote, type Poster } from "./quotes";
 import { TEST_ORG, withTestDb } from "./test-db";
@@ -60,6 +74,35 @@ test("draws the regions and a legend under the photo; two lines on one bed share
   // The crew's copy: quantities only, and the total left off, so its legend is shorter.
   const crew = await renderOverlay({ bytes: new Uint8Array(YARD), width: 1024, height: 1024 }, regions, new Map(), 53000, "en", { linePrices: false, total: false });
   assert.ok(crew.height > 1024 && crew.height < height, "a legend without the total");
+});
+
+test("among several photos, each legend lists what its photo shows, and the lines in none go on the last", async () => {
+  const lines = (located: number[]) => [
+    region(0, "Lawn mowing", 1, "visit", 4500, located.includes(0) ? [[0, 588, 1024, 1024]] : []),
+    region(1, "Hedge trimming", 150, "cubic foot", 37500, located.includes(1) ? [[0, 494, 444, 645]] : []),
+    region(2, "Bed edging", 220, "linear foot", 55000, located.includes(2) ? [[0, 564, 494, 696]] : []),
+    region(3, "Cleanup labor", 2, "hour", 9000, []),
+  ];
+  const photos = [{ regions: lines([0, 1]) }, { regions: lines([2]) }, { regions: lines([0]) }];
+  const places = photoPlaces(photos);
+  assert.deepEqual(places.map((p) => [p.number, p.count]), [[1, 3], [2, 3], [3, 3]]);
+  const legend = (i: number) => legendLines(photos[i].regions, places[i]).map((l) => [l.region.name, l.alsoIn, l.notLocated]);
+  assert.deepEqual(legend(0), [["Lawn mowing", [3], false], ["Hedge trimming", [], false]]);
+  assert.deepEqual(legend(1), [["Bed edging", [], false]], "edging is in photo 2 only, and the line in none waits for the last");
+  assert.deepEqual(legend(2), [["Lawn mowing", [1], false], ["Cleanup labor", [], true]]);
+  // A photo alone, or with no place, lists every line as before.
+  const alone = photoPlaces([photos[0]])[0];
+  assert.deepEqual(legendLines(photos[0].regions, alone).map((l) => [l.region.name, l.notLocated]), [["Lawn mowing", false], ["Hedge trimming", false], ["Bed edging", true], ["Cleanup labor", true]]);
+  assert.equal(legendLines(photos[1].regions).length, 4);
+  assert.deepEqual([numberList([2], "en"), numberList([1, 3], "en"), numberList([1, 2, 3], "es")], ["2", "1 and 3", "1, 2 y 3"]);
+
+  // Drawn: photo 2's legend has its number and one line; photo 3's has its two lines under its number.
+  const image = { bytes: new Uint8Array(YARD), width: 1024, height: 1024 };
+  const crew = { linePrices: false, total: false } as const;
+  const second = await renderOverlay(image, photos[1].regions, new Map(), 0, "en", { ...crew, place: places[1] });
+  const third = await renderOverlay(image, photos[2].regions, new Map(), 0, "es", { ...crew, place: places[2] });
+  const all = await renderOverlay(image, photos[1].regions, new Map(), 0, "en", crew);
+  assert.ok(second.height > 1024 && second.height < third.height && third.height < all.height, `${second.height} < ${third.height} < ${all.height}`);
 });
 
 test("a label carries the line's price, or only its scope when line prices are hidden", () => {
@@ -265,4 +308,66 @@ live("priced photo: the yard fixture with mulch, edging, hedge and mowing (live)
   assert.ok(result.pricedPhotoId);
   assert.ok(result.located >= 3, JSON.stringify(result.regions));
   writeFileSync("/tmp/priced-photo.png", readFileSync(fileURLToPath(result.url)));
+});
+
+withTestDb("priced photos: every photo on the quote is priced in attachment order, and each legend follows the others", async () => {
+  const { owner, items } = await seed();
+  const front = await storeInboundAttachment("front.jpg", "image/jpeg", new Uint8Array(YARD));
+  const back = await storeInboundAttachment("back.jpg", "image/jpeg", new Uint8Array(YARD));
+  const quote = await quoteWith(
+    owner,
+    [
+      { itemId: items.get("Lawn mowing")!.id, quantity: 1 },
+      { itemId: items.get("Cleanup labor")!.id, quantity: 2 },
+    ],
+    { url: front, mimeType: "image/jpeg" },
+  );
+  const later = (seconds: number) => new Date(Date.now() + seconds * 1000);
+  const attach = (url: string, name: string, mimeType: string, createdAt: Date) =>
+    db().insert(quoteAttachments).values({ id: newId("att"), orgId: TEST_ORG, quoteId: quote.quoteId, uploadedByMemberId: owner.memberId, url, name, mimeType, createdAt });
+  await attach("fake://inbound/side.jpg", "side.jpg", "image/jpeg", later(1));
+  await attach(back, "back.jpg", "image/jpeg", later(2));
+  await attach("fake://inbound/notes.pdf", "notes.pdf", "application/pdf", later(3));
+
+  const { result } = await withFakeSam(() => pricePhotos(owner, { quoteId: quote.quoteId }));
+  assert.ok(result.photos);
+  // The PDF isn't a photo; the unreadable one is left out and the rest go on.
+  assert.deepEqual(
+    result.photos.map((p) => (p.pricedPhotoId !== null ? [p.number, p.located] : [p.reason])),
+    [[1, ["Lawn mowing"]], ["unreadable_photo"], [2, ["Lawn mowing"]]],
+  );
+  assert.deepEqual(result.lines, [
+    { name: "Lawn mowing", photos: [1, 2] },
+    { name: "Cleanup labor", photos: [] },
+  ]);
+  assert.deepEqual(result.notLocated, ["Cleanup labor"]);
+  const set = await quotePricedPhotos(TEST_ORG, quote.quoteId);
+  assert.deepEqual(set.map((p) => p.sourceUrl), [front, back]);
+  // The quantity is the quote's, once: both photos carry the same line, and nothing was measured.
+  assert.deepEqual(set.map((p) => p.regions[0].quantity), [1, 1]);
+  const legend = (i: number) => legendLines(set[i].regions, set[i].place).map((l) => [l.region.name, l.alsoIn, l.notLocated]);
+  assert.deepEqual(legend(0), [["Lawn mowing", [2], false]]);
+  assert.deepEqual(legend(1), [["Lawn mowing", [1], false], ["Cleanup labor", [], true]]);
+
+  // Taking the lawn off its line on photo 2 draws photo 1 again, without SAM: its lawn is in no other photo now.
+  const lawn = set[1].regions[0].objects.map((o) => ({ candidateId: o.candidateId!, lineIndexes: [] }));
+  const edited = await withFakeSam(() => assignPricedPhoto(owner, quote.quoteId, set[1].id, lawn));
+  assert.deepEqual(edited.phrases, []);
+  const after = await quotePricedPhotos(TEST_ORG, quote.quoteId);
+  assert.notEqual(after[0].url, set[0].url, "photo 1 drawn again");
+  assert.equal(after[0].editedAt, null, "drawn again, not edited");
+  assert.deepEqual(legendLines(after[0].regions, after[0].place).map((l) => l.alsoIn), [[]]);
+
+  // The tool with no photo named prices them all (moments ago, so they come back as they are) and says so.
+  const phone = await addPhone(TEST_ORG, owner.memberId, "+15555550143");
+  const auth = memberAuth((await findMemberById(TEST_ORG, owner.memberId))!, phone);
+  const { default: pricePhoto } = await import("../agents/assistant/agent/tools/price_photo");
+  const tool = pricePhoto as unknown as { inputSchema: z.ZodType; execute: (input: unknown, ctx: unknown) => Promise<Record<string, unknown>> };
+  const reply = await withFakeSam(() => tool.execute(tool.inputSchema.parse({ quoteId: quote.quoteId }), { session: { id: "ses_x", auth: { current: auth } } }));
+  assert.deepEqual(reply.phrases, []);
+  assert.equal(
+    reply.result.summaryText,
+    "2 photos priced (Lawn mowing: photo 1). Located in no photo: Cleanup labor. 1 photo couldn't be priced (see skipped).",
+  );
+  assert.deepEqual(reply.result.notLocated, ["Cleanup labor"]);
 });

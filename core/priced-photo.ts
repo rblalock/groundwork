@@ -1,17 +1,19 @@
 // The priced photo: a quote's photo with each quoted thing outlined by SAM and labeled with its line's
-// quantity and price, and a legend of every line under it. Nothing here measures anything: quantities
-// and prices come from the quote. One per quote per source photo; making it again replaces it, except
-// within `RERENDER_MS` of the last render of the same revision, which comes back instead. When the
-// business hides line prices from customers, the quote's link shows a second copy labeled with quantities
-// only, drawn beside the first from the same masks. Every object SAM found is kept as a candidate with its
-// outline (once, when two phrases found the same object), so a member can move objects between lines and
-// both copies are drawn again without SAM. A member can outline by hand what SAM never finds; that
-// outline is kept as a candidate like the rest.
+// quantity and price, and a legend of its lines under it. Nothing here measures anything: quantities
+// and prices come from the quote. A quote with several photos has one per photo, numbered in attachment
+// order: each legend lists the lines its photo shows and the other photos that show them too, and the
+// lines no photo shows are listed once, on the last, so no line reads as counted twice. Making one again
+// replaces it, except within `RERENDER_MS` of the last render of the same revision, which comes back
+// instead. When the business hides line prices from customers, the quote's link shows a second copy
+// labeled with quantities only, drawn beside the first from the same masks. Every object SAM found is
+// kept as a candidate with its outline (once, when two phrases found the same object), so a member can
+// move objects between lines and both copies are drawn again without SAM. A member can outline by hand
+// what SAM never finds; that outline is kept as a candidate like the rest.
 import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import sharp, { type OverlayOptions } from "sharp";
 import { members, pricedPhotos, quoteAttachments, quoteRevisions, quotes, serviceJobs, workPhotos } from "../schema/schema";
 import type { PricedBox, PricedCandidate, PricedRegion } from "../schema/types";
@@ -72,7 +74,9 @@ export function rerenderTooSoon(previous: { revisionNumber: number; createdAt: D
  * recent JPEG or PNG. Every active item's photo prompt is looked for, so a member can later put what SAM
  * found on a line it missed, but each line starts with only its own prompt's objects; the rest, and any
  * SAM can't find, stay on the legend as not located. Made again for the same photo, a phrase already found
- * there isn't sent to SAM again. Throws when every SAM call fails.
+ * there isn't sent to SAM again. A photo of the quote's own is drawn with its place among the quote's
+ * other priced photos (`PhotoPlace`), and those whose legends that changes are drawn again, without SAM.
+ * Throws when every SAM call fails.
  */
 export async function createPricedPhoto(caller: Caller, input: { quoteId: string; source?: PricedPhotoSource }): Promise<PricedPhotoResult> {
   const { orgId } = caller;
@@ -81,14 +85,96 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
   if (quote.lines.length === 0) return { pricedPhotoId: null, reason: "no_lines" };
   const source = await findSource(orgId, quote.quoteId, input.source);
   if (!source) return { pricedPhotoId: null, reason: "no_photo" };
+  const looked = await lookAt(caller, quote, source);
+  if ("reason" in looked) return { pricedPhotoId: null, reason: looked.reason };
+  if ("kept" in looked) return resultOf(looked.kept.id, looked.kept.url, looked.kept.regions);
+  if (source.kind === "work_photo") return save(caller, quote, looked.looked, undefined);
+  const [result] = await saveSet(caller, quote, await photoSet(orgId, quote.quoteId), [looked.looked]);
+  return result;
+}
+
+/** How one of the quote's photos went when they were all priced: its number among the priced ones and the lines it shows, or why it was left out. */
+export type PhotoPricing =
+  | { attachmentId: string; number: number; pricedPhotoId: string; url: string; located: string[] }
+  | { attachmentId: string; number: null; pricedPhotoId: null; reason: "unreadable_photo" | "photo_too_small" | "failed" };
+
+export type PricedPhotosResult =
+  | {
+      /** Every photo on the quote, in attachment order. */
+      photos: PhotoPricing[];
+      /** Each line, and the numbers of the priced photos it was located in. */
+      lines: Array<{ name: string; photos: number[] }>;
+      /** The lines located in none of them. */
+      notLocated: string[];
+    }
+  | { photos: null; reason: Exclude<PricedPhotoResult, { pricedPhotoId: string }>["reason"] };
+
+/**
+ * Prices every photo attached to the quote, in attachment order, one SAM look at a time, then draws
+ * them as one set: each legend lists the lines its photo shows and notes the other photos that show them
+ * too, and the lines no photo shows are listed on the last. A photo that can't be read or priced is left
+ * out and the rest go on; when none could be, its reason comes back, or the error when SAM failed.
+ * Nothing is measured: every line keeps the quote's quantity, once.
+ */
+export async function pricePhotos(caller: Caller, input: { quoteId: string }): Promise<PricedPhotosResult> {
+  const { orgId } = caller;
+  const quote = await getQuote(orgId, input.quoteId);
+  if (!quote) return { photos: null, reason: "quote_not_found" };
+  if (quote.lines.length === 0) return { photos: null, reason: "no_lines" };
+  const sources = await quoteSources(orgId, quote.quoteId);
+  if (sources.length === 0) return { photos: null, reason: "no_photo" };
+  const set = await photoSet(orgId, quote.quoteId);
+  const looked: Looked[] = [];
+  const skipped = new Map<string, { reason: "unreadable_photo" | "photo_too_small" | "failed"; error?: unknown }>();
+  for (const source of sources) {
+    const result = await lookAt(caller, quote, source).catch((error: unknown) => ({ reason: "failed" as const, error }));
+    if ("reason" in result) skipped.set(source.id, result);
+    else if ("looked" in result) looked.push(result.looked);
+  }
+  if (looked.length) await saveSet(caller, quote, set, looked);
+  const final = await photoSet(orgId, quote.quoteId);
+  const priced = new Map(final.map((entry, i) => [entry.row.sourceId, { row: entry.row, number: i + 1 }]));
+  const photos = sources.map((source): PhotoPricing => {
+    const skip = skipped.get(source.id);
+    const entry = priced.get(source.id);
+    if (skip || !entry) return { attachmentId: source.id, number: null, pricedPhotoId: null, reason: skip?.reason ?? "failed" };
+    return { attachmentId: source.id, number: entry.number, pricedPhotoId: entry.row.id, url: entry.row.url, located: entry.row.regions.filter((r) => r.located).map((r) => r.name) };
+  });
+  if (!photos.some((photo) => photo.pricedPhotoId)) {
+    const failed = [...skipped.values()].find((skip) => skip.reason === "failed");
+    if (failed) throw failed.error;
+    return { photos: null, reason: [...skipped.values()][0]?.reason === "photo_too_small" ? "photo_too_small" : "unreadable_photo" };
+  }
+  const lines = quote.lines.map((line, lineIndex) => ({
+    name: line.name,
+    photos: final.flatMap((entry, i) => (entry.row.regions.some((r) => r.lineIndex === lineIndex && r.located) ? [i + 1] : [])),
+  }));
+  return { photos, lines, notLocated: lines.filter((line) => line.photos.length === 0).map((line) => line.name) };
+}
+
+type Quote = NonNullable<Awaited<ReturnType<typeof getQuote>>>;
+
+/** A photo SAM has looked at for the quote's lines, ready to draw and save. */
+type Looked = { source: Source; before: PricedPhoto | undefined; photo: Photo; regions: PricedRegion[]; candidates: PricedCandidate[] };
+
+/**
+ * Looks for the quote's lines on one photo (`createPricedPhoto`). A render of the same revision made
+ * moments ago comes back `kept` instead (`rerenderTooSoon`). Throws when every SAM call fails.
+ */
+async function lookAt(
+  caller: Caller,
+  quote: Quote,
+  source: Source,
+): Promise<{ looked: Looked } | { kept: PricedPhoto } | { reason: "unreadable_photo" | "photo_too_small" }> {
+  const { orgId } = caller;
   const [before] = await db()
     .select()
     .from(pricedPhotos)
     .where(and(eq(pricedPhotos.orgId, orgId), eq(pricedPhotos.quoteId, quote.quoteId), eq(pricedPhotos.sourceUrl, source.url)));
-  if (before && rerenderTooSoon(before, quote.revisionNumber, new Date())) return resultOf(before.id, before.url, before.regions);
+  if (before && rerenderTooSoon(before, quote.revisionNumber, new Date())) return { kept: before };
   const photo = await preparePhoto(source.url);
-  if (!photo) return { pricedPhotoId: null, reason: "unreadable_photo" };
-  if (photo.width < MIN_WIDTH) return { pricedPhotoId: null, reason: "photo_too_small" };
+  if (!photo) return { reason: "unreadable_photo" };
+  if (photo.width < MIN_WIDTH) return { reason: "photo_too_small" };
 
   const priceBook = await listItems(orgId, { includeRetired: true });
   const items = new Map(priceBook.map((item) => [item.id, item]));
@@ -127,9 +213,13 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
     const listed = byPhrase.get(candidate.phrase) ?? [];
     if (!listed.includes(object)) byPhrase.set(candidate.phrase, [...listed, object]);
   }
-  const regions = selectRegions(lines, byPhrase, photo);
-  const rendered = await renderBoth(photo, regions, candidates, { quoteId: quote.quoteId, totalCents: quote.totalCents, language: quote.customerLanguage });
+  return { looked: { source, before, photo, regions: selectRegions(lines, byPhrase, photo), candidates } };
+}
 
+/** Draws a looked-at photo with its place, if it has one, and saves it in place of the one before it. */
+async function save(caller: Caller, quote: Quote, looked: Looked, place: PhotoPlace | undefined): Promise<PricedPhotoResult> {
+  const { source, before, photo, regions, candidates } = looked;
+  const rendered = await renderBoth(photo, regions, candidates, { quoteId: quote.quoteId, totalCents: quote.totalCents, language: quote.customerLanguage }, place);
   const values = {
     revisionNumber: quote.revisionNumber,
     sourceKind: source.kind,
@@ -145,11 +235,27 @@ export async function createPricedPhoto(caller: Caller, input: { quoteId: string
   };
   const [row] = await db()
     .insert(pricedPhotos)
-    .values({ id: newId("ppho"), orgId, quoteId: quote.quoteId, sourceUrl: source.url, ...values })
+    .values({ id: newId("ppho"), orgId: caller.orgId, quoteId: quote.quoteId, sourceUrl: source.url, ...values })
     .onConflictDoUpdate({ target: [pricedPhotos.orgId, pricedPhotos.quoteId, pricedPhotos.sourceUrl], set: values })
     .returning({ id: pricedPhotos.id });
   if (before) await deleteRenders(before, rendered);
   return resultOf(row.id, rendered.url, regions);
+}
+
+/**
+ * Saves `looked` (photos of the quote's own) into the quote's set of priced photos: each drawn with its
+ * place in the set as it will be, and each other photo of the set whose legend that changes drawn again
+ * from its kept outlines. Results in the order of `looked`.
+ */
+async function saveSet(caller: Caller, quote: Quote, set: SetEntry[], looked: Looked[]): Promise<PricedPhotoResult[]> {
+  const { before, after } = replan(
+    set,
+    looked.map((l) => ({ sourceId: l.source.id, attachedAt: l.source.attachedAt ?? new Date(), regions: l.regions })),
+  );
+  const results: PricedPhotoResult[] = [];
+  for (const l of looked) results.push(await save(caller, quote, l, after.get(l.source.id)));
+  await redrawStale(set, new Set(looked.map((l) => l.source.id)), before, after);
+  return results;
 }
 
 type Renders = { url: string; customerUrl: string | null };
@@ -157,33 +263,36 @@ type Renders = { url: string; customerUrl: string | null };
 /**
  * Draws the priced copy and the quantity-only copy of `regions` on the photo, each object by its
  * candidate's outline, and stores both. The quantity-only copy is drawn every time so the business can
- * hide line prices later and the link still has a photo to show.
+ * hide line prices later and the link still has a photo to show. `place` is the photo's among the
+ * quote's priced photos, for its legend.
  */
 async function renderBoth(
   photo: Photo,
   regions: PricedRegion[],
   candidates: PricedCandidate[],
   quote: { quoteId: string; totalCents: number; language: Language },
+  place: PhotoPlace | undefined,
 ): Promise<{ url: string; customerUrl: string; width: number; height: number }> {
   const paths = maskPaths(regions, candidates);
-  const png = await renderOverlay(photo, regions, paths, quote.totalCents, quote.language);
+  const png = await renderOverlay(photo, regions, paths, quote.totalCents, quote.language, { place });
   const url = await storeInboundAttachment(`priced-${quote.quoteId}.png`, "image/png", png.png);
   const customerUrl = await storeInboundAttachment(
     `priced-${quote.quoteId}-customer.png`,
     "image/png",
-    (await renderOverlay(photo, regions, paths, quote.totalCents, quote.language, { linePrices: false })).png,
+    (await renderOverlay(photo, regions, paths, quote.totalCents, quote.language, { linePrices: false, place })).png,
   );
   return { url, customerUrl, width: png.width, height: png.height };
 }
 
 /**
  * The priced photo as the crew get it: each line labeled with its quantity, and no prices or total.
- * Drawn from the kept outlines, without SAM, in the reader's language. Null when the photo can't be read.
+ * Drawn from the kept outlines, without SAM, in the reader's language, with its `place` among the quote's
+ * priced photos when it has one. Null when the photo can't be read.
  */
-export async function crewCopy(row: PricedPhoto, language: Language): Promise<Uint8Array | null> {
+export async function crewCopy(row: PricedPhoto, language: Language, place?: PhotoPlace): Promise<Uint8Array | null> {
   const photo = await preparePhoto(row.sourceUrl);
   if (!photo) return null;
-  const drawn = await renderOverlay(photo, row.regions, maskPaths(row.regions, row.candidates), 0, language, { linePrices: false, total: false });
+  const drawn = await renderOverlay(photo, row.regions, maskPaths(row.regions, row.candidates), 0, language, { linePrices: false, total: false, place });
   return drawn.png;
 }
 
@@ -225,6 +334,129 @@ export function pricedPhotosFor(orgId: string, quoteId: string): Promise<PricedP
     .from(pricedPhotos)
     .where(and(eq(pricedPhotos.orgId, orgId), eq(pricedPhotos.quoteId, quoteId)))
     .orderBy(desc(pricedPhotos.createdAt), desc(pricedPhotos.id));
+}
+
+// ---------------------------------------------------------------------------------------------
+// The quote's own photos as a set: numbered in attachment order, each legend listing what its photo
+// shows, and the lines no photo shows listed once, on the last
+
+/**
+ * A photo's place among the quote's priced photos of its own: its number (in attachment order), how
+ * many there are, and for each line the numbers of the photos that locate it.
+ */
+export type PhotoPlace = { number: number; count: number; locatedIn: Map<number, number[]> };
+
+/** Each photo's place, for photos given in attachment order. Pure. */
+export function photoPlaces(photos: Array<{ regions: Array<Pick<PricedRegion, "lineIndex" | "located">> }>): PhotoPlace[] {
+  const locatedIn = new Map<number, number[]>();
+  photos.forEach((photo, i) => {
+    for (const region of photo.regions) {
+      const numbers = locatedIn.get(region.lineIndex) ?? [];
+      if (region.located && !numbers.includes(i + 1)) locatedIn.set(region.lineIndex, [...numbers, i + 1]);
+    }
+  });
+  return photos.map((_, i) => ({ number: i + 1, count: photos.length, locatedIn }));
+}
+
+/** One line of a photo's legend: the other photos that show it too, or that no photo shows it. */
+export type LegendLine = { region: PricedRegion; alsoIn: number[]; notLocated: boolean };
+
+/**
+ * The lines a photo's legend lists. With no place (a photo alone, or a work photo), every line, located
+ * or not. Among the quote's photos, the lines this one locates, each with the other photos that locate
+ * it too; a line no photo locates is listed on the last photo only. Pure.
+ */
+export function legendLines(regions: PricedRegion[], place?: PhotoPlace): LegendLine[] {
+  return regions.flatMap((region): LegendLine[] => {
+    const numbers = place?.locatedIn.get(region.lineIndex) ?? [];
+    if (region.located) return [{ region, alsoIn: numbers.filter((n) => n !== place?.number), notLocated: false }];
+    return !place || (numbers.length === 0 && place.number === place.count) ? [{ region, alsoIn: [], notLocated: true }] : [];
+  });
+}
+
+/** What a photo's legend says, as a key: a photo whose key changed is drawn again. */
+const legendKey = (regions: PricedRegion[], place: PhotoPlace | undefined) =>
+  JSON.stringify([
+    place && place.count > 1 ? [place.number, place.count] : null,
+    legendLines(regions, place).map((line) => [line.region.lineIndex, line.alsoIn, line.notLocated]),
+  ]);
+
+/** "2", "1 and 3", "1, 2 and 3"; "1 y 3" in Spanish. */
+export function numberList(numbers: number[], language: Language): string {
+  if (numbers.length < 2) return numbers.join("");
+  return `${numbers.slice(0, -1).join(", ")}${language === "es" ? " y " : " and "}${numbers.at(-1)}`;
+}
+
+type SetEntry = { row: PricedPhoto; attachedAt: Date };
+type SetPhoto = { sourceId: string; attachedAt: Date; regions: PricedRegion[] };
+
+/**
+ * The quote's priced photos of its own photos, in the order the photos were attached, with when each
+ * was; none of a photo taken off the quote.
+ */
+async function photoSet(orgId: string, quoteId: string): Promise<SetEntry[]> {
+  const attachedAt = sql<Date>`coalesce(${quoteAttachments.createdAt}, ${pricedPhotos.createdAt})`;
+  const rows = await db()
+    .select({ row: pricedPhotos, attachedAt: quoteAttachments.createdAt })
+    .from(pricedPhotos)
+    .leftJoin(
+      quoteAttachments,
+      and(eq(quoteAttachments.orgId, orgId), eq(quoteAttachments.quoteId, quoteId), eq(quoteAttachments.id, pricedPhotos.sourceId)),
+    )
+    .where(
+      and(eq(pricedPhotos.orgId, orgId), eq(pricedPhotos.quoteId, quoteId), eq(pricedPhotos.sourceKind, "quote_attachment"), isNull(quoteAttachments.removedAt)),
+    )
+    .orderBy(asc(attachedAt), asc(pricedPhotos.sourceId));
+  return rows.map(({ row, attachedAt }) => ({ row, attachedAt: attachedAt ?? row.createdAt }));
+}
+
+/** The quote's priced photos of its own photos, in attachment order, each with its place among them. */
+export async function quotePricedPhotos(orgId: string, quoteId: string): Promise<Array<PricedPhoto & { place: PhotoPlace }>> {
+  const rows = (await photoSet(orgId, quoteId)).map((entry) => entry.row);
+  const places = photoPlaces(rows);
+  return rows.map((row, i) => ({ ...row, place: places[i] }));
+}
+
+/** Places by source, for photos in any order: sorted by when each was attached. */
+function placesBySource(photos: SetPhoto[]): Map<string, PhotoPlace> {
+  const sorted = [...photos].sort((a, b) => a.attachedAt.getTime() - b.attachedAt.getTime() || (a.sourceId < b.sourceId ? -1 : a.sourceId > b.sourceId ? 1 : 0));
+  const places = photoPlaces(sorted);
+  return new Map(sorted.map((photo, i) => [photo.sourceId, places[i]]));
+}
+
+/** The set's places as it is, and as it will be with `changed` in place of (or beside) its photos. */
+function replan(set: SetEntry[], changed: SetPhoto[]): { before: Map<string, PhotoPlace>; after: Map<string, PhotoPlace> } {
+  const now = set.map((entry) => ({ sourceId: entry.row.sourceId, attachedAt: entry.attachedAt, regions: entry.row.regions }));
+  const ids = new Set(changed.map((photo) => photo.sourceId));
+  return { before: placesBySource(now), after: placesBySource([...now.filter((photo) => !ids.has(photo.sourceId)), ...changed]) };
+}
+
+/** Draws again each photo of the set, other than `changed`, whose legend the new places change. */
+async function redrawStale(set: SetEntry[], changed: Set<string>, before: Map<string, PhotoPlace>, after: Map<string, PhotoPlace>): Promise<void> {
+  for (const { row } of set) {
+    if (changed.has(row.sourceId)) continue;
+    if (legendKey(row.regions, before.get(row.sourceId)) !== legendKey(row.regions, after.get(row.sourceId))) await redraw(row, after.get(row.sourceId));
+  }
+}
+
+/**
+ * Draws a priced photo again from its kept outlines, with no SAM call, for a change on another photo of
+ * the quote: not an edit of this one, so who edited it and when stay. Lands only on the row as it was
+ * read. A failure only logs.
+ */
+async function redraw(row: PricedPhoto, place: PhotoPlace | undefined): Promise<void> {
+  try {
+    const photo = await readPhoto(row);
+    const rendered = await renderBoth(photo, row.regions, row.candidates, { quoteId: row.quoteId, ...(await revisionOf(row)) }, place);
+    const [saved] = await db()
+      .update(pricedPhotos)
+      .set(rendered)
+      .where(and(eq(pricedPhotos.orgId, row.orgId), eq(pricedPhotos.id, row.id), eq(pricedPhotos.url, row.url)))
+      .returning({ id: pricedPhotos.id });
+    await deleteRenders(saved ? row : rendered, saved ? rendered : { url: "", customerUrl: null });
+  } catch (error) {
+    console.error("priced photo: drawing another photo of the quote again failed", { pricedId: row.id, error });
+  }
 }
 
 /** The priced photos on a customer's quotes, newest first: their price guide. */
@@ -401,12 +633,12 @@ async function readPhoto(row: PricedPhoto): Promise<Photo> {
  * first, the new copies are deleted and `PRICED_PHOTO_CHANGED` is thrown.
  */
 async function saveEdit(caller: Caller, row: PricedPhoto, photo: Photo, regions: PricedRegion[], candidates: PricedCandidate[]): Promise<PricedPhoto> {
-  const [revision] = await db()
-    .select({ totalCents: quoteRevisions.totalCents, language: quoteRevisions.customerLanguage })
-    .from(quoteRevisions)
-    .where(and(eq(quoteRevisions.orgId, row.orgId), eq(quoteRevisions.quoteId, row.quoteId), eq(quoteRevisions.number, row.revisionNumber)));
-  if (!revision) throw new Error("PRICED_PHOTO_NOT_FOUND");
-  const rendered = await renderBoth(photo, regions, candidates, { quoteId: row.quoteId, ...revision });
+  const revision = await revisionOf(row);
+  // A photo of the quote's own is drawn with its place among the others, and they follow its change.
+  const set = row.sourceKind === "quote_attachment" ? await photoSet(row.orgId, row.quoteId) : [];
+  const own = set.find((entry) => entry.row.id === row.id);
+  const plans = own ? replan(set, [{ sourceId: row.sourceId, attachedAt: own.attachedAt, regions }]) : null;
+  const rendered = await renderBoth(photo, regions, candidates, { quoteId: row.quoteId, ...revision }, plans?.after.get(row.sourceId));
   const [saved] = await db()
     .update(pricedPhotos)
     .set({ ...rendered, photoHeight: photo.height, regions, candidates, editedBy: caller.memberId, editedAt: new Date() })
@@ -417,10 +649,22 @@ async function saveEdit(caller: Caller, row: PricedPhoto, photo: Photo, regions:
     throw new Error("PRICED_PHOTO_CHANGED");
   }
   await deleteRenders(row, rendered);
+  if (plans) await redrawStale(set, new Set([row.sourceId]), plans.before, plans.after);
   return saved;
 }
 
-type Source = PricedPhotoSource & { url: string };
+/** The total and language of the revision a priced photo was drawn for. */
+async function revisionOf(row: PricedPhoto): Promise<{ totalCents: number; language: Language }> {
+  const [revision] = await db()
+    .select({ totalCents: quoteRevisions.totalCents, language: quoteRevisions.customerLanguage })
+    .from(quoteRevisions)
+    .where(and(eq(quoteRevisions.orgId, row.orgId), eq(quoteRevisions.quoteId, row.quoteId), eq(quoteRevisions.number, row.revisionNumber)));
+  if (!revision) throw new Error("PRICED_PHOTO_NOT_FOUND");
+  return revision;
+}
+
+/** A photo to price, with when it was attached when it's one of the quote's own. */
+type Source = PricedPhotoSource & { url: string; attachedAt?: Date };
 
 const isPhoto = (mimeType: string | null, name: string | null, url: string) =>
   mimeType ? PHOTO_TYPES.has(mimeType.toLowerCase()) : PHOTO_NAME.test(name ?? "") || PHOTO_NAME.test(new URL(url).pathname);
@@ -435,20 +679,21 @@ async function findSource(orgId: string, quoteId: string, asked: PricedPhotoSour
       .where(and(eq(workPhotos.orgId, orgId), eq(workPhotos.id, asked.id), eq(serviceJobs.quoteId, quoteId), isNull(workPhotos.removedAt)));
     return photo ? { kind: "work_photo", ...photo } : null;
   }
+  return (await quoteSources(orgId, quoteId, asked?.id)).at(-1) ?? null;
+}
+
+/** The quote's photos (JPEG or PNG attachments still on it), in the order they were attached; only `id` when one is given. */
+async function quoteSources(orgId: string, quoteId: string, id?: string): Promise<Source[]> {
   const attachments = await db()
-    .select({ id: quoteAttachments.id, url: quoteAttachments.url, name: quoteAttachments.name, mimeType: quoteAttachments.mimeType })
+    .select({ id: quoteAttachments.id, url: quoteAttachments.url, name: quoteAttachments.name, mimeType: quoteAttachments.mimeType, createdAt: quoteAttachments.createdAt })
     .from(quoteAttachments)
     .where(
-      and(
-        eq(quoteAttachments.orgId, orgId),
-        eq(quoteAttachments.quoteId, quoteId),
-        isNull(quoteAttachments.removedAt),
-        asked ? eq(quoteAttachments.id, asked.id) : undefined,
-      ),
+      and(eq(quoteAttachments.orgId, orgId), eq(quoteAttachments.quoteId, quoteId), isNull(quoteAttachments.removedAt), id ? eq(quoteAttachments.id, id) : undefined),
     )
-    .orderBy(desc(quoteAttachments.createdAt), desc(quoteAttachments.id));
-  const photo = attachments.find((a) => isPhoto(a.mimeType, a.name, a.url));
-  return photo ? { kind: "quote_attachment", id: photo.id, url: photo.url } : null;
+    .orderBy(asc(quoteAttachments.createdAt), asc(quoteAttachments.id));
+  return attachments
+    .filter((a) => isPhoto(a.mimeType, a.name, a.url))
+    .map((a) => ({ kind: "quote_attachment" as const, id: a.id, url: a.url, attachedAt: a.createdAt }));
 }
 
 export type Photo = { bytes: Uint8Array; width: number; height: number };
@@ -499,9 +744,19 @@ const OUTLINE_PX = 3;
 export const PILL = "#111111";
 const lineColor = (region: PricedRegion) => PALETTE[region.lineIndex % PALETTE.length];
 
-const COPY: Record<Language, { notLocated: string; total: string }> = {
-  en: { notLocated: "not located", total: "Total" },
-  es: { notLocated: "no ubicado", total: "Total" },
+const COPY: Record<Language, { notLocated: string; total: string; alsoIn: (numbers: number[]) => string; photo: (number: number, count: number) => string }> = {
+  en: {
+    notLocated: "not located",
+    total: "Total",
+    alsoIn: (numbers) => `also in ${numbers.length > 1 ? "photos" : "photo"} ${numberList(numbers, "en")}`,
+    photo: (number, count) => `Photo ${number} of ${count}`,
+  },
+  es: {
+    notLocated: "no ubicado",
+    total: "Total",
+    alsoIn: (numbers) => `también en ${numbers.length > 1 ? "las fotos" : "la foto"} ${numberList(numbers, "es")}`,
+    photo: (number, count) => `Foto ${number} de ${count}`,
+  },
 };
 
 // Labels are drawn with this font, so they look the same wherever the app runs, fonts installed or not:
@@ -600,7 +855,8 @@ export function maskShapes(regions: PricedRegion[], svgPaths: Map<string, string
  * once, centered on its largest object, and lines that kept the same object share one label of stacked rows. `svgPaths` holds each region's mask outlines
  * (keyed by line index, in the order of its objects); a missing one is drawn as its box. Labels that
  * would overlap move down. With `linePrices` false, labels carry quantities only; the total stays unless `total` is
- * false too. Pure given its inputs.
+ * false too. The legend lists every line, or with `place` (the photo's among the quote's priced photos)
+ * only those `legendLines` gives, under the photo's number when there are several. Pure given its inputs.
  */
 export async function renderOverlay(
   image: { bytes: Uint8Array; width: number; height: number },
@@ -608,7 +864,7 @@ export async function renderOverlay(
   svgPaths: Map<string, string[]>,
   totalCents: number,
   language: Language,
-  options: { linePrices?: boolean; total?: boolean } = {},
+  options: { linePrices?: boolean; total?: boolean; place?: PhotoPlace } = {},
 ): Promise<{ png: Uint8Array; width: number; height: number }> {
   const label = (region: PricedRegion) => lineLabel(region, language, options.linePrices ?? true);
   const { width, height } = image;
@@ -666,14 +922,18 @@ export async function renderOverlay(
     });
   }
 
-  // Legend: every line, located or not, then the quote's total (unless left off). A note that doesn't fit beside its
-  // line goes under it.
+  // Legend: the photo's number among several, its lines (`legendLines`), then the quote's total (unless
+  // left off). A note that doesn't fit beside its line goes under it.
   const swatch = Math.round(px * 0.8);
   const textLeft = pad * 2 + swatch + pad;
+  const { place } = options;
+  const header = place && place.count > 1 ? await textImage(copy.photo(place.number, place.count), px, maxText, "#a1a1aa") : null;
+  const headerSpan = header ? rowSpan(header) : 0;
   const legendRows = await Promise.all(
-    regions.map(async (region) => {
+    legendLines(regions, place).map(async ({ region, alsoIn, notLocated }) => {
       const text = await textImage(label(region), px, maxText);
-      const note = region.located ? null : await textImage(`(${copy.notLocated})`, px, maxText, "#a1a1aa");
+      const words = notLocated ? copy.notLocated : alsoIn.length ? copy.alsoIn(alsoIn) : null;
+      const note = words ? await textImage(`(${words})`, px, maxText, "#a1a1aa") : null;
       const beside = !note || textLeft + text.width + pad + note.width <= width - pad;
       return { region, label: text, note, beside, span: rowSpan(text) + (beside || !note ? 0 : rowSpan(note) - (rowHeight - lineHeight)) };
     }),
@@ -681,10 +941,11 @@ export async function renderOverlay(
   const legendTops = rowTops(legendRows.map((row) => row.span));
   const legendSpan = legendRows.reduce((sum, row) => sum + row.span, 0);
   const total = options.total === false ? null : await textImage(`${copy.total} ${formatCents(totalCents, language)}`, Math.round(px * 1.1), maxText);
-  const legendHeight = pad * 2 + legendSpan + (total ? Math.round(px * 0.5) + total.height : 0) + pad * 2;
+  const legendHeight = pad * 2 + headerSpan + legendSpan + (total ? Math.round(px * 0.5) + total.height : 0) + pad * 2;
   shapes.push(`<rect x="0" y="${height}" width="${width}" height="${legendHeight}" fill="${PILL}"/>`);
+  if (header) texts.push({ input: header.input, left: pad * 2, top: height + pad * 2 });
   legendRows.forEach(({ region, label, note, beside }, i) => {
-    const top = height + pad * 2 + legendTops[i];
+    const top = height + pad * 2 + headerSpan + legendTops[i];
     const middle = top + Math.round(lineHeight / 2);
     const x = pad * 2;
     shapes.push(
@@ -695,7 +956,7 @@ export async function renderOverlay(
     else if (note) texts.push({ input: note.input, left: textLeft, top: top + label.height });
   });
   if (total) {
-    const totalTop = height + pad * 2 + legendSpan + Math.round(px * 0.5);
+    const totalTop = height + pad * 2 + headerSpan + legendSpan + Math.round(px * 0.5);
     shapes.push(`<line x1="${pad * 2}" y1="${totalTop - Math.round(px * 0.35)}" x2="${width - pad * 2}" y2="${totalTop - Math.round(px * 0.35)}" stroke="#3f3f46" stroke-width="1"/>`);
     texts.push({ input: total.input, left: pad * 2, top: totalTop });
   }

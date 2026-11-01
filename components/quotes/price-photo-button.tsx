@@ -7,8 +7,8 @@ import { pageCopyFor } from "@/lib/page-copy";
 import { Button } from "@/ui/beautiful/atoms/Button";
 
 /**
- * Prices the quote's latest photo (`POST /api/quotes/[id]/priced`), a plain form post that comes back to
- * the page. Pricing takes a few seconds, so the button says so until the page returns.
+ * Prices every photo on the quote (`POST /api/quotes/[id]/priced`), a plain form post that comes back to
+ * the page. Pricing takes a few seconds a photo, so the button says so until the page returns.
  */
 export function PricePhotoButton({ quoteId, again, language }: { quoteId: string; again: boolean; language: Language }) {
   const q = pageCopyFor(language).quotes;

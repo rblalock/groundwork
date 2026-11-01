@@ -85,7 +85,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
   const caller = await pageMember();
   const { id } = await params;
   const { priced: pricedOutcome, edit: editPriced } = await searchParams;
-  const { quote, timeline, depositPaidCents, pricedPhoto, beforeAfter, socialPost } = await quoteFor(caller, id).catch((error: unknown) => {
+  const { quote, timeline, depositPaidCents, pricedPhotos, beforeAfter, socialPost } = await quoteFor(caller, id).catch((error: unknown) => {
     if (error instanceof HttpError && error.status === 404) notFound();
     throw error;
   });
@@ -136,7 +136,7 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
   const sections: JumpSection[] = [
     { id: "lines", label: q.lines },
     ...(quote.attachments.length > 0 ? [{ id: "photos", label: q.photos, count: quote.attachments.length }] : []),
-    ...(hasPhoto || pricedPhoto ? [{ id: "priced-photo", label: q.pricedPhoto }] : []),
+    ...(hasPhoto || pricedPhotos.length > 0 ? [{ id: "priced-photo", label: q.pricedPhoto }] : []),
     ...(work.length > 0 || bookHref ? [{ id: "work", label: copy.schedule.onRecord, count: visits.length }] : []),
     ...(notes.length > 0 ? [{ id: "notes", label: copy.notes.onQuote, count: notes.length }] : []),
     ...(jobs.length > 0 ? [{ id: "threads", label: copy.jobs.onRecord, count: jobs.length }] : []),
@@ -359,15 +359,15 @@ export default async function QuoteDetailPage({ params, searchParams }: { params
                   </RecordSection>
                 ) : null}
 
-                {hasPhoto || pricedPhoto ? (
+                {hasPhoto || pricedPhotos.length > 0 ? (
                   <RecordSection id="priced-photo">
                     <PricedPhotoSection
-                      canEdit={caller.memberId !== null && pricedPhoto !== null}
+                      canEdit={caller.memberId !== null && pricedPhotos.length > 0}
                       canPrice={caller.memberId !== null && hasPhoto}
                       editId={typeof editPriced === "string" && editPriced ? editPriced : undefined}
                       language={language}
                       outcome={pricedOutcome}
-                      pricedPhoto={pricedPhoto}
+                      pricedPhotos={pricedPhotos}
                       quoteId={quote.quoteId}
                     />
                     {beforeAfter ? (

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { workPhotos } from "../../schema/schema";
@@ -12,17 +13,19 @@ import { pdfFileName } from "../../core/pdf";
 import { getProfile } from "../../core/profile";
 import {
   assignPricedPhoto,
-  createPricedPhoto,
   drawInPricedPhoto,
   findInPricedPhoto,
+  legendLines,
   pricedPhotoOnQuote,
   pricedPhotoSize,
   pricedPhotosFor,
+  pricePhotos,
+  quotePricedPhotos,
   removeDrawnFromPricedPhoto,
   MAX_FIND_PHRASE,
   type FindAsk,
   type PricedPhoto,
-  type PricedPhotoResult,
+  type PricedPhotosResult,
 } from "../../core/priced-photo";
 import { MAX_DRAWN_POINTS, MAX_PROMPT_POINTS, MIN_DRAWN_POINTS, type Assignment } from "../../core/priced-photo-select";
 import { customerLinkFor } from "../../core/quote-link";
@@ -117,7 +120,9 @@ export async function assertVisible(caller: AppCaller, quoteId: string): Promise
 
 /**
  * `depositPaidCents` is what's been paid of the quote's deposit, for owners and admins (null otherwise, or
- * with none asked). `pricedPhoto` is its latest priced photo, and the lines it couldn't find in it.
+ * with none asked). `pricedPhotos` are its priced photos: those of its own photos in attachment order,
+ * each numbered when there are several, then its newest finished-job one; each with the lines its legend
+ * says no photo shows.
  * `beforeAfter` is its before-and-after, when it has a priced photo from before the job and one after,
  * and `socialPost` the post made from it: its image in each format, with and without the line asking
  * for the next job, and the caption for each. `ctaAvailable` is false when the business has no phone or
@@ -127,7 +132,7 @@ export type QuotePage = {
   quote: QuoteDetail;
   timeline: TimelineEntry[];
   depositPaidCents: number | null;
-  pricedPhoto: { id: string; url: string; notLocated: string[] } | null;
+  pricedPhotos: Array<{ id: string; url: string; number: number | null; notLocated: string[] }>;
   beforeAfter: { href: string; outlinedHref: string } | null;
   socialPost: {
     images: Record<PostFormat, { withCta: string; withoutCta: string }>;
@@ -140,7 +145,8 @@ export async function quoteFor(caller: AppCaller, quoteId: string): Promise<Quot
   await assertVisible(caller, quoteId);
   const [quote, timeline, photos] = await Promise.all([getQuote(caller.orgId, quoteId), quoteTimeline(caller.orgId, quoteId), pricedPhotosFor(caller.orgId, quoteId)]);
   if (!quote) throw notFound();
-  const [priced] = photos;
+  const own = await quotePricedPhotos(caller.orgId, quoteId);
+  const after = photos.find((photo) => photo.sourceKind === "work_photo");
   const pair = pairOf(photos);
   // A quote approved before links existed gets its link the first time it's looked at.
   const customerLink = quote.customerLink ?? (await customerLinkFor(caller.orgId, quoteId));
@@ -150,9 +156,17 @@ export async function quoteFor(caller: AppCaller, quoteId: string): Promise<Quot
     quote: { ...quote, customerLink },
     timeline: timeline ?? [],
     depositPaidCents: deposits ? deposits.reduce((sum, p) => sum + p.amountCents, 0) : null,
-    pricedPhoto: priced
-      ? { id: priced.id, url: pricedPhotoHref(priced), notLocated: priced.regions.filter((region) => !region.located).map((region) => region.name) }
-      : null,
+    pricedPhotos: [
+      ...own.map((photo) => ({
+        id: photo.id,
+        url: pricedPhotoHref(photo),
+        number: photo.place.count > 1 ? photo.place.number : null,
+        notLocated: legendLines(photo.regions, photo.place).flatMap((line) => (line.notLocated ? [line.region.name] : [])),
+      })),
+      ...(after
+        ? [{ id: after.id, url: pricedPhotoHref(after), number: null, notLocated: after.regions.filter((region) => !region.located).map((region) => region.name) }]
+        : []),
+    ],
     beforeAfter: pair
       ? { href: beforeAfterHref({ quoteId, version: pair.version }), outlinedHref: beforeAfterHref({ quoteId, version: pair.version }, { outlines: true }) }
       : null,
@@ -193,9 +207,15 @@ export type QuoteCard = {
   post: { format: PostFormat; url: string } | null;
 };
 
-/** Where the app serves a priced photo; the version changes when it's made again or edited, so a cached one isn't shown. */
-export const pricedPhotoHref = (photo: Pick<PricedPhoto, "id" | "quoteId" | "createdAt" | "editedAt">) =>
-  `/api/quotes/${encodeURIComponent(photo.quoteId)}/priced/${encodeURIComponent(photo.id)}?v=${Math.max(photo.createdAt.getTime(), photo.editedAt?.getTime() ?? 0)}`;
+/** A short tag of a render's stored address, which changes each time the photo is drawn. */
+export const renderTag = (url: string) => createHash("sha256").update(url).digest("hex").slice(0, 8);
+
+/**
+ * Where the app serves a priced photo; the version changes when it's made again, edited, or drawn again
+ * for a change on another of the quote's photos, so a cached one isn't shown.
+ */
+export const pricedPhotoHref = (photo: Pick<PricedPhoto, "id" | "quoteId" | "createdAt" | "editedAt" | "url">) =>
+  `/api/quotes/${encodeURIComponent(photo.quoteId)}/priced/${encodeURIComponent(photo.id)}?v=${Math.max(photo.createdAt.getTime(), photo.editedAt?.getTime() ?? 0)}.${renderTag(photo.url)}`;
 
 /**
  * A before-and-after's or a post's version as its address carries it: the pair's version and the
@@ -376,10 +396,10 @@ export async function socialPostFile(caller: AppCaller, quoteId: string, options
   return { bytes: post.png, contentType: "image/png", filename: `before-after-${options.format}.png`, version: socialPostVersion(post.pair.version) };
 }
 
-/** Makes (or makes again) the quote's priced photo from its latest photo, as the assistant's price_photo does. */
-export async function pricePhotoFromApp(caller: AppCaller, quoteId: string): Promise<PricedPhotoResult> {
+/** Prices every photo on the quote (or prices them again), as the assistant's price_photo does with no photo named. */
+export async function pricePhotoFromApp(caller: AppCaller, quoteId: string): Promise<PricedPhotosResult> {
   await assertVisible(caller, quoteId);
-  return createPricedPhoto(memberCaller(caller), { quoteId });
+  return pricePhotos(memberCaller(caller), { quoteId });
 }
 
 // The priced photo editor on the quote page: anyone on the team who may see the quote moves the objects
