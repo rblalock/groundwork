@@ -2,7 +2,7 @@
 // "here" or "on site" to start a stop; "running 30 late" to declare a delay. Each reads the member's day as it
 // re-plans from now (`core/day-plan.ts`), and every time and minute in the replies is worked out here; the
 // assistant sends `text` as it is. Nothing here reaches a customer or moves a visit.
-import { ensureChecklist, checklistText } from "./checklist";
+import { checklistOutlines, checklistText, ensureChecklist } from "./checklist";
 import { dayPlans, type DayPlan, type PlanStop } from "./day-plan";
 import type { Language } from "./language";
 import { isPrivileged } from "./members";
@@ -72,7 +72,7 @@ async function siteNotes(viewer: Viewer, visit: VisitView): Promise<string[]> {
 async function checklistLines(orgId: string, jobId: string, language: Language): Promise<string | null> {
   try {
     const items = await ensureChecklist(orgId, jobId);
-    return items.length ? checklistText(items, language) : null;
+    return items.length ? checklistText(items, language, await checklistOutlines(orgId, jobId)) : null;
   } catch (error) {
     console.error("crew phone: the checklist was left off the next stop", error);
     return null;

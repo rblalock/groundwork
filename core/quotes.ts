@@ -121,6 +121,8 @@ export type Poster = (
     file?: { filename: string; mimeType: string; data: Buffer };
     /** Where the file is stored, logged with its post so the web thread can link it. */
     fileUrl?: string;
+    /** More files, each posted on its own after `file`, in order, with where each is stored. */
+    files?: Array<{ file: { filename: string; mimeType: string; data: Buffer }; fileUrl?: string }>;
     quoteId?: string;
     /** The post asks the member to approve `quoteId`, so a 👍 on it can mean "ok". */
     asksApproval?: boolean;

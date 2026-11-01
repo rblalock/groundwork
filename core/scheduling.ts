@@ -1881,9 +1881,9 @@ const defaultPost: Poster = async (orgId, memberId, payload, kind) => {
 
 /**
  * Texts crew members about a change to their schedule, each in their language, never the one who made
- * it. `brief` adds the work's priced photo, in their language. Held back by quiet hours, the text is queued for
- * when they end, without the file. A failed text never fails the change. Returns the names of who got it
- * now or will then.
+ * it. `brief` adds the work's priced photos, in their language, each its own file after the text, in
+ * attachment order. Held back by quiet hours, the text is queued for when they end, without the files. A
+ * failed text never fails the change. Returns the names of who got it now or will then.
  */
 async function tellCrew(
   actor: Actor,
@@ -1902,8 +1902,8 @@ async function tellCrew(
   for (const member of rows) {
     const body = text(languageOf(member));
     try {
-      const photo = brief ? await brief.photo(languageOf(member)) : null;
-      const result = await (deps?.post ?? defaultPost)(actor.orgId, member.id, { text: body, ...(photo ?? {}) }, "proactive");
+      const photos = brief ? await brief.photos(languageOf(member)) : [];
+      const result = await (deps?.post ?? defaultPost)(actor.orgId, member.id, { text: body, ...(photos.length ? { files: photos } : {}) }, "proactive");
       if (result.posted) {
         out.push(member.name);
       } else if (result.reason === "quiet_hours") {

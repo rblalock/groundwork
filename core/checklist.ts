@@ -1,8 +1,10 @@
 // The work's checklist: one item per line of its quote, for the crew to tick off as they go. Made from
 // the quote's current revision when the work's first visit is booked, or when someone reads it and it has
 // none yet. Each item's text is built here from the line's name, quantity, and unit, in the reader's
-// language: never the model's words, and never a price. An item is "outlined in the photo" when the
-// quote's priced photo found that line. Anyone on the team ticks an item or unticks it; the tick that
+// language: never the model's words, and never a price. An item is outlined when any of the quote's
+// priced photos found that line: "outlined in the photo" with one, "outlined in photo 2" or "outlined in
+// photos 1 and 3" with several, numbered in attachment order as the crew get them. Anyone on the team
+// ticks an item or unticks it; the tick that
 // finishes the list marks the work's open visit done, once its day has come, as "done at Oak St" would.
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { checklistItems, members, serviceJobs } from "../schema/schema";
@@ -11,7 +13,7 @@ import { storeInboundAttachment } from "./blob";
 import { db, newId, type Db, type Tx } from "./db";
 import { recordEvent } from "./events";
 import type { Language } from "./language";
-import { crewCopy, pricedPhotosFor, type PricedPhoto } from "./priced-photo";
+import { crewCopy, numberList, photoPlaces, quotePricedPhotos, type PhotoPlace, type PricedPhoto } from "./priced-photo";
 import { getProfile } from "./profile";
 import { getQuote, type Poster } from "./quotes";
 import { changeVisitStatus, getServiceJob, type Actor, type VisitView } from "./scheduling";
@@ -29,16 +31,30 @@ export type ChecklistItemView = {
   doneByName: string | null;
 };
 
-/** What a new item is made from: a quote line, and whether the priced photo outlines it. */
+/** What a new item is made from: a quote line, and whether a priced photo outlines it. */
 export type ItemSeed = Pick<ChecklistItemView, "lineIndex" | "name" | "quantity" | "unitLabel" | "located">;
 
-const OUTLINED: Record<Language, string> = { en: "outlined in the photo", es: "marcada en la foto" };
+/** How many priced photos the quote has, and the numbers of those that outline each line, by line index. */
+export type Outlines = { count: number; byLine: Map<number, number[]> };
+
+const OUTLINED: Record<Language, { one: string; some: string; numbered: (numbers: number[]) => string }> = {
+  en: {
+    one: "outlined in the photo",
+    some: "outlined in the photos",
+    numbered: (numbers) => `outlined in ${numbers.length > 1 ? "photos" : "photo"} ${numberList(numbers, "en")}`,
+  },
+  es: {
+    one: "marcada en la foto",
+    some: "marcada en las fotos",
+    numbered: (numbers) => `marcada en ${numbers.length > 1 ? "las fotos" : "la foto"} ${numberList(numbers, "es")}`,
+  },
+};
 const DONE_MARK = "✓";
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
 const quantityText = (quantity: number) => String(Number(quantity.toFixed(2)));
 
-/** One item per quote line, in line order; located when the priced photo's region for that line is. */
+/** One item per quote line, in line order; located when any priced photo's region for that line is (`regions` from all of them). */
 export function itemsFromLines(
   lines: Array<Pick<LineResult, "name" | "quantity" | "unitLabel">>,
   regions: Array<Pick<PricedRegion, "lineIndex" | "located">>,
@@ -52,10 +68,27 @@ export function itemsFromLines(
   }));
 }
 
-/** "Mulch installed, 3 cubic yards (outlined in the photo)". */
-export function itemText(item: Pick<ItemSeed, "name" | "quantity" | "unitLabel" | "located">, language: Language): string {
+/** The quote's priced photos as the list points to them. Pure. */
+export function outlinesOf(photos: Array<Pick<PricedPhoto, "regions">>): Outlines {
+  return { count: photos.length, byLine: photoPlaces(photos)[0]?.locatedIn ?? new Map() };
+}
+
+type TextItem = Pick<ItemSeed, "name" | "quantity" | "unitLabel" | "located"> & { lineIndex?: number };
+
+/**
+ * "Mulch installed, 3 cubic yards (outlined in the photo)", or "(outlined in photos 1 and 3)" when the
+ * quote has several priced photos (`outlines`); "(outlined in the photos)" when none of them shows it now.
+ */
+export function itemText(item: TextItem, language: Language, outlines?: Outlines): string {
   const unit = pluralUnit(item.quantity, oneLine(item.unitLabel), language);
-  return `${oneLine(item.name)}, ${quantityText(item.quantity)}${unit ? ` ${unit}` : ""}${item.located ? ` (${OUTLINED[language]})` : ""}`;
+  return `${oneLine(item.name)}, ${quantityText(item.quantity)}${unit ? ` ${unit}` : ""}${item.located ? ` (${outlinedText(item.lineIndex, language, outlines)})` : ""}`;
+}
+
+function outlinedText(lineIndex: number | undefined, language: Language, outlines: Outlines | undefined): string {
+  const copy = OUTLINED[language];
+  if (!outlines || outlines.count <= 1) return copy.one;
+  const numbers = lineIndex === undefined ? [] : (outlines.byLine.get(lineIndex) ?? []);
+  return numbers.length ? copy.numbered(numbers) : copy.some;
 }
 
 /**
@@ -67,9 +100,9 @@ export function markOutlined(items: Array<Pick<ChecklistItemView, "located">>): 
 }
 
 /** The list as lines to send, numbered, each done item marked: "1. Mulch installed, 3 cubic yards ✓". */
-export function checklistText(items: Array<Pick<ChecklistItemView, "name" | "quantity" | "unitLabel" | "located" | "doneAt">>, language: Language): string {
+export function checklistText(items: Array<TextItem & Pick<ChecklistItemView, "doneAt">>, language: Language, outlines?: Outlines): string {
   const mark = markOutlined(items);
-  return items.map((item, index) => `${index + 1}. ${itemText({ ...item, located: item.located && mark }, language)}${item.doneAt ? ` ${DONE_MARK}` : ""}`).join("\n");
+  return items.map((item, index) => `${index + 1}. ${itemText({ ...item, located: item.located && mark }, language, outlines)}${item.doneAt ? ` ${DONE_MARK}` : ""}`).join("\n");
 }
 
 export function checklistCounts(items: Array<Pick<ChecklistItemView, "doneAt">>): { done: number; total: number } {
@@ -77,21 +110,21 @@ export function checklistCounts(items: Array<Pick<ChecklistItemView, "doneAt">>)
 }
 
 /** The list as tools return it: each item's text and whether, by whom, and when it was ticked; `text` is ready to send. */
-export function checklistForTool(items: ChecklistItemView[], timeZone: string, language: Language) {
+export function checklistForTool(items: ChecklistItemView[], timeZone: string, language: Language, outlines?: Outlines) {
   const { done, total } = checklistCounts(items);
   const mark = markOutlined(items);
   return {
     items: items.map((item, index) => ({
       itemId: item.itemId,
       number: index + 1,
-      text: itemText({ ...item, located: item.located && mark }, language),
+      text: itemText({ ...item, located: item.located && mark }, language, outlines),
       done: Boolean(item.doneAt),
       ...(item.doneAt ? { doneBy: item.doneByName, doneAt: `${dayText(wallClock(item.doneAt, timeZone).date, language)}, ${timeText(item.doneAt, timeZone, language)}` } : {}),
     })),
     done,
     total,
     allDone: done === total,
-    text: checklistText(items, language),
+    text: checklistText(items, language, outlines),
   };
 }
 
@@ -127,9 +160,18 @@ export async function checklistFor(orgId: string, jobId: string, executor: Db | 
   }));
 }
 
-/** The priced photo the list's outlined items are on: the newest made from the quote's own photo. */
-export async function checklistPhoto(orgId: string, quoteId: string): Promise<PricedPhoto | null> {
-  return (await pricedPhotosFor(orgId, quoteId)).find((photo) => photo.sourceKind === "quote_attachment") ?? null;
+/** The priced photos the list's outlined items are on: those of the quote's own photos, in attachment order. */
+export function checklistPhotos(orgId: string, quoteId: string): Promise<Array<PricedPhoto & { place: PhotoPlace }>> {
+  return quotePricedPhotos(orgId, quoteId);
+}
+
+/** The work's quote's priced photos as its list points to them; none for work without a quote. */
+export async function checklistOutlines(orgId: string, jobId: string): Promise<Outlines> {
+  const [job] = await db()
+    .select({ quoteId: serviceJobs.quoteId })
+    .from(serviceJobs)
+    .where(and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.id, jobId)));
+  return outlinesOf(job?.quoteId ? await checklistPhotos(orgId, job.quoteId) : []);
 }
 
 /**
@@ -146,8 +188,8 @@ export async function ensureChecklist(orgId: string, jobId: string): Promise<Che
   if (!job?.quoteId) return [];
   const quote = await getQuote(orgId, job.quoteId);
   if (!quote?.lines.length) return [];
-  const photo = await checklistPhoto(orgId, quote.quoteId);
-  const seeds = itemsFromLines(quote.lines, photo?.regions ?? []);
+  const photos = await checklistPhotos(orgId, quote.quoteId);
+  const seeds = itemsFromLines(quote.lines, photos.flatMap((photo) => photo.regions));
   await db()
     .insert(checklistItems)
     .values(seeds.map((seed) => ({ id: newId("chk"), orgId, jobId, ...seed })))
@@ -157,11 +199,14 @@ export async function ensureChecklist(orgId: string, jobId: string): Promise<Che
 
 export type CrewPhoto = { file: { filename: string; mimeType: string; data: Buffer }; fileUrl: string };
 
-/** What booked crew get after the booking line: the list, and the priced photo it points to when there is one. */
+/** What booked crew get after the booking line: the list, and the priced photos it points to. */
 export type CrewChecklist = {
   lines: (language: Language) => string;
-  /** The priced photo's crew copy in that language (quantities, no prices), drawn and stored once per language. */
-  photo: (language: Language) => Promise<CrewPhoto | null>;
+  /**
+   * The crew copies of the quote's priced photos in that language (quantities, no prices), in attachment
+   * order, drawn and stored once per language. A photo that can't be drawn or stored is left out.
+   */
+  photos: (language: Language) => Promise<CrewPhoto[]>;
 };
 
 /** The work's list for a crew text, made first if need be; null for work without a quote or an empty one. */
@@ -172,20 +217,32 @@ export async function crewChecklist(orgId: string, jobId: string): Promise<CrewC
     .select({ quoteId: serviceJobs.quoteId })
     .from(serviceJobs)
     .where(and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.id, jobId)));
-  const priced = job?.quoteId ? await checklistPhoto(orgId, job.quoteId) : null;
-  const drawn = new Map<Language, Promise<CrewPhoto | null>>();
-  const draw = async (language: Language): Promise<CrewPhoto | null> => {
-    const png = priced ? await crewCopy(priced, language) : null;
+  const priced = job?.quoteId ? await checklistPhotos(orgId, job.quoteId) : [];
+  const outlines = outlinesOf(priced);
+  const drawn = new Map<Language, Promise<CrewPhoto[]>>();
+  const drawOne = async (photo: (typeof priced)[number], language: Language): Promise<CrewPhoto | null> => {
+    const png = await crewCopy(photo, language, photo.place);
     if (!png) return null;
-    const filename = "priced-photo.png";
+    const filename = priced.length > 1 ? `priced-photo-${photo.place.number}.png` : "priced-photo.png";
     const fileUrl = await storeInboundAttachment(filename, "image/png", png);
     return { file: { filename, mimeType: "image/png", data: Buffer.from(png) }, fileUrl };
   };
+  const draw = async (language: Language): Promise<CrewPhoto[]> => {
+    const out: CrewPhoto[] = [];
+    for (const photo of priced) {
+      // A photo that can't be drawn or stored leaves the rest, and the text, to go on.
+      const one = await drawOne(photo, language).catch((error: unknown) => {
+        console.error("checklist: a priced photo was left off the crew text", { pricedId: photo.id, error });
+        return null;
+      });
+      if (one) out.push(one);
+    }
+    return out;
+  };
   return {
-    lines: (language) => checklistText(items, language),
-    photo: (language) => {
-      // A photo that can't be drawn or stored leaves the text to go on its own.
-      if (!drawn.has(language)) drawn.set(language, draw(language).catch(() => null));
+    lines: (language) => checklistText(items, language, outlines),
+    photos: (language) => {
+      if (!drawn.has(language)) drawn.set(language, draw(language));
       return drawn.get(language)!;
     },
   };

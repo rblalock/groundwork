@@ -106,16 +106,21 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
                           }))}
                         />
                       </div>
-                      {checklist.photoHref ? (
-                        <a
-                          className="block w-full shrink-0 overflow-hidden rounded-[8px] bg-inset shadow-hairline transition-opacity hover:opacity-90 sm:w-40"
-                          href={checklist.photoHref}
-                          rel="noopener"
-                          target="_blank"
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
-                          <img alt={w.pricedPhoto} className="w-full" loading="lazy" src={checklist.photoHref} />
-                        </a>
+                      {checklist.photoHrefs.length > 0 ? (
+                        <div className="flex w-full shrink-0 flex-col gap-2 sm:w-40">
+                          {checklist.photoHrefs.map((href, index) => (
+                            <a
+                              className="block overflow-hidden rounded-[8px] bg-inset shadow-hairline transition-opacity hover:opacity-90"
+                              href={href}
+                              key={href}
+                              rel="noopener"
+                              target="_blank"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element -- served by our own route, any size */}
+                              <img alt={checklist.photoHrefs.length > 1 ? w.pricedPhotoNumber(index + 1) : w.pricedPhoto} className="w-full" loading="lazy" src={href} />
+                            </a>
+                          ))}
+                        </div>
                       ) : null}
                     </div>
                   </Card>

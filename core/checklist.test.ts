@@ -1,8 +1,15 @@
+// The crew's priced photos are stored in a temp folder as file:// URLs, as they would be in local dev.
+import { copyFileSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+process.env.BLOB_LOCAL_DIR = mkdtempSync(join(tmpdir(), "checklist-blobs-"));
+
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { pricedPhotos } from "../schema/schema";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { pricedPhotos, quoteAttachments } from "../schema/schema";
 import type { PricedRegion } from "../schema/types";
-import { checklistCounts, checklistFor, checklistText, ensureChecklist, itemsFromLines, itemText, tickChecklist, visitToComplete } from "./checklist";
+import { checklistCounts, checklistFor, checklistText, ensureChecklist, itemsFromLines, itemText, outlinesOf, tickChecklist, visitToComplete } from "./checklist";
 import { saveCustomer } from "./customers";
 import { db } from "./db";
 import { addPhone, createMember, recordInbound, type Caller } from "./members";
@@ -31,6 +38,38 @@ test("items follow the quote's lines in order, located only where the photo's re
     { lineIndex: 2, name: "Bed edging", quantity: 40, unitLabel: "linear foot", located: false },
   ]);
   assert.ok(itemsFromLines(lines, []).every((item) => !item.located), "no priced photo: nothing located");
+  // Several photos: their regions together, and a line any of them locates is located.
+  const second = [
+    { lineIndex: 0, located: false },
+    { lineIndex: 1, located: true },
+  ];
+  assert.deepEqual(
+    itemsFromLines(lines, [...regions, ...second]).map((item) => item.located),
+    [true, true, false],
+  );
+});
+
+test("with several priced photos, an item says which photos outline it", () => {
+  const photos = [
+    { regions: [{ lineIndex: 0, located: true }, { lineIndex: 1, located: false }] },
+    { regions: [{ lineIndex: 0, located: false }, { lineIndex: 1, located: true }] },
+    { regions: [{ lineIndex: 0, located: true }, { lineIndex: 1, located: false }] },
+  ] as unknown as Parameters<typeof outlinesOf>[0];
+  const outlines = outlinesOf(photos);
+  const mulch = { lineIndex: 0, name: "Mulch installed", quantity: 3, unitLabel: "cubic yard", located: true };
+  const hedge = { lineIndex: 1, name: "Hedge trimming", quantity: 150, unitLabel: "cubic foot", located: true };
+  assert.equal(itemText(mulch, "en", outlines), "Mulch installed, 3 cubic yards (outlined in photos 1 and 3)");
+  assert.equal(itemText(hedge, "en", outlines), "Hedge trimming, 150 cubic feet (outlined in photo 2)");
+  assert.equal(itemText(mulch, "es", outlines), "Mulch installed, 3 cubic yards (marcada en las fotos 1 y 3)");
+  assert.equal(itemText({ ...hedge, quantity: 1, unitLabel: "hedge" }, "es", outlines), "Hedge trimming, 1 hedge (marcada en la foto 2)");
+  // One photo says "the photo"; an item no photo shows now, though it was outlined, says "the photos".
+  assert.equal(itemText(mulch, "en", outlinesOf(photos.slice(0, 1))), "Mulch installed, 3 cubic yards (outlined in the photo)");
+  assert.equal(itemText({ ...mulch, lineIndex: 2 }, "en", outlines), "Mulch installed, 3 cubic yards (outlined in the photos)");
+  const edging = { lineIndex: 2, name: "Bed edging", quantity: 40, unitLabel: "linear foot", located: false, doneAt: null };
+  assert.equal(
+    checklistText([{ ...mulch, doneAt: null }, edging], "en", outlines),
+    "1. Mulch installed, 3 cubic yards (outlined in photos 1 and 3)\n2. Bed edging, 40 linear feet",
+  );
 });
 
 test("item text is the line's name, quantity, and unit, in the reader's language, and never a price", () => {
@@ -77,7 +116,8 @@ const MONDAY_11AM = new Date("2026-10-19T15:00:00Z");
 
 let posts: Array<{ memberId: string; text: string; file: string | null }> = [];
 const post: Poster = async (_orgId, memberId, payload) => {
-  posts.push({ memberId, text: payload.text ?? "", file: payload.file ? `${payload.file.filename} ${payload.file.mimeType}` : null });
+  const files = [...(payload.file ? [payload.file] : []), ...(payload.files ?? []).map((f) => f.file)];
+  posts.push({ memberId, text: payload.text ?? "", file: files.length ? files.map((f) => `${f.filename} ${f.mimeType}`).join(", ") : null });
   return { posted: true };
 };
 
@@ -88,8 +128,11 @@ async function person(name: string, role: Caller["role"], phone: string): Promis
   return { orgId: TEST_ORG, memberId: member.id, name, role, language: "en", phoneE164: phone };
 }
 
-/** Pat, Carlos, and Maria's won quote for mulch and edging, with a priced photo that found the mulch. */
-async function seed() {
+/**
+ * Pat, Carlos, and Maria's won quote for mulch and edging, with a priced photo that found the mulch; with
+ * `secondPhoto`, a photo of the back attached after it, priced too, that found the mulch as well.
+ */
+async function seed(options: { secondPhoto?: boolean } = {}) {
   posts = [];
   const pat = await person("Pat Ortega", "owner", "+15555550101");
   const carlos = await person("Carlos Reyes", "member", "+15555550102");
@@ -144,6 +187,33 @@ async function seed() {
       height: 600,
       regions: [region(0, "Mulch installed", 3, "cubic yard", true), region(1, "Bed edging", 40, "linear foot", false)],
     });
+  if (options.secondPhoto) {
+    // The same yard under another name: a photo's priced copy is one per stored photo.
+    const back = join(mkdtempSync(join(tmpdir(), "checklist-")), "yard-back.jpg");
+    copyFileSync(fileURLToPath(YARD), back);
+    const at = (seconds: number) => new Date(Date.UTC(2026, 9, 18, 12, 0, seconds));
+    await db()
+      .insert(quoteAttachments)
+      .values([
+        { id: "qa_test", orgId: TEST_ORG, quoteId: quote.quoteId, uploadedByMemberId: pat.memberId, url: YARD, name: "yard-front.jpg", mimeType: "image/jpeg", createdAt: at(0) },
+        { id: "qa_back", orgId: TEST_ORG, quoteId: quote.quoteId, uploadedByMemberId: pat.memberId, url: pathToFileURL(back).href, name: "yard-back.jpg", mimeType: "image/jpeg", createdAt: at(1) },
+      ]);
+    await db()
+      .insert(pricedPhotos)
+      .values({
+        id: "pp_back",
+        orgId: TEST_ORG,
+        quoteId: quote.quoteId,
+        revisionNumber: 1,
+        sourceKind: "quote_attachment",
+        sourceId: "qa_back",
+        sourceUrl: pathToFileURL(back).href,
+        url: "file:///priced-back.png",
+        width: 800,
+        height: 600,
+        regions: [region(0, "Mulch installed", 3, "cubic yard", true), region(1, "Bed edging", 40, "linear foot", false)],
+      });
+  }
   posts = [];
   return { pat, carlos, quote };
 }
@@ -202,4 +272,37 @@ withTestDb("a finished list never marks a visit on a later day done", async () =
   assert.equal(done.allDone, true);
   assert.equal(done.visitCompleted, null);
   assert.equal((await getVisit(s.pat, booked.visit.visitId))?.status, "scheduled");
+});
+
+withTestDb("with several priced photos, booked crew get each one in order and the list says which photos show what", async () => {
+  const s = await seed({ secondPhoto: true });
+  const booked = await bookVisit(s.pat, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "today", time: "09:00" }, { now: MONDAY_7AM, post });
+  assert.deepEqual(posts, [
+    {
+      memberId: s.carlos.memberId,
+      text: "Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards (outlined in photos 1 and 2)\n2. Bed edging, 40 linear feet",
+      file: "priced-photo-1.png image/png, priced-photo-2.png image/png",
+    },
+  ]);
+  const items = await checklistFor(TEST_ORG, booked.visit.jobId);
+  assert.deepEqual(items.map((item) => item.located), [true, false]);
+});
+
+withTestDb("through the fake iMessage transport, booked crew see the list's text, then each priced photo on its own", async () => {
+  const s = await seed({ secondPhoto: true });
+  const printed: string[] = [];
+  const log = console.log;
+  console.log = (...args: unknown[]) => void printed.push(args.map(String).join(" "));
+  try {
+    await bookVisit(s.pat, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "today", time: "09:00" }, { now: MONDAY_7AM });
+  } finally {
+    console.log = log;
+  }
+  const sent = printed.filter((line) => line.startsWith("imessage (fake)")).map((line) => line.replace(/\(\d+ bytes\)/, "(N bytes)"));
+  if (process.env.SHOW_FAKE_IMESSAGE) log(sent.join("\n"));
+  assert.deepEqual(sent, [
+    "imessage (fake) to thread:+15555550102: Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards (outlined in photos 1 and 2)\n2. Bed edging, 40 linear feet",
+    "imessage (fake) file to thread:+15555550102: priced-photo-1.png (N bytes)",
+    "imessage (fake) file to thread:+15555550102: priced-photo-2.png (N bytes)",
+  ]);
 });

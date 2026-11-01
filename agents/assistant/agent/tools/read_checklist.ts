@@ -1,6 +1,6 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { checklistForTool, ensureChecklist } from "../../../../core/checklist";
+import { checklistForTool, checklistOutlines, ensureChecklist } from "../../../../core/checklist";
 import type { Language } from "../../../../core/language";
 import { getProfile } from "../../../../core/profile";
 import { getServiceJob } from "../../../../core/scheduling";
@@ -13,7 +13,7 @@ const NO_QUOTE: Record<Language, string> = {
 
 export default defineTool({
   description:
-    "Read the work's checklist: one item per line of its quote (name, quantity, unit; never prices), \"outlined in the photo\" when the quote's priced photo shows it, each with done, who ticked it, and when. Pass jobId (sj_…, from read_schedule). Anyone on the team reads any work's list. The first read makes it from the quote when the work has none yet. text is the numbered list, done items marked ✓, ready to send. Pass itemIds to tick_checklist. Work with no quote has no list: a note says so.",
+    "Read the work's checklist: one item per line of its quote (name, quantity, unit; never prices), \"outlined in the photo\" (or \"in photo 2\" when the quote has several) when a priced photo shows it, each with done, who ticked it, and when. Pass jobId (sj_…, from read_schedule). Anyone on the team reads any work's list. The first read makes it from the quote when the work has none yet. text is the numbered list, done items marked ✓, ready to send. Pass itemIds to tick_checklist. Work with no quote has no list: a note says so.",
   inputSchema: z.object({ jobId: z.string().describe("The work (sj_…).") }),
   async execute({ jobId }, ctx) {
     try {
@@ -23,7 +23,7 @@ export default defineTool({
       const items = await ensureChecklist(caller.orgId, job.id);
       if (!items.length) return { jobId: job.id, title: job.title, items: [], note: NO_QUOTE[caller.language] };
       const { timeZone } = await getProfile(caller.orgId);
-      return plain({ jobId: job.id, title: job.title, ...checklistForTool(items, timeZone, caller.language) });
+      return plain({ jobId: job.id, title: job.title, ...checklistForTool(items, timeZone, caller.language, await checklistOutlines(caller.orgId, job.id)) });
     } catch (error) {
       return toolError(error);
     }

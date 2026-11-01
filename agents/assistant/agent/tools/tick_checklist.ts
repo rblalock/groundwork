@@ -1,6 +1,6 @@
 import { defineTool } from "eve/tools";
 import { z } from "zod";
-import { checklistForTool, tickChecklist } from "../../../../core/checklist";
+import { checklistForTool, checklistOutlines, tickChecklist } from "../../../../core/checklist";
 import { getProfile } from "../../../../core/profile";
 import { visitForTool } from "../../../../core/scheduling";
 import { plain, refuseFromEmail, requireCaller, toolError } from "../../../../core/tool-context";
@@ -21,7 +21,7 @@ export default defineTool({
       const { timeZone } = await getProfile(caller.orgId);
       return plain({
         jobId,
-        ...checklistForTool(ticked.items, timeZone, caller.language),
+        ...checklistForTool(ticked.items, timeZone, caller.language, await checklistOutlines(caller.orgId, jobId)),
         visitCompleted: ticked.visitCompleted ? visitForTool(ticked.visitCompleted, timeZone, caller.language) : null,
         ...(ticked.visitCompleted ? { openVisitsOnJob: ticked.openVisitsOnJob } : {}),
       });

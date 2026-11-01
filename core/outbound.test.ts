@@ -120,6 +120,27 @@ withTestDb("a file post sends its text first and the file alone, logging both wi
   ]);
 });
 
+withTestDb("several files go one post each, in order, after the text, each logged with where it's stored", async () => {
+  install();
+  const { member } = await memberWithPhone();
+  const photo = (n: number) => ({ file: { filename: `priced-photo-${n}.png`, mimeType: "image/png", data: Buffer.from(`png ${n}`) }, fileUrl: `fake://inbound/priced-photo-${n}.png` });
+  await postToMember(TEST_ORG, member.id, { text: "Booked: 412 Oak St", files: [photo(1), photo(2), photo(3)] }, "proactive", { now: NOON });
+  assert.deepEqual(
+    recorded.map((r) => [r.kind, r.text ?? r.filename]),
+    [["text", "Booked: 412 Oak St"], ["file", "priced-photo-1.png"], ["file", "priced-photo-2.png"], ["file", "priced-photo-3.png"]],
+  );
+  const rows = await db().select().from(messages).orderBy(asc(messages.providerMessageId));
+  assert.deepEqual(
+    rows.map((r) => [r.providerMessageId, r.body, r.attachments.map((a) => a.url)]),
+    [
+      ["sent_1", "Booked: 412 Oak St", []],
+      ["sent_2", "Booked: 412 Oak St", ["fake://inbound/priced-photo-1.png"]],
+      ["sent_3", "priced-photo-2.png", ["fake://inbound/priced-photo-2.png"]],
+      ["sent_4", "priced-photo-3.png", ["fake://inbound/priced-photo-3.png"]],
+    ],
+  );
+});
+
 withTestDb("a failed send reports send_failed and logs only what went out", async () => {
   install();
   const { member } = await memberWithPhone();

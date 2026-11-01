@@ -173,7 +173,7 @@ withTestDb("the work's page lists its checklist, and anyone on the team ticks it
     items: ["widget service, 2 widgets"],
     done: 0,
     total: 1,
-    photoHref: null,
+    photoHrefs: [],
     canTick: true,
   });
   const itemId = page.checklist!.items[0].itemId;

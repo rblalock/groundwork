@@ -815,6 +815,7 @@ const en = {
     checklistDone: (done: number, total: number) => `${done} of ${total} done`,
     tickedBy: (name: string, when: string) => `${name} · ${when}`,
     pricedPhoto: "The quote's priced photo",
+    pricedPhotoNumber: (n: number) => `The quote's priced photo ${n}`,
     errors: {
       photoLimit: "This work has as many photos as it can take. Take one off first.",
       notYours: "Only whoever added a photo, the owner, or an admin can take it off.",
@@ -2160,6 +2161,7 @@ const es: PageCopy = {
     checklistDone: (done: number, total: number) => `${done} de ${total} hechas`,
     tickedBy: (name: string, when: string) => `${name} · ${when}`,
     pricedPhoto: "La foto con precios de la cotización",
+    pricedPhotoNumber: (n: number) => `La foto con precios ${n} de la cotización`,
     errors: {
       photoLimit: "Este servicio ya tiene todas las fotos que admite. Quita una primero.",
       notYours: "Solo quien agregó la foto, el dueño o un admin puede quitarla.",

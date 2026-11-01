@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { quotes } from "../../schema/schema";
 import { readStoredFile, storeInboundAttachment } from "../../core/blob";
 import { pairOf } from "../../core/before-after";
-import { checklistCounts, checklistFor, checklistPhoto, itemText, markOutlined, tickChecklist } from "../../core/checklist";
+import { checklistCounts, checklistFor, checklistPhotos, itemText, markOutlined, outlinesOf, tickChecklist } from "../../core/checklist";
 import { db } from "../../core/db";
 import { invoicesForJobs, type InvoiceRef } from "../../core/invoices";
 import { isPrivileged } from "../../core/members";
@@ -14,7 +14,7 @@ import { memberCaller, type AppCaller } from "../guards";
 import { pageCopyFor } from "../page-copy";
 import { notFound, refuse } from "./access";
 import { preparePhoto } from "./photo-upload";
-import { beforeAfterHref, pricedPhotoHref, type StoredFile } from "./quotes";
+import { beforeAfterHref, pricedPhotoHref, renderTag, type StoredFile } from "./quotes";
 
 // A piece of work (a service job) on its own page: its customer, quote, invoice, visits, checklist, and
 // photos. Everyone on the team sees it, ticks its checklist, and adds photos; the invoice opens for owners
@@ -27,12 +27,12 @@ export type WorkPage = {
   invoice: (Pick<InvoiceRef, "invoiceId" | "label" | "status"> & { canOpen: boolean }) | null;
   photos: Array<WorkPhotoView & { canRemove: boolean }>;
   canAddPhotos: boolean;
-  /** Its quote's lines to tick, each item's text in the viewer's language, with the priced photo they point to; null when it has no list. */
+  /** Its quote's lines to tick, each item's text in the viewer's language, with the priced photos they point to (in attachment order); null when it has no list. */
   checklist: {
     items: Array<{ itemId: string; text: string; doneAt: Date | null; doneByName: string | null }>;
     done: number;
     total: number;
-    photoHref: string | null;
+    photoHrefs: string[];
     canTick: boolean;
   } | null;
 };
@@ -53,7 +53,8 @@ export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPag
     checklistFor(caller.orgId, job.id),
   ]);
   const invoice = invoices.get(job.id);
-  const priced = items.length && job.quoteId ? await checklistPhoto(caller.orgId, job.quoteId) : null;
+  const priced = items.length && job.quoteId ? await checklistPhotos(caller.orgId, job.quoteId) : [];
+  const outlines = outlinesOf(priced);
   const privileged = isPrivileged(caller.role);
   const mark = markOutlined(items);
   return {
@@ -64,23 +65,32 @@ export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPag
     canAddPhotos: caller.memberId !== null,
     checklist: items.length
       ? {
-          items: items.map((item) => ({ itemId: item.itemId, text: itemText({ ...item, located: item.located && mark }, caller.language), doneAt: item.doneAt, doneByName: item.doneByName })),
+          items: items.map((item) => ({
+            itemId: item.itemId,
+            text: itemText({ ...item, located: item.located && mark }, caller.language, outlines),
+            doneAt: item.doneAt,
+            doneByName: item.doneByName,
+          })),
           ...checklistCounts(items),
-          // The crew copy: quantities only, no prices, whoever is looking.
-          photoHref: priced ? `/api/work/${encodeURIComponent(job.id)}/checklist/photo?v=${(priced.editedAt ?? priced.createdAt).getTime()}` : null,
+          // The crew copies: quantities only, no prices, whoever is looking. Each render's tag changes
+          // when it's drawn again, for an edit of its own or a change on another photo.
+          photoHrefs: priced.map((photo) => `/api/work/${encodeURIComponent(job.id)}/checklist/photo?n=${photo.place.number}&v=${renderTag(photo.url)}`),
           canTick: caller.memberId !== null,
         }
       : null,
   };
 }
 
-/** The checklist's priced photo as crew see it (quantities, no prices), in the viewer's language; null without one. */
-export async function checklistPhotoFile(caller: AppCaller, jobId: string): Promise<StoredFile | null> {
+/**
+ * One of the checklist's priced photos as crew see it (quantities, no prices), in the viewer's language:
+ * the `number`th in attachment order. Null when there's no such photo.
+ */
+export async function checklistPhotoFile(caller: AppCaller, jobId: string, number = 1): Promise<StoredFile | null> {
   const job = await getServiceJob(caller, jobId);
   if (!job) throw notFound();
-  const priced = job.quoteId ? await checklistPhoto(caller.orgId, job.quoteId) : null;
-  const png = priced ? await crewCopy(priced, caller.language) : null;
-  return png ? { filename: "priced-photo.png", contentType: "image/png", bytes: png } : null;
+  const priced = job.quoteId ? (await checklistPhotos(caller.orgId, job.quoteId))[number - 1] : undefined;
+  const png = priced ? await crewCopy(priced, caller.language, priced.place) : null;
+  return png ? { filename: priced!.place.count > 1 ? `priced-photo-${number}.png` : "priced-photo.png", contentType: "image/png", bytes: png } : null;
 }
 
 /** Ticks a checklist item done, or unticks it, for anyone on the team; the last tick marks today's visit done. */

@@ -15,6 +15,8 @@ type Payload = {
   file?: OutboundFile;
   /** Where `file` is stored: logged on the file's row, so the web thread can link it. */
   fileUrl?: string;
+  /** More files, each posted on its own after `file`, in order, with where each is stored. */
+  files?: Array<{ file: OutboundFile; fileUrl?: string }>;
   quoteId?: string;
   asksApproval?: boolean;
   /** What the `messages` log records instead of `text`, for a post that mustn't be stored (a sign-in code). */
@@ -91,23 +93,23 @@ export const postToMember = (async (
 
   const threadId = phone.threadId;
   const text = payload.text?.trim() ?? "";
-  const { file, quoteId, asksApproval } = payload;
+  const { quoteId, asksApproval } = payload;
+  const files = [...(payload.file ? [{ file: payload.file, fileUrl: payload.fileUrl }] : []), ...(payload.files ?? [])];
   const log = (chunks: string[], ids: string[], attachments?: InboundAttachment[]) =>
     logOutbound({ orgId, memberId, phoneE164: phone.e164, threadId, providerMessageIds: ids, chunks, kind, quoteId, asksApproval, attachments });
   let sentAny = false;
   try {
-    // The text goes first and the file alone, so the file bubble's own id is logged and a tapback on it
-    // resolves the quote. The file row repeats the text so the tapback turn can quote it.
+    // The text goes first and each file alone (the adapter returns only a post's first bubble id), so
+    // each file bubble's own id is logged and a tapback on it resolves the quote. The first file's row
+    // repeats the text so the tapback turn can quote it; the rest carry their names.
     for (const chunk of chunkText(text)) {
       const ids = await postText(threadId, chunk);
       await log([payload.logText ?? chunk], ids);
       sentAny = true;
     }
-    if (file) {
+    for (const [i, { file, fileUrl }] of files.entries()) {
       const id = await postFile(threadId, file);
-      await log([text || file.filename], id ? [id] : [], [
-        { type: "file", url: payload.fileUrl ?? "", name: file.filename, mimeType: file.mimeType },
-      ]);
+      await log([(i === 0 && text) || file.filename], id ? [id] : [], [{ type: "file", url: fileUrl ?? "", name: file.filename, mimeType: file.mimeType }]);
       sentAny = true;
     }
   } catch (error) {
