@@ -206,6 +206,9 @@ test("attached photos print two to a page after the totals, and an unreadable on
   assert.equal(three.getPageCount(), 3);
   const broken = await render(doc({ photos: [{ bytes: new Uint8Array([1, 2, 3]), mimeType: "image/jpeg" }] }));
   assert.equal(broken.getPageCount(), 1);
+  // A photo goes by its bytes: a JPEG stored as a PNG (a priced photo drawn again) still prints.
+  const renamed = await render(doc({ photos: [{ bytes: photo(40, 30), mimeType: "image/png" }] }));
+  assert.equal(renamed.getPageCount(), 2);
 });
 
 test("a local blob folder keeps inbound photos readable; a fake one has no bytes", async () => {

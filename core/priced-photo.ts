@@ -22,6 +22,7 @@ import type { PricedBox, PricedCandidate, PricedRegion } from "../schema/types";
 import { deleteBlob, readStoredFile, storeInboundAttachment } from "./blob";
 import { db, newId } from "./db";
 import { MAX_PIXELS } from "./images";
+import { sniffImage } from "./logo";
 import type { Language } from "./language";
 import type { Caller } from "./members";
 import { NOTO_SANS_BOLD_BASE64 } from "./fonts/noto-sans-bold";
@@ -65,6 +66,18 @@ const PHOTO_TYPES = new Set(["image/jpeg", "image/png"]);
 const PHOTO_NAME = /\.(jpe?g|png)$/i;
 /** A render of the same quote revision and photo this recent is returned instead of made again. */
 export const RERENDER_MS = 10_000;
+/**
+ * The drawn copies (priced, quantity-only, and crew) are JPEGs: a PNG of a photo runs to megabytes,
+ * several of them too many for a text. Full-color chroma keeps the labels' colored dots and the legend's
+ * text crisp. A copy drawn before this is a PNG until it's drawn again, so readers go by its bytes.
+ */
+export const DRAWN_TYPE = "image/jpeg";
+const DRAWN_JPEG = { quality: 85, mozjpeg: true, chromaSubsampling: "4:4:4" } as const;
+
+/** What a drawn copy's bytes are, to serve or send them as: a JPEG, or a PNG drawn before copies were JPEGs. */
+export function drawnFormat(bytes: Uint8Array): { contentType: "image/jpeg" | "image/png"; extension: "jpg" | "png" } {
+  return sniffImage(bytes) === "png" ? { contentType: "image/png", extension: "png" } : { contentType: "image/jpeg", extension: "jpg" };
+}
 
 /** Whether `previous` is recent enough, for the same revision, that rendering again would only repeat it. */
 export function rerenderTooSoon(previous: { revisionNumber: number; createdAt: Date }, revisionNumber: number, now: Date): boolean {
@@ -264,7 +277,7 @@ async function saveSet(caller: Caller, quote: Quote, set: SetEntry[], looked: Lo
 type Renders = { url: string; customerUrl: string | null };
 
 /**
- * Draws the priced copy and the quantity-only copy of `regions` on the photo, each object by its
+ * Draws the priced copy and the quantity-only copy of `regions` on the photo (JPEGs), each object by its
  * candidate's outline, and stores both. The quantity-only copy is drawn every time so the business can
  * hide line prices later and the link still has a photo to show. `place` is the photo's among the
  * quote's priced photos, for its legend.
@@ -277,18 +290,18 @@ async function renderBoth(
   place: PhotoPlace | undefined,
 ): Promise<{ url: string; customerUrl: string; width: number; height: number }> {
   const paths = maskPaths(regions, candidates);
-  const png = await renderOverlay(photo, regions, paths, quote.totalCents, quote.language, { place });
-  const url = await storeInboundAttachment(`priced-${quote.quoteId}.png`, "image/png", png.png);
+  const drawn = await renderOverlay(photo, regions, paths, quote.totalCents, quote.language, { place });
+  const url = await storeInboundAttachment(`priced-${quote.quoteId}.jpg`, DRAWN_TYPE, drawn.bytes);
   const customerUrl = await storeInboundAttachment(
-    `priced-${quote.quoteId}-customer.png`,
-    "image/png",
-    (await renderOverlay(photo, regions, paths, quote.totalCents, quote.language, { linePrices: false, place })).png,
+    `priced-${quote.quoteId}-customer.jpg`,
+    DRAWN_TYPE,
+    (await renderOverlay(photo, regions, paths, quote.totalCents, quote.language, { linePrices: false, place })).bytes,
   );
-  return { url, customerUrl, width: png.width, height: png.height };
+  return { url, customerUrl, width: drawn.width, height: drawn.height };
 }
 
 /**
- * The priced photo as the crew get it: each line labeled with its quantity, and no prices or total.
+ * The priced photo as the crew get it, as a JPEG: each line labeled with its quantity, and no prices or total.
  * Drawn from the kept outlines, without SAM, in the reader's language, with its `place` among the quote's
  * priced photos when it has one. Null when the photo can't be read.
  */
@@ -296,7 +309,7 @@ export async function crewCopy(row: PricedPhoto, language: Language, place?: Pho
   const photo = await preparePhoto(row.sourceUrl);
   if (!photo) return null;
   const drawn = await renderOverlay(photo, row.regions, maskPaths(row.regions, row.candidates), 0, language, { linePrices: false, total: false, place });
-  return drawn.png;
+  return drawn.bytes;
 }
 
 /** Deletes the renders `old` had that `kept` doesn't. A failure only logs. */
@@ -881,7 +894,7 @@ export function maskShapes(regions: PricedRegion[], svgPaths: Map<string, string
 }
 
 /**
- * Draws the regions on the photo and a legend under it. Each object a line kept is filled and
+ * Draws the regions on the photo and a legend under it, as a JPEG. Each object a line kept is filled and
  * outlined in the line's color (dashed for a second line on the same object); each line is labeled
  * once, centered on its largest object, and lines that kept the same object share one label of stacked rows. `svgPaths` holds each region's mask outlines
  * (keyed by line index, in the order of its objects); a missing one is drawn as its box. Labels that
@@ -896,7 +909,7 @@ export async function renderOverlay(
   totalCents: number,
   language: Language,
   options: { linePrices?: boolean; total?: boolean; place?: PhotoPlace } = {},
-): Promise<{ png: Uint8Array; width: number; height: number }> {
+): Promise<{ bytes: Uint8Array; width: number; height: number }> {
   const label = (region: PricedRegion) => lineLabel(region, language, options.linePrices ?? true);
   const { width, height } = image;
   const copy = COPY[language];
@@ -994,10 +1007,10 @@ export async function renderOverlay(
 
   const fullHeight = height + legendHeight;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${fullHeight}">${shapes.join("")}</svg>`;
-  const png = await sharp(image.bytes)
+  const drawn = await sharp(image.bytes)
     .extend({ bottom: legendHeight, background: PILL })
     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }, ...texts])
-    .png()
+    .jpeg(DRAWN_JPEG)
     .toBuffer();
-  return { png: new Uint8Array(png), width, height: fullHeight };
+  return { bytes: new Uint8Array(drawn), width, height: fullHeight };
 }

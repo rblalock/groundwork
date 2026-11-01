@@ -17,7 +17,7 @@ import { storeInboundAttachment } from "./blob";
 import { db, newId, type Db, type Tx } from "./db";
 import { recordEvent } from "./events";
 import type { Language } from "./language";
-import { crewCopy, numberList, photoPlaces, quotePricedPhotos, type PhotoPlace, type PricedPhoto } from "./priced-photo";
+import { crewCopy, DRAWN_TYPE, numberList, photoPlaces, quotePricedPhotos, type PhotoPlace, type PricedPhoto } from "./priced-photo";
 import { getProfile } from "./profile";
 import { getQuote, type Poster } from "./quotes";
 import { changeVisitStatus, getServiceJob, type Actor, type VisitView } from "./scheduling";
@@ -242,11 +242,11 @@ export async function crewChecklist(orgId: string, jobId: string): Promise<CrewC
   const outlines = outlinesOf(priced);
   const drawn = new Map<Language, Promise<CrewPhoto[]>>();
   const drawOne = async (photo: (typeof priced)[number], language: Language): Promise<CrewPhoto | null> => {
-    const png = await crewCopy(photo, language, photo.place);
-    if (!png) return null;
-    const filename = priced.length > 1 ? `priced-photo-${photo.place.number}.png` : "priced-photo.png";
-    const fileUrl = await storeInboundAttachment(filename, "image/png", png);
-    return { file: { filename, mimeType: "image/png", data: Buffer.from(png) }, fileUrl };
+    const jpeg = await crewCopy(photo, language, photo.place);
+    if (!jpeg) return null;
+    const filename = priced.length > 1 ? `priced-photo-${photo.place.number}.jpg` : "priced-photo.jpg";
+    const fileUrl = await storeInboundAttachment(filename, DRAWN_TYPE, jpeg);
+    return { file: { filename, mimeType: DRAWN_TYPE, data: Buffer.from(jpeg) }, fileUrl };
   };
   const draw = async (language: Language): Promise<CrewPhoto[]> => {
     const out: CrewPhoto[] = [];

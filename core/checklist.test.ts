@@ -278,7 +278,7 @@ withTestDb("booked crew get the checklist and the priced photo, and the last tic
     {
       memberId: s.carlos.memberId,
       text: "Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards (outlined in the photo)\n2. Bed edging, 40 linear feet",
-      file: "priced-photo.png image/png",
+      file: "priced-photo.jpg image/jpeg",
     },
   ]);
   assert.doesNotMatch(posts[0].text, /\$/, "no prices to the crew");
@@ -334,7 +334,7 @@ withTestDb("with several priced photos, booked crew get each one in order, and a
     {
       memberId: s.carlos.memberId,
       text: "Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards\n2. Bed edging, 40 linear feet",
-      file: "priced-photo-1.png image/png, priced-photo-2.png image/png",
+      file: "priced-photo-1.jpg image/jpeg, priced-photo-2.jpg image/jpeg",
     },
   ]);
   const items = await checklistFor(TEST_ORG, booked.visit.jobId);
@@ -385,7 +385,7 @@ withTestDb("through the fake iMessage transport, booked crew see the list's text
   if (process.env.SHOW_FAKE_IMESSAGE) log(sent.join("\n"));
   assert.deepEqual(sent, [
     "imessage (fake) to thread:+15555550102: Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards\n2. Bed edging, 40 linear feet",
-    "imessage (fake) file to thread:+15555550102: priced-photo-1.png (N bytes)",
-    "imessage (fake) file to thread:+15555550102: priced-photo-2.png (N bytes)",
+    "imessage (fake) file to thread:+15555550102: priced-photo-1.jpg (N bytes)",
+    "imessage (fake) file to thread:+15555550102: priced-photo-2.jpg (N bytes)",
   ]);
 });

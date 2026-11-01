@@ -21,6 +21,7 @@ import { saveItems } from "./pricebook";
 import {
   assignPricedPhoto,
   createPricedPhoto,
+  drawnFormat,
   findInPricedPhoto,
   legendLines,
   lineLabel,
@@ -61,15 +62,18 @@ test("draws the regions and a legend under the photo; two lines on one bed share
     region(2, "Hedge trimming", 150, "cubic foot", 37500, [[0, 494, 444, 645]]),
     region(3, "Sprinkler head replacement", 2, "head", 7000, []),
   ];
-  const { png, width, height } = await renderOverlay({ bytes: new Uint8Array(YARD), width: 1024, height: 1024 }, regions, new Map(), 53000, "en");
-  const meta = await sharp(png).metadata();
-  assert.equal(meta.format, "png");
+  const { bytes, width, height } = await renderOverlay({ bytes: new Uint8Array(YARD), width: 1024, height: 1024 }, regions, new Map(), 53000, "en");
+  const meta = await sharp(bytes).metadata();
+  assert.equal(meta.format, "jpeg");
   assert.equal(meta.width, 1024);
   assert.equal(width, 1024);
   assert.equal(meta.height, height);
   assert.ok(height > 1024, "the legend sits under the photo");
-  assert.ok(png.byteLength > 50_000);
-  if (process.env.PRICED_PHOTO_OUT) writeFileSync(process.env.PRICED_PHOTO_OUT, png);
+  assert.ok(bytes.byteLength > 50_000 && bytes.byteLength < 1_500_000, `${bytes.byteLength} bytes: a JPEG, not a PNG's megabytes`);
+  assert.deepEqual(drawnFormat(bytes), { contentType: "image/jpeg", extension: "jpg" });
+  // A copy drawn before copies were JPEGs is still served as the PNG it is.
+  assert.deepEqual(drawnFormat(new Uint8Array(await sharp(bytes).png().toBuffer())), { contentType: "image/png", extension: "png" });
+  if (process.env.PRICED_PHOTO_OUT) writeFileSync(process.env.PRICED_PHOTO_OUT, bytes);
 
   // The crew's copy: quantities only, and the total left off, so its legend is shorter.
   const crew = await renderOverlay({ bytes: new Uint8Array(YARD), width: 1024, height: 1024 }, regions, new Map(), 53000, "en", { linePrices: false, total: false });
@@ -289,7 +293,7 @@ withTestDb("priced photo: every object SAM finds is kept, and a member moves the
   assert.equal(again.result.found, 0);
 });
 
-// Calls SAM: runs only with a key, and leaves the render at /tmp/priced-photo.png for a look.
+// Calls SAM: runs only with a key, and leaves the render at /tmp/priced-photo.jpg for a look.
 const live = process.env.META_MODEL_API_KEY ? withTestDb : (name: string) => test(name, { skip: "META_MODEL_API_KEY is not set" }, () => {});
 live("priced photo: the yard fixture with mulch, edging, hedge and mowing (live)", async () => {
   const { owner, items } = await seed();
@@ -307,7 +311,7 @@ live("priced photo: the yard fixture with mulch, edging, hedge and mowing (live)
   const result = await createPricedPhoto(owner, { quoteId: quote.quoteId });
   assert.ok(result.pricedPhotoId);
   assert.ok(result.located >= 3, JSON.stringify(result.regions));
-  writeFileSync("/tmp/priced-photo.png", readFileSync(fileURLToPath(result.url)));
+  writeFileSync("/tmp/priced-photo.jpg", readFileSync(fileURLToPath(result.url)));
 });
 
 withTestDb("priced photos: every photo on the quote is priced in attachment order, and each legend follows the others", async () => {

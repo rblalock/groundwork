@@ -10,13 +10,13 @@ import { Button } from "@/ui/beautiful/atoms/Button";
 import { PricePhotoButton } from "./price-photo-button";
 import { PricedPhotoEditor } from "./priced-photo-editor";
 
-// The quote page's priced photos: each PNG, numbered in attachment order when there are several, and for
+// The quote page's priced photos: each image, numbered in attachment order when there are several, and for
 // a member the editor in place of the one they're fixing (which outline goes with which line), each photo
-// edited on its own. Closing the editor reloads the page so the PNGs and their "not found" notes come
+// edited on its own. Closing the editor reloads the page so the images and their "not found" notes come
 // back as the server drew them (another photo's legend may change with this one). A link from the chat's
 // quote card or the price guide (`?edit=`) opens the editor on the photo it named.
 
-/** The PNG's address, changed after an edit so the browser doesn't show the one it cached. */
+/** The image's address, changed after an edit so the browser doesn't show the one it cached. */
 const busted = (url: string, edit: string | null) => (edit ? `${url}${url.includes("?") ? "&" : "?"}e=${encodeURIComponent(edit)}` : url);
 
 export type PricedPhotoTile = { id: string; url: string; number: number | null; notLocated: string[] };
@@ -72,7 +72,7 @@ export function PricedPhotoSection({
                   setEditing(null);
                   // Reloaded, the page shouldn't open the editor again.
                   if (editId) window.history.replaceState(null, "", `${window.location.pathname}#priced-photo`);
-                  // Something to tell this PNG from the cached one; a closed editor that changed nothing still asks again.
+                  // Something to tell this image from the cached one; a closed editor that changed nothing still asks again.
                   setEdit(last?.editedAt ?? String(Date.now()));
                   startTransition(() => router.refresh());
                 }}

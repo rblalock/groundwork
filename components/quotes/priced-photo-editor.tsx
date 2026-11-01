@@ -34,9 +34,9 @@ import { clearOfJumpBar } from "../record/layout";
 // is outlined over it; tapping an outline lists the quote's lines to put it on, a box dragged on the
 // photo asks SAM to look again there for something it missed (by a word, or with none for the one thing
 // in the box), and points tapped around a thing SAM never finds outline it by hand. Each change saves the
-// whole set, and the server draws the priced PNG again from it.
+// whole set, and the server draws the priced photo again from it.
 
-/** One color per line, in line order: the same ones the priced PNG draws with (core/priced-photo.ts). */
+/** One color per line, in line order: the same ones the priced photo is drawn with (core/priced-photo.ts). */
 const PALETTE = ["#ff9f0a", "#0a84ff", "#ff375f", "#bf5af2", "#ffd60a", "#64d2ff", "#ff3b30", "#30d158"];
 const colorOf = (lineIndex: number) => PALETTE[lineIndex % PALETTE.length];
 

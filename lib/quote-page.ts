@@ -138,9 +138,10 @@ export async function quoteLinkPage(token: string, deps?: { now?: Date }): Promi
 }
 
 /**
- * The priced photo the quote's link shows, as PNG bytes: only the one its page shows (this quote's, of its
- * current revision, while the page shows the quote at all), and its quantity-only copy when the business
- * hides line prices. Null for anything else, another quote's included.
+ * The priced photo the quote's link shows, as its stored bytes (a JPEG, or a PNG drawn before copies
+ * were JPEGs): only the one its page shows (this quote's, of its current revision, while the page shows
+ * the quote at all), and its quantity-only copy when the business hides line prices. Null for anything
+ * else, another quote's included.
  */
 export async function quoteLinkPricedPhoto(token: string, pricedId: string): Promise<Uint8Array | null> {
   const [quote, page] = await Promise.all([quoteByCustomerToken(token), quoteLinkPage(token)]);

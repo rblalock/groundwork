@@ -15,6 +15,7 @@ import {
   drawInPricedPhoto,
   findInPricedPhoto,
   legendLines,
+  drawnFormat,
   pricedPhotoOnQuote,
   pricedPhotoSize,
   pricedPhotosFor,
@@ -361,7 +362,8 @@ export async function pricedPhotoFile(caller: AppCaller, quoteId: string, priced
   const photo = (await pricedPhotosFor(caller.orgId, quoteId)).find((p) => p.id === pricedId);
   const bytes = photo ? await readStoredFile(photo.url) : null;
   if (!bytes) throw notFound();
-  return { bytes, contentType: "image/png", filename: `priced-photo-${quoteId}.png` };
+  const { contentType, extension } = drawnFormat(bytes);
+  return { bytes, contentType, filename: `priced-photo-${quoteId}.${extension}` };
 }
 
 /**

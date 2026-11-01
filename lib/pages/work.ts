@@ -6,7 +6,7 @@ import { checklistCounts, checklistFor, checklistPhotos, itemText, outlineMarks,
 import { db } from "../../core/db";
 import { invoicesForJobs, type InvoiceRef } from "../../core/invoices";
 import { isPrivileged } from "../../core/members";
-import { crewCopy, pricedPhotosForCustomer, renderTag } from "../../core/priced-photo";
+import { crewCopy, DRAWN_TYPE, pricedPhotosForCustomer, renderTag } from "../../core/priced-photo";
 import { getServiceJob, type ServiceJobView } from "../../core/scheduling";
 import { addUploadedWorkPhoto, listWorkPhotos, removeWorkPhoto, workPhoto, type WorkPhotoView } from "../../core/work-photos";
 import { sniffImage } from "../../core/logo";
@@ -88,8 +88,8 @@ export async function checklistPhotoFile(caller: AppCaller, jobId: string, numbe
   const job = await getServiceJob(caller, jobId);
   if (!job) throw notFound();
   const priced = job.quoteId ? (await checklistPhotos(caller.orgId, job.quoteId))[number - 1] : undefined;
-  const png = priced ? await crewCopy(priced, caller.language, priced.place) : null;
-  return png ? { filename: priced!.place.count > 1 ? `priced-photo-${number}.png` : "priced-photo.png", contentType: "image/png", bytes: png } : null;
+  const jpeg = priced ? await crewCopy(priced, caller.language, priced.place) : null;
+  return jpeg ? { filename: priced!.place.count > 1 ? `priced-photo-${number}.jpg` : "priced-photo.jpg", contentType: DRAWN_TYPE, bytes: jpeg } : null;
 }
 
 /** Ticks a checklist item done, or unticks it, for anyone on the team; the last tick marks today's visit done. */

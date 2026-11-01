@@ -112,6 +112,17 @@ interface Ctx {
 
 const toRgb = ([r, g, b]: Rgb) => rgb(r, g, b);
 
+/**
+ * Embeds a PNG or a JPEG by what its bytes are, and by its type only when they're neither: a stored
+ * image's name and type can say PNG for what is now a JPEG (a priced photo drawn again).
+ */
+function embedImage(pdf: PDFDocument, image: { bytes: Uint8Array; mimeType: string }): Promise<PDFImage> {
+  const { bytes } = image;
+  const png = bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+  const jpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  return png || (!jpeg && /png/i.test(image.mimeType)) ? pdf.embedPng(bytes) : pdf.embedJpg(bytes);
+}
+
 /** The parts of a context that come from the business's branding. */
 async function brandingOf(pdf: PDFDocument, profile: Profile, logo: PdfLogo | null | undefined): Promise<Pick<Ctx, "accent" | "logo">> {
   const hex = profile.pdfAccentColor ? normalizeHex(profile.pdfAccentColor) : null;
@@ -119,7 +130,7 @@ async function brandingOf(pdf: PDFDocument, profile: Profile, logo: PdfLogo | nu
   let image: PDFImage | null = null;
   if (logo) {
     try {
-      image = /png/i.test(logo.mimeType) ? await pdf.embedPng(logo.bytes) : await pdf.embedJpg(logo.bytes);
+      image = await embedImage(pdf, logo);
     } catch (error) {
       console.warn("pdf: the logo could not be embedded, left off", error);
     }
@@ -485,7 +496,7 @@ async function drawPhotos(ctx: Ctx, photos: QuotePdfPhoto[], heading = ctx.copy.
   const images = [];
   for (const photo of photos) {
     try {
-      images.push(/png/i.test(photo.mimeType) ? await ctx.pdf.embedPng(photo.bytes) : await ctx.pdf.embedJpg(photo.bytes));
+      images.push(await embedImage(ctx.pdf, photo));
     } catch (error) {
       console.warn("pdf: a photo could not be embedded, skipped", error);
     }
@@ -512,7 +523,7 @@ async function drawFigure(ctx: Ctx, photo: QuotePdfPhoto | null | undefined, hea
   if (!photo) return;
   let image: PDFImage;
   try {
-    image = /png/i.test(photo.mimeType) ? await ctx.pdf.embedPng(photo.bytes) : await ctx.pdf.embedJpg(photo.bytes);
+    image = await embedImage(ctx.pdf, photo);
   } catch (error) {
     console.warn("pdf: an image could not be embedded, skipped", error);
     return;
