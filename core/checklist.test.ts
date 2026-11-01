@@ -7,11 +7,13 @@ process.env.BLOB_LOCAL_DIR = mkdtempSync(join(tmpdir(), "checklist-blobs-"));
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { eq } from "drizzle-orm";
 import { pricedPhotos, quoteAttachments } from "../schema/schema";
 import type { PricedRegion } from "../schema/types";
 import { checklistCounts, checklistFor, checklistText, ensureChecklist, itemsFromLines, itemText, outlinesOf, tickChecklist, visitToComplete } from "./checklist";
 import { saveCustomer } from "./customers";
 import { db } from "./db";
+import { assignPricedPhoto } from "./priced-photo";
 import { addPhone, createMember, recordInbound, type Caller } from "./members";
 import { saveItems } from "./pricebook";
 import { updateProfile } from "./profile";
@@ -286,6 +288,36 @@ withTestDb("with several priced photos, booked crew get each one in order and th
   ]);
   const items = await checklistFor(TEST_ORG, booked.visit.jobId);
   assert.deepEqual(items.map((item) => item.located), [true, false]);
+});
+
+withTestDb("pricing the photos again marks the items not ticked yet, and leaves ticked ones, names, and quantities alone", async () => {
+  const s = await seed({ secondPhoto: true });
+  const booked = await bookVisit(s.pat, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "today", time: "09:00" }, { now: MONDAY_7AM, post });
+  const { jobId } = booked.visit;
+  const before = await checklistFor(TEST_ORG, jobId);
+  assert.deepEqual(before.map((item) => item.located), [true, false]);
+  await tickChecklist(s.carlos, { jobId, itemIds: [before[0].itemId] }, { now: MONDAY_11AM, post });
+
+  // On the back photo, the edging is outlined now and the mulch is not.
+  const edge = { id: "cand_edge", phrase: "bed edge", box: { left: 10, top: 10, right: 200, bottom: 60 }, areaPx: 5000, confidence: 0.9, svgPath: "M10 10L200 10L200 60L10 60Z" };
+  await db().update(pricedPhotos).set({ candidates: [edge] }).where(eq(pricedPhotos.id, "pp_back"));
+  await assignPricedPhoto(s.pat, s.quote.quoteId, "pp_back", [{ candidateId: edge.id, lineIndexes: [1] }]);
+  // And on the front, nothing: the mulch is in no photo now, but its item was ticked.
+  await assignPricedPhoto(s.pat, s.quote.quoteId, "pp_test", []);
+  const after = await checklistFor(TEST_ORG, jobId);
+  assert.deepEqual(
+    after.map((item) => [item.name, item.quantity, item.located, Boolean(item.doneAt)]),
+    [
+      ["Mulch installed", 3, true, true],
+      ["Bed edging", 40, true, false],
+    ],
+  );
+  assert.deepEqual(after.map((item) => item.itemId), before.map((item) => item.itemId), "no item made or taken away");
+
+  // Unticked, the mulch follows the photos the next time they change.
+  await tickChecklist(s.carlos, { jobId, itemIds: [before[0].itemId], undo: true }, { now: MONDAY_11AM, post });
+  await assignPricedPhoto(s.pat, s.quote.quoteId, "pp_back", []);
+  assert.deepEqual((await checklistFor(TEST_ORG, jobId)).map((item) => item.located), [false, false]);
 });
 
 withTestDb("through the fake iMessage transport, booked crew see the list's text, then each priced photo on its own", async () => {

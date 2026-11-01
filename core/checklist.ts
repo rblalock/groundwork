@@ -3,7 +3,9 @@
 // none yet. Each item's text is built here from the line's name, quantity, and unit, in the reader's
 // language: never the model's words, and never a price. An item is outlined when any of the quote's
 // priced photos found that line: "outlined in the photo" with one, "outlined in photo 2" or "outlined in
-// photos 1 and 3" with several, numbered in attachment order as the crew get them. Anyone on the team
+// photos 1 and 3" with several, numbered in attachment order as the crew get them. When the quote's
+// photos are priced again, the items not ticked yet are marked again (`refreshChecklists`, in
+// core/priced-photo.ts, which this module reads from). Anyone on the team
 // ticks an item or unticks it; the tick that
 // finishes the list marks the work's open visit done, once its day has come, as "done at Oak St" would.
 import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";

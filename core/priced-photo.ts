@@ -15,9 +15,9 @@ import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import sharp, { type OverlayOptions } from "sharp";
-import { members, pricedPhotos, quoteAttachments, quoteRevisions, quotes, serviceJobs, workPhotos } from "../schema/schema";
+import { checklistItems, members, pricedPhotos, quoteAttachments, quoteRevisions, quotes, serviceJobs, workPhotos } from "../schema/schema";
 import type { PricedBox, PricedCandidate, PricedRegion } from "../schema/types";
 import { deleteBlob, readStoredFile, storeInboundAttachment } from "./blob";
 import { db, newId } from "./db";
@@ -257,6 +257,7 @@ async function saveSet(caller: Caller, quote: Quote, set: SetEntry[], looked: Lo
   const results: PricedPhotoResult[] = [];
   for (const l of looked) results.push(await save(caller, quote, l, after.get(l.source.id)));
   await redrawStale(set, new Set(looked.map((l) => l.source.id)), before, after);
+  await refreshChecklists(caller.orgId, quote.quoteId);
   return results;
 }
 
@@ -464,6 +465,28 @@ async function redraw(row: PricedPhoto, place: PhotoPlace | undefined): Promise<
   }
 }
 
+/**
+ * Marks again, on the checklists of work booked from the quote, which items its priced photos show: each
+ * item not ticked yet is located when any of the quote's own priced photos locates its line. A ticked
+ * item, an item's name and quantity, and which items there are stay as they were. A failure only logs:
+ * the photos are priced either way.
+ */
+export async function refreshChecklists(orgId: string, quoteId: string): Promise<void> {
+  try {
+    const located = [...new Set((await photoSet(orgId, quoteId)).flatMap(({ row }) => row.regions.filter((r) => r.located).map((r) => r.lineIndex)))];
+    const work = db()
+      .select({ id: serviceJobs.id })
+      .from(serviceJobs)
+      .where(and(eq(serviceJobs.orgId, orgId), eq(serviceJobs.quoteId, quoteId)));
+    await db()
+      .update(checklistItems)
+      .set({ located: located.length ? inArray(checklistItems.lineIndex, located) : sql`false` })
+      .where(and(eq(checklistItems.orgId, orgId), inArray(checklistItems.jobId, work), isNull(checklistItems.doneAt)));
+  } catch (error) {
+    console.error("priced photo: the checklists were not marked again", { quoteId, error });
+  }
+}
+
 /** The priced photos on a customer's quotes, newest first: their price guide. */
 export async function pricedPhotosForCustomer(orgId: string, customerId: string, limit = 24): Promise<Array<PricedPhoto & { quoteTitle: string }>> {
   const rows = await db()
@@ -654,7 +677,10 @@ async function saveEdit(caller: Caller, row: PricedPhoto, photo: Photo, regions:
     throw new Error("PRICED_PHOTO_CHANGED");
   }
   await deleteRenders(row, rendered);
-  if (plans) await redrawStale(set, new Set([row.sourceId]), plans.before, plans.after);
+  if (plans) {
+    await redrawStale(set, new Set([row.sourceId]), plans.before, plans.after);
+    await refreshChecklists(row.orgId, row.quoteId);
+  }
   return saved;
 }
 
