@@ -2,6 +2,8 @@
 
 import type { Language } from "@/core/language";
 import { pageCopyFor } from "@/lib/page-copy";
+import { useState } from "react";
+import { Button } from "@/ui/beautiful/atoms/Button";
 import { cn } from "@/ui/lib/utils";
 import { ErrorLine, useMutation } from "../pages/client-kit";
 
@@ -40,6 +42,31 @@ export function ChecklistItems({ jobId, rows, canTick, language }: { jobId: stri
           </li>
         ))}
       </ul>
+      <ErrorLine>{error}</ErrorLine>
+    </div>
+  );
+}
+
+/** Texts the next visit's crew this list and every photo again, as they are now, and says who got it. */
+export function ResendToCrewButton({ visitId, language }: { visitId: string; language: Language }) {
+  const w = pageCopyFor(language).work;
+  const { send, busy, error } = useMutation(pageCopyFor(language).common.failed);
+  const [sent, setSent] = useState<string | null>(null);
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <Button
+        disabled={busy !== null}
+        onClick={async () => {
+          setSent(null);
+          const result = await send<{ notified: string[] }>("resend", `/api/schedule/visits/${encodeURIComponent(visitId)}/resend`, { method: "POST", refresh: false });
+          if (result) setSent(result.notified.length ? w.resentTo(result.notified.join(", ")) : w.resentNobody);
+        }}
+        size="xs"
+        title={w.resendHelp}
+      >
+        {busy ? w.resending : w.resendToCrew}
+      </Button>
+      {sent ? <p className="text-[12px] text-ink-3">{sent}</p> : null}
       <ErrorLine>{error}</ErrorLine>
     </div>
   );

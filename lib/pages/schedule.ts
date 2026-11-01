@@ -13,6 +13,7 @@ import {
   readSchedule,
   removeTimeOff,
   rescheduleVisit,
+  resendToCrew,
   scheduleCrew,
   serviceJobsAbout,
   setWorkHours,
@@ -306,6 +307,17 @@ export async function rescheduleFromApp(caller: AppCaller, visitId: string, inpu
     const { date, notes, ...rest } = input;
     const moved = await rescheduleVisit(actor, { ...rest, visitId, day: date, visitNotes: notes });
     return visitJson(moved.visit);
+  } catch (error) {
+    scheduleRefusal(caller, error);
+  }
+}
+
+/** An owner or admin texts a visit's crew its booking again, with the checklist and photos as they are now. */
+export async function resendToCrewFromApp(caller: AppCaller, visitId: string): Promise<{ notified: string[] }> {
+  const actor = privilegedActor(caller);
+  try {
+    const { notified } = await resendToCrew(actor, visitId);
+    return { notified };
   } catch (error) {
     scheduleRefusal(caller, error);
   }

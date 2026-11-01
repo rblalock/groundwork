@@ -816,6 +816,11 @@ const en = {
     tickedBy: (name: string, when: string) => `${name} · ${when}`,
     pricedPhoto: "The quote's priced photo",
     pricedPhotoNumber: (n: number) => `The quote's priced photo ${n}`,
+    resendToCrew: "Send to crew again",
+    resending: "Sending…",
+    resendHelp: "Texts the crew on the next visit this list and every photo, as they are now.",
+    resentTo: (names: string) => `Sent to ${names}.`,
+    resentNobody: "Nobody on that visit could be texted.",
     errors: {
       photoLimit: "This work has as many photos as it can take. Take one off first.",
       notYours: "Only whoever added a photo, the owner, or an admin can take it off.",
@@ -2163,6 +2168,11 @@ const es: PageCopy = {
     tickedBy: (name: string, when: string) => `${name} · ${when}`,
     pricedPhoto: "La foto con precios de la cotización",
     pricedPhotoNumber: (n: number) => `La foto con precios ${n} de la cotización`,
+    resendToCrew: "Enviar de nuevo al equipo",
+    resending: "Enviando…",
+    resendHelp: "Le manda por texto al equipo de la próxima visita esta lista y todas las fotos, como están ahora.",
+    resentTo: (names: string) => `Enviado a ${names}.`,
+    resentNobody: "No se le pudo escribir a nadie de esa visita.",
     errors: {
       photoLimit: "Este servicio ya tiene todas las fotos que admite. Quita una primero.",
       notYours: "Solo quien agregó la foto, el dueño o un admin puede quitarla.",

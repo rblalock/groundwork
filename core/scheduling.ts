@@ -1852,11 +1852,32 @@ const crewText = {
     lang === "es"
       ? `${by} te quitó de ${v.title} (${dayText(wallClock(v.startAt, tz).date, lang)}, ${timeText(v.startAt, tz, lang)}).`
       : `${by} took you off ${v.title} (${dayText(wallClock(v.startAt, tz).date, lang)}, ${timeText(v.startAt, tz, lang)}).`,
+  resent: (by: string, v: VisitView, tz: string, lang: Language) =>
+    lang === "es"
+      ? `${by} te reenvió ${v.title}, con la lista y las fotos al día: ${whenText(v.startAt, v.endAt, tz, lang)}.${driveText(v, lang)}`
+      : `${by} sent ${v.title} again, with the list and photos as they are now: ${whenText(v.startAt, v.endAt, tz, lang)}.${driveText(v, lang)}`,
   cancelled: (by: string, v: VisitView, tz: string, lang: Language) =>
     lang === "es"
       ? `${by} canceló ${v.title} del ${dayText(wallClock(v.startAt, tz).date, lang)}, ${timeText(v.startAt, tz, lang)}.`
       : `${by} cancelled ${v.title} on ${dayText(wallClock(v.startAt, tz).date, lang)}, ${timeText(v.startAt, tz, lang)}.`,
 };
+
+/**
+ * Texts a visit's crew its booking again, with the checklist and priced photos as they are now: after the
+ * photos are priced again or their outlines fixed. Owners and admins, for a visit still to come. Returns
+ * who got it, or will when quiet hours end. Throws `NOT_PRIVILEGED`, `VISIT_NOT_FOUND`, or `VISIT_NOT_OPEN`.
+ */
+export async function resendToCrew(actor: Actor, visitId: string, deps?: Deps): Promise<{ visit: VisitView; notified: string[] }> {
+  if (!isPrivileged(actor.role)) throw new Error("NOT_PRIVILEGED");
+  const found = await getVisit(actor, visitId);
+  if (!found) throw new Error("VISIT_NOT_FOUND");
+  if (!OPEN_VISIT.includes(found.status)) throw new Error("VISIT_NOT_OPEN");
+  const { timeZone } = await getProfileWith(actor.orgId, db());
+  const brief = await crewBrief(actor.orgId, visitId);
+  const visit = await visitWithDrives(actor, visitId);
+  const notified = await tellCrew(actor, visit.crew.map((c) => c.memberId), (lang) => withChecklist(crewText.resent(actor.name, visit, timeZone, lang), brief, lang), deps, brief);
+  return { visit, notified };
+}
 
 /** The work's checklist for crew booked on a visit, made first if need be; null without one, or when it can't be read. */
 async function crewBrief(orgId: string, visitId: string): Promise<CrewChecklist | null> {

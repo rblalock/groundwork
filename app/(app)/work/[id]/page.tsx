@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { isPrivileged } from "@/core/members";
 import { getProfile } from "@/core/profile";
 import { jobRecurrenceText } from "@/core/scheduling";
 import { InvoiceStatusPill } from "@/components/invoices/kit";
@@ -9,7 +10,7 @@ import { JumpBar, type JumpSection } from "@/components/record/jump-bar";
 import { EmptyFold, RailFact, RecordColumns, RecordSection } from "@/components/record/layout";
 import { ProgressLine } from "@/components/record/progress-line";
 import { WorkCard } from "@/components/schedule/work-card";
-import { ChecklistItems } from "@/components/work/checklist";
+import { ChecklistItems, ResendToCrewButton } from "@/components/work/checklist";
 import { AddWorkPhotosButton, RemoveWorkPhotoButton } from "@/components/work/work-photos";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { HttpError } from "@/lib/guards";
@@ -47,6 +48,8 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
   const nextVisit = live
     .filter((v) => v.status !== "completed" && v.startAt.getTime() > now)
     .sort((a, b) => a.startAt.getTime() - b.startAt.getTime())[0];
+  // An owner or admin texts the next visit's crew the list and photos again, after fixing them.
+  const canResend = caller.memberId !== null && isPrivileged(caller.role) && Boolean(nextVisit?.crew.length) && nextVisit?.status !== "proposed";
   const stages = workProgress(
     {
       status: job.status,
@@ -88,7 +91,12 @@ export default async function WorkPage({ params }: { params: Promise<{ id: strin
               {checklist ? (
                 <RecordSection id="checklist">
                   <Card
-                    actions={<span className="text-[12px] whitespace-nowrap text-ink-3 tabular-nums">{w.checklistDone(checklist.done, checklist.total)}</span>}
+                    actions={
+                      <div className="flex items-center gap-3">
+                        <span className="text-[12px] whitespace-nowrap text-ink-3 tabular-nums">{w.checklistDone(checklist.done, checklist.total)}</span>
+                        {canResend && nextVisit ? <ResendToCrewButton language={language} visitId={nextVisit.visitId} /> : null}
+                      </div>
+                    }
                     description={w.checklistHelp}
                     title={w.checklist}
                   >

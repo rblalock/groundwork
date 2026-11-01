@@ -18,7 +18,7 @@ import { addPhone, createMember, recordInbound, type Caller } from "./members";
 import { saveItems } from "./pricebook";
 import { updateProfile } from "./profile";
 import { approveQuote, createQuote, setQuoteOutcome, type Poster } from "./quotes";
-import { bookVisit, getVisit, readSchedule, visitForTool } from "./scheduling";
+import { bookVisit, changeVisitStatus, getVisit, readSchedule, resendToCrew, visitForTool } from "./scheduling";
 import { TEST_ORG, withTestDb } from "./test-db";
 
 const NY = "America/New_York";
@@ -270,6 +270,24 @@ async function seed(options: { secondPhoto?: boolean } = {}) {
   posts = [];
   return { pat, carlos, quote };
 }
+
+withTestDb("an owner sends a visit's crew the list and photos again; crew can't, and a done visit has nothing to send", async () => {
+  const s = await seed();
+  const booked = await bookVisit(s.pat, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "today", time: "09:00" }, { now: MONDAY_7AM, post });
+  posts = [];
+  const { notified } = await resendToCrew(s.pat, booked.visit.visitId, { now: MONDAY_7AM, post });
+  assert.deepEqual(notified, ["Carlos Reyes"]);
+  assert.deepEqual(posts, [
+    {
+      memberId: s.carlos.memberId,
+      text: "Pat Ortega sent 412 Oak St again, with the list and photos as they are now: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards (outlined in the photo)\n2. Bed edging, 40 linear feet",
+      file: "priced-photo.jpg image/jpeg",
+    },
+  ]);
+  await assert.rejects(resendToCrew(s.carlos, booked.visit.visitId, { now: MONDAY_7AM, post }), /NOT_PRIVILEGED/);
+  await changeVisitStatus(s.pat, { visitId: booked.visit.visitId, status: "cancelled" }, { now: MONDAY_7AM, post });
+  await assert.rejects(resendToCrew(s.pat, booked.visit.visitId, { now: MONDAY_7AM, post }), /VISIT_NOT_OPEN/);
+});
 
 withTestDb("booked crew get the checklist and the priced photo, and the last tick marks today's visit done", async () => {
   const s = await seed();
