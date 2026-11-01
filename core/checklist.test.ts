@@ -72,6 +72,57 @@ test("with several priced photos, an item says which photos outline it", () => {
     checklistText([{ ...mulch, doneAt: null }, edging], "en", outlines),
     "1. Mulch installed, 3 cubic yards (outlined in photos 1 and 3)\n2. Bed edging, 40 linear feet",
   );
+  // Every item outlined somewhere: with several photos, which ones still tells the crew where to look.
+  assert.equal(
+    checklistText([{ ...mulch, doneAt: null }, { ...hedge, doneAt: new Date() }], "en", outlines),
+    "1. Mulch installed, 3 cubic yards (outlined in photos 1 and 3)\n2. Hedge trimming, 150 cubic feet (outlined in photo 2) ✓",
+  );
+});
+
+test("with several priced photos, an item in every photo or in none has no mark; the rest say which photos", () => {
+  const regions = (...located: number[]) => ({ regions: [0, 1, 2, 3].map((lineIndex) => ({ lineIndex, located: located.includes(lineIndex) })) });
+  // Five photos: the lawn in all of them, the big hedge in 1, 2 and 5, the small one in 2, the edging in 3 and 4.
+  const photos = [regions(0, 1), regions(0, 1, 2), regions(0, 3), regions(0, 3), regions(0, 1)] as unknown as Parameters<typeof outlinesOf>[0];
+  const items = [
+    { lineIndex: 0, name: "Lawn mowing", quantity: 1, unitLabel: "visit", located: true, doneAt: null },
+    { lineIndex: 1, name: "Hedge trimming", quantity: 360, unitLabel: "cubic foot", located: true, doneAt: null },
+    { lineIndex: 2, name: "Hedge trimming", quantity: 112, unitLabel: "cubic foot", located: true, doneAt: null },
+    { lineIndex: 3, name: "Bed edging", quantity: 220, unitLabel: "linear foot", located: true, doneAt: null },
+    { lineIndex: 4, name: "Haul away", quantity: 1, unitLabel: "load", located: false, doneAt: null },
+  ];
+  assert.equal(
+    checklistText(items, "en", outlinesOf(photos)),
+    [
+      "1. Lawn mowing, 1 visit",
+      "2. Hedge trimming, 360 cubic feet (outlined in photos 1, 2 and 5)",
+      "3. Hedge trimming, 112 cubic feet (outlined in photo 2)",
+      "4. Bed edging, 220 linear feet (outlined in photos 3 and 4)",
+      "5. Haul away, 1 load",
+    ].join("\n"),
+  );
+  const spanish = [
+    ["Corte de césped", "visita"],
+    ["Poda de seto", "pie"],
+    ["Poda de seto", "pie"],
+    ["Bordeado", "pie"],
+    ["Retiro", "carga"],
+  ];
+  assert.equal(
+    checklistText(
+      items.map((item, i) => ({ ...item, name: spanish[i][0], unitLabel: spanish[i][1] })),
+      "es",
+      outlinesOf(photos),
+    ),
+    [
+      "1. Corte de césped, 1 visita",
+      "2. Poda de seto, 360 pies (marcada en las fotos 1, 2 y 5)",
+      "3. Poda de seto, 112 pies (marcada en la foto 2)",
+      "4. Bordeado, 220 pies (marcada en las fotos 3 y 4)",
+      "5. Retiro, 1 carga",
+    ].join("\n"),
+  );
+  // The photos decide, not a flag left from before they changed.
+  assert.equal(checklistText([{ ...items[4], lineIndex: 3, located: false }], "en", outlinesOf(photos)), "1. Haul away, 1 load (outlined in photos 3 and 4)");
 });
 
 test("item text is the line's name, quantity, and unit, in the reader's language, and never a price", () => {
@@ -276,13 +327,13 @@ withTestDb("a finished list never marks a visit on a later day done", async () =
   assert.equal((await getVisit(s.pat, booked.visit.visitId))?.status, "scheduled");
 });
 
-withTestDb("with several priced photos, booked crew get each one in order and the list says which photos show what", async () => {
+withTestDb("with several priced photos, booked crew get each one in order, and an item every photo shows needs no photo number", async () => {
   const s = await seed({ secondPhoto: true });
   const booked = await bookVisit(s.pat, { quoteId: s.quote.quoteId, memberIds: [s.carlos.memberId], day: "today", time: "09:00" }, { now: MONDAY_7AM, post });
   assert.deepEqual(posts, [
     {
       memberId: s.carlos.memberId,
-      text: "Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards (outlined in photos 1 and 2)\n2. Bed edging, 40 linear feet",
+      text: "Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards\n2. Bed edging, 40 linear feet",
       file: "priced-photo-1.png image/png, priced-photo-2.png image/png",
     },
   ]);
@@ -333,7 +384,7 @@ withTestDb("through the fake iMessage transport, booked crew see the list's text
   const sent = printed.filter((line) => line.startsWith("imessage (fake)")).map((line) => line.replace(/\(\d+ bytes\)/, "(N bytes)"));
   if (process.env.SHOW_FAKE_IMESSAGE) log(sent.join("\n"));
   assert.deepEqual(sent, [
-    "imessage (fake) to thread:+15555550102: Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards (outlined in photos 1 and 2)\n2. Bed edging, 40 linear feet",
+    "imessage (fake) to thread:+15555550102: Pat Ortega booked you for 412 Oak St: Mon, Oct 19, 9 AM–10 AM.\n\n1. Mulch installed, 3 cubic yards\n2. Bed edging, 40 linear feet",
     "imessage (fake) file to thread:+15555550102: priced-photo-1.png (N bytes)",
     "imessage (fake) file to thread:+15555550102: priced-photo-2.png (N bytes)",
   ]);

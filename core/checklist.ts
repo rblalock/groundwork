@@ -2,8 +2,10 @@
 // the quote's current revision when the work's first visit is booked, or when someone reads it and it has
 // none yet. Each item's text is built here from the line's name, quantity, and unit, in the reader's
 // language: never the model's words, and never a price. An item is outlined when any of the quote's
-// priced photos found that line: "outlined in the photo" with one, "outlined in photo 2" or "outlined in
-// photos 1 and 3" with several, numbered in attachment order as the crew get them. When the quote's
+// priced photos found that line. With one photo, "outlined in the photo" tells outlined items from the
+// rest, so it shows only when some are and some aren't. With several, which photo shows a line is what
+// helps: "outlined in photo 2" or "outlined in photos 1 and 3", numbered in attachment order as the crew
+// get them, on each item some photos show but not all. When the quote's
 // photos are priced again, the items not ticked yet are marked again (`refreshChecklists`, in
 // core/priced-photo.ts, which this module reads from). Anyone on the team
 // ticks an item or unticks it; the tick that
@@ -101,10 +103,28 @@ export function markOutlined(items: Array<Pick<ChecklistItemView, "located">>): 
   return items.some((item) => item.located) && items.some((item) => !item.located);
 }
 
+/**
+ * The items with `located` true only where `itemText` should mark it. With one priced photo (or none),
+ * an outlined item, when `markOutlined` says the list marks them. With several, an item some of the
+ * photos outline but not all, by the photos themselves; an item every photo outlines, or none does,
+ * goes unmarked.
+ */
+export function outlineMarks<T extends TextItem>(items: T[], outlines?: Outlines): T[] {
+  if (!outlines || outlines.count <= 1) {
+    const mark = markOutlined(items);
+    return items.map((item) => ({ ...item, located: item.located && mark }));
+  }
+  return items.map((item) => {
+    const shown = item.lineIndex === undefined ? 0 : (outlines.byLine.get(item.lineIndex)?.length ?? 0);
+    return { ...item, located: shown > 0 && shown < outlines.count };
+  });
+}
+
 /** The list as lines to send, numbered, each done item marked: "1. Mulch installed, 3 cubic yards ✓". */
 export function checklistText(items: Array<TextItem & Pick<ChecklistItemView, "doneAt">>, language: Language, outlines?: Outlines): string {
-  const mark = markOutlined(items);
-  return items.map((item, index) => `${index + 1}. ${itemText({ ...item, located: item.located && mark }, language, outlines)}${item.doneAt ? ` ${DONE_MARK}` : ""}`).join("\n");
+  return outlineMarks(items, outlines)
+    .map((item, index) => `${index + 1}. ${itemText(item, language, outlines)}${item.doneAt ? ` ${DONE_MARK}` : ""}`)
+    .join("\n");
 }
 
 export function checklistCounts(items: Array<Pick<ChecklistItemView, "doneAt">>): { done: number; total: number } {
@@ -114,12 +134,11 @@ export function checklistCounts(items: Array<Pick<ChecklistItemView, "doneAt">>)
 /** The list as tools return it: each item's text and whether, by whom, and when it was ticked; `text` is ready to send. */
 export function checklistForTool(items: ChecklistItemView[], timeZone: string, language: Language, outlines?: Outlines) {
   const { done, total } = checklistCounts(items);
-  const mark = markOutlined(items);
   return {
-    items: items.map((item, index) => ({
+    items: outlineMarks(items, outlines).map((item, index) => ({
       itemId: item.itemId,
       number: index + 1,
-      text: itemText({ ...item, located: item.located && mark }, language, outlines),
+      text: itemText(item, language, outlines),
       done: Boolean(item.doneAt),
       ...(item.doneAt ? { doneBy: item.doneByName, doneAt: `${dayText(wallClock(item.doneAt, timeZone).date, language)}, ${timeText(item.doneAt, timeZone, language)}` } : {}),
     })),

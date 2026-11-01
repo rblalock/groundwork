@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { quotes } from "../../schema/schema";
 import { readStoredFile, storeInboundAttachment } from "../../core/blob";
 import { pairOf } from "../../core/before-after";
-import { checklistCounts, checklistFor, checklistPhotos, itemText, markOutlined, outlinesOf, tickChecklist } from "../../core/checklist";
+import { checklistCounts, checklistFor, checklistPhotos, itemText, outlineMarks, outlinesOf, tickChecklist } from "../../core/checklist";
 import { db } from "../../core/db";
 import { invoicesForJobs, type InvoiceRef } from "../../core/invoices";
 import { isPrivileged } from "../../core/members";
@@ -56,7 +56,6 @@ export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPag
   const priced = items.length && job.quoteId ? await checklistPhotos(caller.orgId, job.quoteId) : [];
   const outlines = outlinesOf(priced);
   const privileged = isPrivileged(caller.role);
-  const mark = markOutlined(items);
   return {
     job,
     quote,
@@ -65,9 +64,9 @@ export async function workFor(caller: AppCaller, jobId: string): Promise<WorkPag
     canAddPhotos: caller.memberId !== null,
     checklist: items.length
       ? {
-          items: items.map((item) => ({
+          items: outlineMarks(items, outlines).map((item) => ({
             itemId: item.itemId,
-            text: itemText({ ...item, located: item.located && mark }, caller.language, outlines),
+            text: itemText(item, caller.language, outlines),
             doneAt: item.doneAt,
             doneByName: item.doneByName,
           })),
