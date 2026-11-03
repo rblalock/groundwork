@@ -9,9 +9,13 @@
 
 <br>
 
-This is a Next.js app with two agents. Local runs use fake modes for iMessage, email, Stripe, and
-email intake, so the only outside service is the Meta Model API (Muse Wonder and SAM 3.1 on one key).
-These steps were run end to end on a fresh clone. Needs Node 24 or newer and an empty Postgres database.
+This is a Next.js app with two agents. Everything Groundwork does runs for real on your machine:
+Muse Wonder, SAM 3.1, the agent and its tools, the calculator, and the database. What a laptop doesn't
+have are the delivery channels: an iMessage line, a sending email domain, a Stripe account, and an
+inbound mailbox. The `*_FAKE` switches below swap only those for local stand-ins that print or record
+what would have gone out, so you can run it without signing up for any of them. The only key you
+need is a Meta Model API key (Muse Wonder and SAM 3.1 on one key). These steps were run end to end on
+a fresh clone. Needs Node 24 or newer and an empty Postgres database.
 
 ```bash
 git clone https://github.com/rblalock/groundwork && cd groundwork
@@ -26,11 +30,12 @@ DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/groundwork   # an empty dat
 META_MODEL_API_KEY=...                                             # your Meta Model API key
 BETTER_AUTH_SECRET=...                                             # openssl rand -hex 32
 VERTICAL=landscaping          # the landscaping pack's instructions
-IMESSAGE_FAKE=1               # iMessage posts print to the server console
-PHOTON_ADMIN_FAKE=1
-EMAIL_FAKE=1
-STRIPE_FAKE=1
-AGENTMAIL_FAKE=1
+# Run without the outside delivery services (each one prints or records instead of sending):
+IMESSAGE_FAKE=1               # texts to members print to the server console
+PHOTON_ADMIN_FAKE=1           # no iMessage line to set up
+EMAIL_FAKE=1                  # quote emails are recorded, not sent
+STRIPE_FAKE=1                 # a local Stripe for deposits and payments
+AGENTMAIL_FAKE=1              # a local inbox for forwarded emails
 BLOB_LOCAL_DIR=.local-blobs   # photos and PDFs saved to disk (needed for priced photos)
 LOGIN_CODE_LOG=1              # sign-in codes print to the server console
 ```
@@ -73,6 +78,7 @@ work is done. There's no app to learn: it runs over iMessage, with a web app for
 <p>
   <a href="VIDEO_LINK"><b>▶ Watch the 3-minute demo</b></a> ·
   <a href="HACKATHON.md">Technical deep dive</a> ·
+  <a href="#try-it-live">Try it live</a> ·
   <a href="#run-it-locally">Run it locally</a> ·
   MIT licensed
 </p>
@@ -101,7 +107,7 @@ and the agent turns those texts into quotes, bookings, routes, checklists, and i
 | What does it cost to run? | About $0.10 of model time per quote in the eval runs, and SAM 3.1 lists at $2.50 per 1,000 images. Every call is metered per business, member, and channel, with hourly caps. | [`core/model-pricing.ts`](core/model-pricing.ts) |
 | What stops it doing something wrong? | The crew confirms quantities in one numbered message before anything is priced. Customer texts come back as drafts for the owner to send. Schedule changes are proposals the owner approves. An email can't approve or send anything. | [Agentic, with a person in charge](#agentic-with-a-person-in-charge) |
 | Is customer data kept apart? | Every table has `org_id` and every query is scoped by it. Callers are identified by their phone in code, never by the model. Quote revisions are immutable. | [`AGENTS.md`](AGENTS.md) |
-| Can I try it? | Run it from this repo with your own Meta Model API key; fake modes stand in for iMessage, email, and Stripe. | [Run it locally](#run-it-locally) |
+| Can I try it? | Two ways. The live app runs everything for real, iMessage included, and I'll add you to it. Or run it from this repo with your own Meta Model API key. | [Try it live](#try-it-live), [Run it locally](#run-it-locally) |
 
 ## See it
 
@@ -111,7 +117,7 @@ and the agent turns those texts into quotes, bookings, routes, checklists, and i
     <td width="50%"><img src="docs/images/priced-photo.jpg" alt="Yard photo with the lawn and hedges outlined by SAM 3.1 and labeled with prices"><br><b>The priced photo.</b> SAM 3.1 outlines each quoted thing on every photo and labels it with its quantity and price. Masks are kept, so the owner can fix an outline without another SAM call.</td>
   </tr>
   <tr>
-    <td><img src="docs/images/customer-quote-page.jpg" alt="Customer quote page on a phone with an Approve button and deposit"><br><b>The customer's link.</b> The customer reads the quote, approves with their name, and pays the deposit by card. Each business connects its own Stripe account; the demo runs Stripe in fake mode, and a live payment end to end is next on the roadmap.</td>
+    <td><img src="docs/images/customer-quote-page.jpg" alt="Customer quote page on a phone with an Approve button and deposit"><br><b>The customer's link.</b> The customer reads the quote, approves with their name, and pays the deposit by card through Stripe Connect, on the business's own account. Taking a live payment end to end is next on the roadmap.</td>
     <td><img src="docs/images/route-map.jpg" alt="Schedule route view with a map of each crew's stops"><br><b>Schedule and dispatch.</b> Each crew's day is a route with drive times, ranked open slots, weather checks, and re-planning when a crew texts "running 30 late".</td>
   </tr>
   <tr>
@@ -266,12 +272,21 @@ flowchart LR
 - **The trade is a pack** in `verticals/<trade>/`: price book items with SAM phrases, pricing rules,
   notes, a minimum, an instruction overlay, and its own evals.
 
+## Try it live
+
+Groundwork runs in production at
+[groundwork-rb-sideprojects.vercel.app](https://groundwork-rb-sideprojects.vercel.app), with a real
+iMessage line, Muse Wonder, and SAM 3.1. There's no public sign-up: a business's owner adds each
+member by phone, and sign-in codes arrive over iMessage. To try it, send your phone number to
+INVITE_CONTACT and I'll add you to the demo business. You'll get a text from the line, and then you can
+text it jobs and photos from your phone and see the same thread in the web app.
+
 ## Run it locally
 
-You need Node 24 or newer, an empty Postgres database, and a Meta Model API key. Fake modes keep
-iMessage, email, Stripe, and email intake on your machine. The steps, the `.env.local` lines, and
-what to send once it's running are in the box at the top of this page, under "For the judge's agent".
-The short version:
+You need Node 24 or newer, an empty Postgres database, and a Meta Model API key. The agent, both
+Meta models, the calculator, and the database run for real; the switches in the box at the top of
+this page only keep texts, emails, and payments on your machine. The steps, the `.env.local` lines,
+and what to send once it's running are in that box, under "For the judge's agent". The short version:
 
 ```bash
 npm install && cp .env.example .env.local   # then set the lines listed in the box above
@@ -281,7 +296,8 @@ npm run seed:vertical -- landscaping
 npm run dev                                 # http://localhost:3000, sign in as (555) 555-0142
 ```
 
-Everything else is in [docs/development.md](docs/development.md): environment, fake modes, tests,
+Everything else is in [docs/development.md](docs/development.md): environment, connecting the real
+services, running without them, tests,
 evals, scorecard, deploy, and trade packs. What each feature does in detail is in
 [docs/features.md](docs/features.md), and what's next is in [ROADMAP.md](ROADMAP.md).
 

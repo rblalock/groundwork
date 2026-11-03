@@ -25,7 +25,7 @@ cp .env.example .env.local
 ```
 
 Fill in `.env.local`: at least `DATABASE_URL`, `META_MODEL_API_KEY`, and `BETTER_AUTH_SECRET`
-(`openssl rand -hex 32`). For local work, turn on the fake modes below so nothing reaches a real
+(`openssl rand -hex 32`). For local work, turn on the switches below so nothing reaches a real
 phone, inbox, or card, and save files to disk so photos can be priced:
 
 ```bash
@@ -62,7 +62,7 @@ the way in: sign in, and the home page is the owner's thread.
 
 ## Using real services
 
-Each outside service is optional and replaces one fake mode. Unset the fake switch when you set the
+Each outside service is optional and replaces one `*_FAKE` switch. Unset the switch when you set the
 real keys. Webhooks need a public HTTPS URL: a deployment, or a tunnel to this machine.
 
 - **Meta Model API** (required either way): `META_MODEL_API_KEY`. The same key runs Muse Wonder and
@@ -140,9 +140,12 @@ Everything is listed with comments in `.env.example`.
 - `AGENTMAIL_API_KEY`, `AGENTMAIL_WEBHOOK_SECRET`, `AGENTMAIL_DOWNLOAD_HOSTS`: email intake.
 - `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `SUPER_ADMIN_EMAILS`: web sign-in and super admins.
 
-## Fake modes
+## Running without outside services
 
-Each switch stands in for an outside service on this machine. Never set them in production.
+The `*_FAKE` switches let the app run on one machine with no iMessage line, email domain, Stripe
+account, or inbound mailbox. Each one replaces only the delivery to that service: what would have gone
+out is printed or recorded instead. The agent, Muse Wonder, SAM 3.1, the calculator, and the database
+run for real either way. Never set them in production.
 
 - `IMESSAGE_FAKE=1`: prints iMessage posts, files, and tapbacks instead of sending them.
 - `PHOTON_ADMIN_FAKE=1`: provisions businesses and members without Photon credentials.

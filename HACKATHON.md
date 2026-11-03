@@ -211,7 +211,9 @@ pool service, and tree work are packs of the same shape beside it, each with thr
 ## Running it yourself
 
 [README.md: Run it locally](README.md#run-it-locally) has the steps, tested on a fresh clone: one Meta
-Model API key, a Postgres database, and fake modes for everything else.
+Model API key and a Postgres database. The agent and both Meta models run for real; switches keep texts,
+emails, and payments on your machine. The production app runs everything live, iMessage included:
+[README.md: Try it live](README.md#try-it-live).
 [docs/development.md](docs/development.md) covers the environment, connecting the real services,
 tests, evals, and deploy.
 
