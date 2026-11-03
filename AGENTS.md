@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Notes for coding agents working in this repo. Read `README.md` for setup.
+Notes for coding agents working in this repo. Read `README.md` for the overview and `docs/development.md` for setup.
 
 ## Layout
 

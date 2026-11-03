@@ -1,272 +1,248 @@
 # Groundwork
 
-Groundwork is a field-service agent for landscaping crews. A crew member texts a messy job
-description and a few yard photos over iMessage or the web chat, and Groundwork turns it into a
-priced quote PDF, a priced photo with each quoted thing outlined and labeled, a link where the
-customer approves and pays a deposit, a booked visit, and an invoice. The agent runs on Muse Wonder
-through Meta's Model API, and SAM 3.1 outlines the quoted lines on the yard photo. Every object SAM
-finds is kept with its outline, so a member can edit the photo on the quote page without another SAM
-call, and outline by hand what SAM missed, from the quote page or the Edit links on the chat's quote
-card and the customer's price guide. With no word typed, a box dragged on the photo asks SAM for the
-one thing in it, and a tap off a wrong answer asks again. The model judges what the member means; code checks who they are
-and does the math.
+**Landscaping crews text a job. Groundwork does the office work.**
 
-When a quote has a priced photo from before the job and one of the finished work, the two make a
-before-and-after: side by side, with the quote's title and total under them (the PDF leaves the
-total off when the business hides line prices). The photos are plain; on the quote page, "Show
-outlines" draws each one's kept masks on it. It's drawn on demand from the two photos, with no SAM
-call and nothing stored, and shows on the invoice and its PDF, the quote page, and the customer's
-price guide.
+A crew texts a job and a few yard photos the way they'd tell a coworker. Groundwork, an agent on
+Meta's **Muse Wonder** and **SAM 3.1**, writes the quote from the business's own prices and outlines
+each quoted thing on the photo with its price. It sends the customer a link to approve and pay,
+books the visit, gives the crew a route and a checklist in their language, and invoices when the
+work is done. There's no app to learn: it runs over iMessage, with a web app for the office.
 
-The same pair makes a post the business can share: the two photos cropped to match, side by side on
-a square or stacked on a story, with the business's name and logo and an optional line asking for
-the next job by text or email. No outlines, prices, or address. On the quote page, Share shows it
-with a caption to edit: download it, copy the caption, or send both through the phone's share
-sheet. In chat, "make a post" sends the image and its caption to the member's thread.
+<p>
+  <a href="VIDEO_LINK"><b>▶ Watch the 3-minute demo</b></a> ·
+  <a href="HACKATHON.md">Judge's deep dive</a> ·
+  <a href="#run-it-in-5-minutes">Run it in 5 minutes</a> ·
+  MIT licensed
+</p>
 
-A job done before is quoted again from its last quote. "Same as last time for Maria" proposes that
-quote's lines in a numbered confirm at today's prices, with what changed since: a price that went
-up, an item no longer in the price book (it stays unpriced for the owner), a total set by hand last
-time (not repeated). Nothing is saved until the member says yes. "Quote it again" on the customer's
-price guide and on a quote's page opens the chat with the request typed in.
+![A crew member texts a job with yard photos; Muse Wonder writes the quote and a calculator prices every line](docs/images/quote-by-text.jpg)
 
-Work from a quote gets a checklist, one item per line: its name, quantity, and unit, marked when the
-priced photo outlines it, never with a price. The crew booked get it in their booking text with the
-priced photo, drawn for them with quantities only. They tick items by text ("mulch is done"), or
-anyone on the team ticks them on the work's page, and the schedule shows how many are done. The tick
-that finishes the list marks the work's visit done when its day has come.
+Built solo for the Meta AI Developer Hackathon 2026 (Indie track).
 
-Every property and the business's yard (its address) are placed on the map when saved, through the
-US Census geocoder. An address that can't be placed says so on its card and is never guessed. A
-drive is the straight-line distance times a road factor at a town speed (1.3 and 28 mph unless the
-owner changes them, by text or in Settings), rounded up to 5 minutes. Booking holds the drive in from
-the crew's stop before, or the yard, and out to the next stop, or back; when a place is missing it
-holds today's default and says so. The schedule shows each visit's drive, and the crew's booking text
-says how far it is. `npm run places:backfill` places addresses saved before this.
+## The problem
 
-Each crew member's day is a route, worked out from their visits every time and never saved: when they
-leave the yard, each stop in booked order with the drive in, and when they're back, with the minutes
-driving and on site against a day capacity the owner sets (95% unless changed). When another order
-would drive 10 minutes less, the route says so; nothing is moved. Crew get their route as the morning
-text, the schedule's Route view lists everyone's for owners and a crew member's own for crew, and the
-assistant reads the same numbers from `read_schedule`.
+Landscaping crews are good at selling work in the yard. The bottleneck is what comes after: they
+get home and write quotes and estimates, sometimes until 2 a.m., then chase approvals, schedule
+crews, and send invoices. The software they can buy is a dashboard that shows them all the work they
+still have to do. They don't need another dashboard. They need something that does the work.
 
-Asked when a job fits, the assistant offers the slots that add the least driving to a crew's day
-("Wed, Oct 21, 10:15 AM with Carlos (+5 min driving)"), ahead of an empty day across town, and marks a
-slot that would take the day over its capacity. A price book item can list what the work needs
-("trailer", "chipper") and a member what their truck carries, by text or on the price book and Team
-pages; a job is only offered to crew who carry all of it, and booking someone who doesn't needs the
-owner's say.
+Groundwork is that labor, done by an agent. The owner and crew keep texting like they already do,
+and the agent turns those texts into quotes, bookings, routes, checklists, and invoices.
 
-Crew run their day by text: "next" sends the next stop with a maps link, the drive, the visit's and
-the site's notes, and the checklist; "here" starts it, "done" closes it and says what's next, and
-"running 30 late" re-plans the rest of the day and says what shifts. Today's route re-plans from now
-as the crew go. A stop 30 minutes past its finish, or a declared delay, is running long, and when the
-return runs past the workday's end plus a 15-minute grace (both settings) the Route view marks the
-day at risk. Nothing moves and no customer is texted.
+## What judges usually ask
 
-A day at risk becomes a proposal: the code takes the crew's last stops not yet started off the end
-until the return fits, keeping any stop within the 45-minute lead time, and places each with someone
-else that day who carries what it needs, else with the same crew on their next day with room. The
-owners get it as a numbered text ("Move 2 stops for Carlos? 1. 4 Elm Rd → Pat today 2 PM 2. 40 Pine
-Ave → Carlos tomorrow 8:15 AM. Reply the numbers to keep, 'all', or 'no'.") and as a card on the
-Schedule page. Applying it re-checks every stop in one transaction, moves the ones that still hold,
-and texts the crew; the customer texts come back as drafts for the owner to forward.
+| Question | Short answer | Where to check |
+| --- | --- | --- |
+| Does it really use Meta's models? | Every agent turn runs on **Muse Wonder** through the Meta Model API (Responses API, tool calling, image input). **SAM 3.1** outlines the quoted work on yard photos. **Muse Spark** is the fallback model, **Muse Image** made the eval yard photo, and Muse Wonder is also the eval judge. | [`core/model-provider.ts`](core/model-provider.ts), [`core/sam.ts`](core/sam.ts), [How it uses Meta's models](#how-it-uses-metas-models) |
+| Who is it for? | Small landscaping businesses: an owner and a few crews who sell door to door and do the paperwork at night. Irrigation, pool, and tree service packs ship beside landscaping. | [`verticals/`](verticals/) |
+| Does the model do the math? | Never. The model picks price book items and quantities; a calculator prices every line in integer cents and applies the business's rules. | [How a turn runs](#how-a-turn-runs-the-trace-and-the-eval-that-checks-it) |
+| Does SAM measure the yard? | No. Quantities come from the crew and the quote they confirm. SAM shows *where* each line is, so the customer and crew see exactly what they're paying for and working on. | [`core/priced-photo.ts`](core/priced-photo.ts) |
+| How do you know it works? | 17 landscaping evals scored by Muse Wonder: 88% with Muse Wonder alone, 94% with the Groundwork landscaping pack. 119 test files, and every turn is traced. | [Evals](#evals-every-turn-is-measured), [`docs/evals/scorecard.md`](docs/evals/scorecard.md) |
+| What does it cost to run? | About $0.10 of model time per quote in the eval runs, and SAM 3.1 lists at $2.50 per 1,000 images. Every call is metered per business, member, and channel, with hourly caps. | [`core/model-pricing.ts`](core/model-pricing.ts) |
+| What stops it doing something wrong? | The crew confirms quantities in one numbered message before anything is priced. Customer texts come back as drafts for the owner to send. Schedule changes are proposals the owner approves. An email can't approve or send anything. | [Agentic, with a person in charge](#agentic-with-a-person-in-charge) |
+| Is customer data kept apart? | Every table has `org_id` and every query is scoped by it. Callers are identified by their phone in code, never by the model. Quote revisions are immutable. | [`AGENTS.md`](AGENTS.md) |
+| Can I try it? | Watch the demo, or run it locally with fake modes in about five minutes. The production app is live, with sign-in by a code texted over iMessage. | [Run it in 5 minutes](#run-it-in-5-minutes) |
 
-The weather comes from api.weather.gov for the yard, by the hour. A price book item rain or heat calls
-off is weather-sensitive (the landscaping pack marks mowing, sod, mulch, edging, and cleanup). The
-evening before (15 hours before the workday starts, 5 PM for an 8 AM start), tomorrow's stops doing
-that work are read against the owner's limits, 60% rain and 95°F unless changed by text or in
-Settings, and those at risk become one proposal for the business: each to its own crew's next dry day
-with room ("Rain likely tomorrow 10 AM–2 PM (70%) over 3 lawn mowing stops. Move 3 stops to a dry
-day?"), decided like any other. `read_schedule` and the Route view show the day's forecast in one line.
+## See it
 
-Recurring work ("mow it every week") repeats from its first visit: each visit marked done books the
-next, same crew and time, a day later when the crew are off, with no text to anyone. "Plan our mowing
-days" (or Plan route days on the Schedule page) groups the recurring work by area from the yard, one
-loop for each weekday the business works, and proposes moving each job whose day changes to its new
-weekday next week, decided like any other proposal; a new recurring customer is offered the weekday
-their neighbors are on ("Tue, Nov 10, 10 AM with Carlos (+5 min driving; your Tue loop)").
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/text-the-job.jpg" alt="Texting a job with yard photos over iMessage"><br><b>Text it like a coworker.</b> A job and yard photos over iMessage (or the web chat). The agent asks only for what's missing.</td>
+    <td width="50%"><img src="docs/images/priced-photo.jpg" alt="Yard photo with the lawn and hedges outlined by SAM 3.1 and labeled with prices"><br><b>The priced photo.</b> SAM 3.1 outlines each quoted thing on every photo and labels it with its quantity and price. Masks are kept, so the owner can fix an outline without another SAM call.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/customer-quote-page.jpg" alt="Customer quote page on a phone with an Approve button and deposit"><br><b>The customer's link.</b> The customer reads the quote, approves with their name, and pays the deposit by card. Each business connects its own Stripe account; the demo runs Stripe in fake mode, and a live payment end to end is next on the roadmap.</td>
+    <td><img src="docs/images/route-map.jpg" alt="Schedule route view with a map of each crew's stops"><br><b>Schedule and dispatch.</b> Each crew's day is a route with drive times, ranked open slots, weather checks, and re-planning when a crew texts "running 30 late".</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/crew-checklist.jpg" alt="Work page with the crew checklist and marked-up photos"><br><b>The crew's checklist.</b> One item per quote line, with crew copies of the marked-up photos (quantities, never prices). Crew tick items by text.</td>
+    <td><img src="docs/images/crew-spanish.jpg" alt="iMessage thread switching to Spanish"><br><b>En español, también.</b> Each member and customer has a language. Crew who work in Spanish get their texts and checklist in Spanish.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/memory.jpg" alt="The agent answering with a customer's gate code and dog"><br><b>It remembers.</b> Gate codes, dogs, "no blowers before 9": notes are saved by customer and property, and show up in the crew's next stop.</td>
+    <td><img src="docs/images/designer.jpg" alt="Designer agent restyling the customer quote page in black and gold"><br><b>The designer agent.</b> The owner describes their brand or pastes their website, and a second agent rebuilds the customer quote and invoice pages to match. Prices and forms stay server-filled.</td>
+  </tr>
+</table>
 
-Above the Route view's lists, a map of the day (Leaflet over OpenStreetMap tiles, no key): the yard,
-each placed stop numbered in its crew member's color, a straight line per crew member from the yard and
-back, the shorter order dashed when there is one, and a late or at-risk stop ringed in the warning
-color. A marker opens the visit like its row; crew see only their own day, and "Hide map" keeps it out
-of the way for crew who only want the list.
+## How a turn runs: the trace and the eval that checks it
 
-See [HACKATHON.md](HACKATHON.md) for the demo and how each Meta model is used, and
-[ROADMAP.md](ROADMAP.md) for what comes next.
+Every turn is recorded as a trace: model, tokens, each step's reasoning, and every tool call with its
+input and output. Owners can open it under any reply ("Under the hood"), and
+`npm run traces:export` writes it as JSONL. Here is a real turn from the production app, next to the
+eval that checks the same behavior on every run.
 
-## Stack
+<table>
+  <tr>
+    <td width="46%" valign="top"><img src="docs/images/trace-create-quote.png" alt="Under the hood trace: muse-wonder-1.0, read_business, find_customer, create_quote input with item ids and quantities, output with unitCents and totalCents"></td>
+    <td valign="top">
 
-- Next.js 16 (App Router) and React 19, TypeScript, Node 24
-- Vercel Eve agent runtime and the AI SDK
-- Meta Model API: Muse Wonder (agent and eval judge), Muse Spark (fallback), SAM 3.1 (priced photo),
-  Muse Image (eval fixtures)
-- Drizzle ORM on Postgres
-- Better Auth (organizations, phone-code sign-in)
-- Photon iMessage
-- Stripe Connect for deposits and invoice payments
-- Vercel Blob for photos, priced photos, and PDFs
-- sharp for drawing the priced photo, pdf-lib for quote and invoice PDFs
+**What the trace shows.** The member texted *"maria 412 oak st, 3 yards of mulch in beds, trim 159 c
+ft of hedge and mow front"* with a photo. Muse Wonder (130k tokens in, 1.2k out):
 
-## Run locally
+1. read the business (price book, rules, minimum),
+2. looked up the customer,
+3. called `create_quote` with **only item ids and quantities**,
+4. called `price_photo`, which ran SAM 3.1 on the photo.
 
-Needs Node 24 or newer and a local Postgres.
+The **output** is the calculator's: `unitCents`, `totalCents`, rule lines, minimum, tax. The agent
+replies with the tool's own `summaryText`, so the prices the member reads are the code's. A separate
+eval, `no-invented-price`, checks that the agent never makes a price up when one isn't saved.
+
+**The eval that guards it**
+([`quote-direct.eval.ts`](agents/assistant/evals/landscaping/quote-direct.eval.ts)):
+
+```ts
+await t.send("Maria at 412 Oak St wants her front yard mowed, " +
+  "3 yards of mulch in the beds and about 40 feet of edging.");
+t.calledTool("create_quote");
+t.judge("The reply does not ask for any price and does not " +
+  "ask for quantities already given.").gate(0.7);
+// $65 + 3 × $95 + 40 × $2.50 = $450, above the $150 minimum
+t.check(quote?.totalCents, equals(45000));
+```
+
+It passes in both scorecard conditions. The judge is Muse Wonder, answering structured questions
+scored 0 to 1.
+
+  </td>
+  </tr>
+</table>
+
+## How it uses Meta's models
+
+**Muse Wonder is the agent.** It runs on the Meta Model API's Responses API with 69 tools that look up
+the caller and the records, price through the calculator, and write quotes, visits, invoices,
+checklists, and proposals. Photos go in as image input: it describes the yard and proposes
+quantities, and the member confirms before anything is priced. It also runs a second agent, the page
+designer, and judges the evals with structured output. Every call is metered, and `MODEL_USE_FALLBACK=1`
+moves everything to **Muse Spark**.
+
+**SAM 3.1 makes the priced photo** ([`core/sam.ts`](core/sam.ts), [`core/priced-photo.ts`](core/priced-photo.ts)):
+
+- Each price book item a photo can show carries a SAM phrase ("lawn", "mulch bed", "hedge", "palm
+  tree"). Items a photo can't show, like haul-away, are never looked for.
+- Groundwork runs one call per phrase in parallel and decodes masks, boxes, and confidences with
+  `@meta-sam/parser`.
+- It keeps the right objects for each line. It drops the neighbor's lawn and specks, and one object
+  can't serve two lines.
+- It draws outlines, labels, and a legend with the total on every photo of the quote.
+- Every object SAM found is stored, so the editor can reassign, redraw, or hand-draw an outline
+  without another SAM call. Dragging a box asks SAM about that region with **box and point
+  prompts**, and a tap off a wrong answer adds a negative point.
+- The same masks make a crew copy (quantities only), a customer copy (no line prices when the
+  business hides them), a before-and-after on the invoice, and a share-ready social post.
+
+**Muse Image** generated the yard photo the photo evals use, so no real customer's property is in
+the repo.
+
+The full write-up, with file pointers for each claim, is in [HACKATHON.md](HACKATHON.md).
+
+## Agentic, with a person in charge
+
+Groundwork works without being asked, and it never acts on a customer without the owner.
+
+- **Every morning** each crew gets their route by text. The owner gets what's overdue, waiting, and
+  drafted.
+- **Every 10 minutes** it checks for crews running long. When a day would end past the workday, it
+  writes the owner a numbered proposal to move the last stops to another crew or day. Replying with
+  the numbers applies it in one transaction.
+- **The evening before rain or heat**, weather-sensitive stops become a proposal for a dry day
+  (api.weather.gov).
+- **Recurring work** ("mow it every week") books its next visit when one is done. "Plan our mowing
+  days" groups recurring jobs into one loop per weekday by direction from the yard.
+- **Crew run their day by text**: "next", "here", "done", "running 30 late", "mulch is done".
+- **A forwarded customer email** becomes a saved customer and a draft quote. The sender is verified
+  with DKIM and DMARC, and nothing is approved or sent from email.
+
+## Evals: every turn is measured
+
+![Scorecard: Muse Wonder alone 88%, with the Groundwork landscaping pack 94%](docs/images/scorecard.jpg)
+
+`npm run scorecard` runs 17 landscaping conversations twice on the same seeded business. The first
+run is Muse Wonder alone, with the business's prices, rules, and notes. The second adds the
+Groundwork landscaping pack's instructions. Each eval asserts on tool calls and stored records, and
+Muse Wonder judges the replies.
+
+| Condition | Pass rate | Judge mean | Cost per quote |
+| --- | --- | --- | --- |
+| Muse Wonder alone | 88% (15/17) | 0.84 | $0.08 |
+| With the Groundwork landscaping pack | **94% (16/17)** | **0.91** | $0.10 |
+
+The pack fixes the two photo evals that fail without it: asking for a photo, and pricing it. Per-eval
+results and failed assertions are in [docs/evals/scorecard.md](docs/evals/scorecard.md). Irrigation,
+pool, and tree packs have three evals each.
+
+**Open weights, next.** The traces are already a training set: `npm run traces:dataset` turns real
+turns into redacted, labelled examples, and `npm run evals:capture` does the same for passing eval
+runs. `npm run scorecard -- --model <id> --base-url <url>` scores any model beside Muse Wonder on the
+same evals. The recipe for a LoRA on a Muse open-weight model through Fireworks is in
+[docs/post-training.md](docs/post-training.md). The training run itself hasn't happened yet.
+
+## How it's built
+
+```mermaid
+flowchart LR
+  T[Crew and owner<br/>iMessage · web chat · email] --> A[Assistant agent<br/>Muse Wonder + 69 tools]
+  A --> C[Code: identity, calculator,<br/>scheduling, routes]
+  A --> S[SAM 3.1<br/>priced photos]
+  C --> DB[(Postgres<br/>org-scoped)]
+  S --> DB
+  DB --> W[Web app<br/>quotes · schedule · map]
+  DB --> P[Customer pages<br/>approve · pay]
+  D[Designer agent<br/>Muse Wonder] --> P
+  A -.-> TR[Turn traces → evals → training data]
+```
+
+- **Next.js 16 and React 19.** The member app, its API routes, and the customer pages `/q/[token]`
+  and `/pay/[token]`.
+- **Vercel Eve agent runtime.** Two agents: the assistant (tools, skills, hooks, schedules, iMessage
+  and web channels) and the page designer.
+- **Drizzle on Postgres.** Every table has `org_id`, money is integer cents, rates are basis points,
+  and quote revisions are immutable.
+- **Photon iMessage.** Each delivery is stored before the webhook answers, then worked per member in
+  order. Sign-in codes arrive in the member's own thread.
+- **Integrations.** Stripe Connect (each business's own account), Vercel Blob, sharp for the priced
+  photos, pdf-lib for quote and invoice PDFs, and Leaflet with OpenStreetMap for the route map.
+- **The trade is a pack** in `verticals/<trade>/`: price book items with SAM phrases, pricing rules,
+  notes, a minimum, an instruction overlay, and its own evals.
+
+## Run it in 5 minutes
+
+You need Node 24, Postgres, and a Meta Model API key. Fake modes keep every outside service local:
+iMessage, email, Stripe, and file storage.
 
 ```bash
 npm install
-cp .env.example .env.local
+cp .env.example .env.local          # set DATABASE_URL, META_MODEL_API_KEY, BETTER_AUTH_SECRET
+                                    # and IMESSAGE_FAKE=1 PHOTON_ADMIN_FAKE=1 EMAIL_FAKE=1 STRIPE_FAKE=1
+                                    #     AGENTMAIL_FAKE=1 BLOB_FAKE=1 LOGIN_CODE_LOG=1
+node --env-file=.env.local node_modules/.bin/drizzle-kit migrate
+cp provision.example.json provision.json && npm run provision   # a demo business and owner
+npm run seed:vertical -- landscaping                              # price book, rules, notes
+npm run dev                                                       # http://localhost:3000
 ```
 
-Fill in `.env.local`: at least `DATABASE_URL`, `META_MODEL_API_KEY`, and `BETTER_AUTH_SECRET`
-(`openssl rand -hex 32`). For local work, turn on the fake modes below so nothing reaches a real
-phone, inbox, or card. Then:
+Sign in with the owner's phone from `provision.json`. The code prints in the server console. Then
+text the web chat a job, for example *"Maria at 412 Oak St, 3 yards of mulch, trim 150 cubic feet of
+hedge, mow the front"*, with a yard photo.
 
-```bash
-node --env-file=.env.local node_modules/.bin/drizzle-kit migrate   # or: npm run db:migrate with DATABASE_URL set
-cp provision.example.json provision.json                           # a business and its owner
-npm run provision
-npm run seed:vertical -- landscaping                                # the landscaping price book, rules, and notes (or irrigation, pool, tree)
-npm run dev          # the web app at http://localhost:3000, agents at /eve/<name>/v1
-npm run dev:agent    # optional: the assistant alone, in eve's terminal UI
-```
+Everything else is in [docs/development.md](docs/development.md): environment, fake modes, tests,
+evals, scorecard, deploy, and trade packs. What each feature does in detail is in
+[docs/features.md](docs/features.md), and what's next is in [ROADMAP.md](ROADMAP.md).
 
-`npm run dev` mounts each agent beside the app: the assistant at `/eve/assistant/v1` and the page
-designer at `/eve/designer/v1` (off unless `DESIGNER_ENABLED=1`). Members sign in with their phone;
-the code is posted in their iMessage thread, and with `LOGIN_CODE_LOG=1` it also prints to the server
-console. Super admins are made with `npm run admin:create -- you@example.com` and must be listed in
-`SUPER_ADMIN_EMAILS`.
+## Repo map
 
-## Trade packs
-
-A trade lives in `verticals/<id>/`: price book items (each with a `photoPrompt` when a photo can show
-it, and the `equipment` the work needs), pricing rules, business notes, a minimum charge, and an
-instruction overlay. Four packs ship:
-
-- `landscaping`: mowing, mulch, edging, hedges, palms, shrubs, sod, cleanup, haul-away, sprinkler heads.
-- `irrigation`: zone inspections, heads, valves, controllers, drip line, pipe repairs, backflow tests,
-  wire tracing, seasonal start-ups.
-- `pool` (pool service): weekly service and chemicals, green-to-clean, filter and salt cell cleaning,
-  pump motors, acid wash, waterline tile, leak detection.
-- `tree` (tree work): removals, crown and palm trimming, stump grinding, limbs, storm debris, chipping,
-  haul-away, crane days.
-
-Each has three or more evals in `agents/assistant/evals/<id>/`, tagged with its id.
-
-- `npm run seed:vertical -- landscaping [provision.json]` (or `-- pool`, and so on) loads the pack's
-  items, rules, notes, and minimum into the business whose owner is in `provision.json`. It finds the
-  business by the owner's phone, touches no other business, and is safe to run again.
-- `VERTICAL=landscaping` (or another pack's id) adds the pack's instructions (vocabulary, units to
-  ask for, photo and rule handling) to the assistant every turn. Unset or `none`, the assistant stays
-  trade-agnostic; an unknown name warns once and runs without a pack.
-
-## Line prices for customers
-
-Each business chooses whether its customers see line prices (Settings → Payments, or text the
-assistant "hide line prices from customers"). Off, the quote link, its PDF, and the priced photo show
-each line's name and quantity and only the totals; the business still sees every price. It's on by
-default, and a trade pack may set it with `profile.customerLinePrices`. Invoices follow the same
-setting.
-
-## Environment
-
-Everything is listed with comments in `.env.example`.
-
-- `DATABASE_URL`: the Postgres for every business.
-- `META_MODEL_API_KEY` (required), `MODEL_BASE_URL` (default `https://api.meta.ai/v1`), `MODEL_ID`
-  (default `muse-wonder-1.0`), `MODEL_FALLBACK_ID` (default `muse-spark-1.3`), `MODEL_USE_FALLBACK=1`
-  to run on the fallback, `MODEL_REASONING_EFFORT` (`low`, `medium`, `high`), `MODEL_CONTEXT_TOKENS`
-  (the context budget compaction works from), and `MODEL_API=chat` to use Chat Completions instead
-  of the Responses API. `SAM_MODEL_ID` (default `sam-3.1`) is the segmentation model for priced
-  photos.
-- `VERTICAL`: the trade pack's instructions. `EVAL_MODEL_ID` and `EVAL_JUDGE_MODEL_ID`: the agent's
-  and the judge's models in evals.
-- `MODEL_PRICES` (list prices for cost estimates, JSON) and `USAGE_HOURLY_TURNS`,
-  `USAGE_HOURLY_OUTPUT_TOKENS`, `USAGE_CONCURRENT_TURNS`, `USAGE_TURN_OUTPUT_RESERVE` (default limits
-  per business).
-- `IMESSAGE_PROJECT_ID`, `IMESSAGE_PROJECT_SECRET`, `IMESSAGE_WEBHOOK_SECRET`: Photon iMessage.
-- `BLOB_READ_WRITE_TOKEN`: Vercel Blob.
-- `RESEND_API_KEY`, `EMAIL_FROM`: emailing quotes. Without them, members forward the PDF.
-- `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`: Stripe Connect. Without them, invoices go out
-  without a pay link.
-- `AGENTMAIL_API_KEY`, `AGENTMAIL_WEBHOOK_SECRET`, `AGENTMAIL_DOWNLOAD_HOSTS`: email intake.
-- `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `SUPER_ADMIN_EMAILS`: web sign-in and super admins.
-
-## Fake modes
-
-Each switch stands in for an outside service on this machine. Never set them in production.
-
-- `IMESSAGE_FAKE=1`: prints iMessage posts, files, and tapbacks instead of sending them.
-- `PHOTON_ADMIN_FAKE=1`: provisions businesses and members without Photon credentials.
-- `EMAIL_FAKE=1`: records quote emails instead of sending them through Resend.
-- `STRIPE_FAKE=1`: a local Stripe with accounts, a checkout page, and signed webhook events.
-- `AGENTMAIL_FAKE=1`: local inboxes and signed webhook events for email intake.
-- `BLOB_FAKE=1`: skips Vercel Blob and returns placeholder URLs (`BLOB_LOCAL_DIR` saves files to a folder instead).
-  For photos sent in web chat, set `BLOB_LOCAL_DIR=.local-blobs` so the stored copy opens on the quote
-  page; the model is sent the photo's bytes either way. The priced photo needs the stored bytes too:
-  with only `BLOB_FAKE=1`, `price_photo` reports the photo as unreadable.
-- `PLACES_FAKE=1`: places the seeded addresses at made-up points without asking the geocoder. On by
-  default locally when unset; `PLACES_FAKE=0` asks the US Census geocoder.
-- `WEATHER_FAKE=1`: a fixed forecast, dry but for rain at 70% from 10 AM to 2 PM tomorrow. On by default
-  locally when unset; `WEATHER_FAKE=0` asks api.weather.gov (`WEATHER_CONTACT` is the email its User-Agent gives).
-- `LOGIN_CODE_LOG=1`: prints sign-in codes to the server console.
-
-## Tests, evals, and tools
-
-```bash
-npm run typecheck
-npm test            # no database or keys needed; every outside service is forced to its fake
-npm run test:db     # also the tests that need DATABASE_URL; empties its tables
-npm run evals       # conversation evals in agents/assistant/evals/ against a local agent
-VERTICAL=landscaping npm run evals   # the same, with the landscaping instructions
-npm run scorecard   # landscaping evals with and without the pack; writes docs/evals/scorecard.md
-npm run scorecard -- --spark         # and a third run of the pack on Muse Spark
-npm run scorecard -- --vertical pool # another pack's evals; writes docs/evals/scorecard-pool.md
-npm run traces:export -- --org <slug> --redact > traces.jsonl   # every turn's trace, one JSON line each
-npm run traces:dataset -- --org <slug> --out dataset.jsonl       # the turns as training examples, redacted
-npm run evals:capture -- --tag landscaping                       # a passing eval run's turns as examples
-npm run scorecard -- --model <id> --base-url <url>               # and a tuned model as one more condition
-npm run smoke:model # live check of the Meta Model API: text, tool call, structured output, fallback
-npm run sam:probe -- agents/assistant/evals/fixtures/yard-front.jpg lawn "mulch bed"   # SAM 3.1 on a photo
-```
-
-`npm test` runs offline: `scripts/test-env.ts` switches every outside service to its fake and blanks
-real credentials. SAM tests decode a recorded stream in `test-fixtures/sam/`. `npm run test:db`,
-`npm run evals`, `npm run evals:capture`, and `npm run scorecard` empty the tables of the database
-they point at, so give them a local database of their own, and never run them at the same time.
-
-The scorecard runs the evals tagged with a pack's id (`landscaping` unless `--vertical` names
-another) twice on the same seeded business: a baseline with `VERTICAL=none` and a run with the pack.
-The latest landscaping results are in [docs/evals/scorecard.md](docs/evals/scorecard.md). `traces:export` also takes `--since <ISO time>`
-and `--out <path>`; `--redact` blanks phones, emails, and addresses.
-
-`traces:dataset` writes one fine-tuning example per completed turn: the system prompt it ran with, the
-member's message, the tool calls, results, and reply, and the tools it had, as chat-completions JSONL
-(`--format openai`) or Llama 3.x template text (`--format llama`), with customers' names, addresses,
-phones, and emails replaced. `evals:capture` writes the same from the evals that pass, and
-`scorecard -- --model` scores the tuned model. The recipe is in
-[docs/post-training.md](docs/post-training.md).
-
-`sam:probe` writes overlays to `/tmp/sam-probe/`. The yard photo the photo evals send is made by Muse Image:
-`node --env-file=.env.local node_modules/.bin/tsx agents/assistant/evals/fixtures/generate-yard-photo.ts`.
-
-## Deploy
-
-Groundwork runs as one Vercel project for every business, with a Neon Postgres and a Vercel Blob
-store.
-
-1. Set the environment on the project: everything in `.env.example` that production needs, none of
-   the fake switches.
-2. Migrate production before deploying. Nothing migrates on its own, and a production build stops if
-   the database is missing a migration:
-   ```bash
-   DATABASE_URL="<production url>" npm run db:migrate
-   npm run db:check
-   ```
-3. `vercel deploy --prod`.
-4. Provision each business against production and point the Photon webhook at the deployment.
+| Path | What's there |
+| --- | --- |
+| `agents/assistant/` | The agent: instructions, 69 tools, skills, channels, schedules, and evals |
+| `agents/designer/` | The page designer agent |
+| `core/` | Domain logic: calculator, quotes, SAM and priced photos, scheduling, routes, proposals, traces. Most tests live here. |
+| `verticals/` | Trade packs: landscaping, irrigation, pool, tree |
+| `app/`, `components/`, `lib/` | The Next.js app and the customer pages |
+| `schema/` | Drizzle schema and migrations |
+| `docs/` | Features, development, evals scorecard, post-training |
 
 ## License
 
-MIT. See [LICENSE](LICENSE). The UI kit in `ui/beautiful/` keeps its own MIT license.
+MIT, copyright 2026 Rick Blalock. See [LICENSE](LICENSE). The UI kit in `ui/beautiful/` keeps its own
+MIT license.

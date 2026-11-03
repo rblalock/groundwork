@@ -80,7 +80,7 @@ What a judge sees, in order. The demo business is LOX Landscape Co, its owner is
   `META_MODEL_API_KEY`, and uses the Responses API. `MODEL_API=chat` switches to Chat Completions.
 - The default model is `muse-wonder-1.0` (`MODEL_ID`). `MODEL_USE_FALLBACK=1` switches every call to
   `MODEL_FALLBACK_ID`, default `muse-spark-1.3`.
-- The agent works by tool calling: 58 tools under `agents/assistant/agent/tools/` that look up
+- The agent works by tool calling: 69 tools under `agents/assistant/agent/tools/` that look up
   the caller and the records, price through the calculator, and write quotes, visits, and invoices.
   Calls send `store: false`, so each step after a tool call carries the full history instead of
   stored-item references.
@@ -216,7 +216,7 @@ pool service, and tree work are packs of the same shape beside it, each with thr
 
 ## Running it yourself
 
-See [README.md](README.md) for setup, the fake modes that keep local work off real phones, inboxes,
+See [docs/development.md](docs/development.md) for setup, the fake modes that keep local work off real phones, inboxes,
 and cards, tests, evals, and deploy.
 
 ## License
