@@ -1,75 +1,69 @@
-# Groundwork: Meta AI Developer Hackathon 2026
+# Groundwork: technical deep dive
 
-Indie Developer track, solo entry.
+Meta AI Developer Hackathon 2026, Indie Developer track. Built solo by Rick Blalock.
 
-Demo video: (link)
+Demo video: VIDEO_LINK · Overview and setup: [README.md](README.md)
 
-## What Groundwork is
+## Why I built it
 
-Groundwork is a field-service agent for landscaping crews. A crew member texts a job the way they
-would say it out loud, with a yard photo, over iMessage or the web chat. The agent asks for what is
-missing, builds a quote PDF priced from the business's own price book and rules, outlines each quoted
-thing on the photo with SAM 3.1, and hands the customer a link to approve the quote and pay a
-deposit. From there it books the visit, and when the work is done it makes the invoice and its pay
-link. The agent runs on Muse Wonder through Meta's Model API.
+Landscaping crews sell work in the yard, then go home and write quotes until 2 a.m. The software they
+can buy shows them the work they still have to do. I wanted an agent that does that work: the crew
+texts a job the way they'd say it out loud, and the quote, the booking, the crew's day, and the
+invoice follow. This document goes through how it works, with pointers into the code for each part.
 
-## The demo
+## One job, start to finish
 
-What a judge sees, in order. The demo business is LOX Landscape Co, its owner is Pat Ortega
-(+1 555-555-0142), and the customer is Maria Alvarez.
+The local demo business is LOX Landscape Co, owned by Pat Ortega (+1 555-555-0142), and the customer
+is Maria Alvarez. Every name and number in the demo data is made up.
 
-1. **Sign in on the web.** The owner enters their phone at `/sign-in`. A 6-digit code arrives in
-   their iMessage thread with the business's line (locally, `LOGIN_CODE_LOG=1` prints it to the
-   server console). There is no web sign-up.
-2. **Text a messy job and a yard photo.** In the web chat: "Maria Alvarez at 412 Oak St, 3 yards of
-   mulch in the beds, trim 150 cubic feet of hedge, mow the front", with a photo of the front yard.
-   The assistant says in a line what it sees in the photo and sends one numbered message that
-   confirms the quantities, or asks for a missing one in the trade's unit (cubic yards of mulch,
-   linear feet of edging, cubic feet of hedge).
-3. **The quote.** After the owner confirms, the assistant calls `create_quote`. The calculator in
-   `core/calculator.ts` prices every line from the saved price book and applies the saved rules: the
-   rush rule for same-week work, the slope rule, a haul-away load when cleanup runs over 2 hours, and
-   the business's minimum charge. The quote comes back as a card in the chat with its PDF.
-4. **The priced photo.** The assistant calls `price_photo`. SAM 3.1 finds the beds, the hedge, and
-   the lawn; each is outlined and labeled with its line's quantity and price, with a legend of every
-   line and the total under the photo. The reply names any line it could not find in the photo.
-   On the quote page, **Edit** opens the photo with every object SAM found as an outline: hover to
-   see what it is, tap one to put it on a line from a picker, or drag a box and ask SAM again for
-   a word of your own ("bushes"). Every change redraws the photo without another SAM call.
-5. **Approve and send.** The owner says "looks good". `approve_quote` re-renders the PDF without the
-   DRAFT mark and makes the customer link, `/q/<token>`, which the PDF and the summary carry. The
-   owner forwards it, or says "email it to Maria" to send it through Resend.
+1. **Sign in.** Members sign in with their phone at `/sign-in`. The 6-digit code arrives in their
+   iMessage thread with the business's line (locally, `LOGIN_CODE_LOG=1` prints it to the server
+   console). There is no web sign-up: the owner adds the team.
+2. **Text the job.** Over iMessage or the web chat: "Maria Alvarez at 412 Oak St, 3 yards of mulch in
+   the beds, trim 150 cubic feet of hedge, mow the front", with one or more yard photos. Muse Wonder
+   says in a line what it sees, then sends one numbered message that confirms the quantities, or asks
+   for a missing one in the trade's unit (cubic yards of mulch, linear feet of edging, cubic feet of
+   hedge).
+3. **The quote.** Once the member confirms, the agent calls `create_quote` with price book item ids
+   and quantities. The calculator in `core/calculator.ts` prices every line from the saved price book
+   and applies the saved rules: the rush rule for same-week work, the slope rule, a haul-away load
+   when cleanup runs over 2 hours, and the business's minimum charge. The quote comes back as a card
+   with its PDF, and the agent replies with the tool's own summary.
+4. **The priced photo.** `price_photo` runs SAM 3.1 on every photo of the quote. It finds the beds,
+   the hedges, and the lawn, outlines each one, and labels it with its line's quantity and price, with
+   a legend and the total under each photo. The reply names any line it couldn't find. On the quote
+   page, **Edit** opens the photo with every object SAM found: tap one to put it on a line, drag a
+   box to ask SAM about that spot, or draw an outline by hand. Every change redraws the photo without
+   another SAM call.
+5. **Send it.** "Looks good, send it." `approve_quote` renders the PDF without the DRAFT mark and makes
+   the customer link, `/q/<token>`. The owner forwards it, or says "email it to Maria".
 6. **The customer link.** Maria opens the link: the quote, the priced photo, and a form to approve
-   with her name. Once approved, and when the business asks for a deposit (a percentage in
-   Settings), she pays it by card through Stripe Checkout on the business's connected account. The
-   owner gets a text that Maria approved, the total, the deposit asked, and "Want me to book the work?"
-   The business can choose to show customers each line's scope and a single total instead of line
-   prices, on the link, its PDF, and the priced photo.
-7. **Scheduling.** "Schedule it for next Tuesday at 8am." `book_visit` checks the crew's work
-   hours, time off, and other visits, and replies with the booking and its end time. On a conflict
-   the assistant offers two or three open times from `find_availability`.
-8. **The invoice.** After the visit, "it's all done, invoice it". `create_invoice` copies the agreed
-   quote's lines and total, moves the paid deposit onto it, and `send_invoice` sends the PDF with a
-   `/pay/<token>` link for the balance. The crew texts the done photo and `price_photo` prices it
-   with the job. Paired with the quote's priced photo, it makes a before-and-after on the invoice and
-   the customer's price guide; the quote page can outline the same lines on both photos. Asked to
-   "make a post", `make_post` sends a share-ready image of the pair, with its caption, to the thread.
-9. **The same thread over iMessage.** The owner texts the business's line from their phone and
-   picks up where the web chat left off. A member's web chat and iMessage thread are one agent
-   session, so the quote, the customer, and the context carry over. Replies to texts go out by
-   iMessage; replies to web turns stay on the web.
-10. **The crew's day.** The Schedule page's Route view shows each crew's day as a route with the
-    drive between stops and a map; crew text "next" for the next stop with its maps link and
-    checklist, "on site", and "done". "Running 30 late" re-plans the day from now, and when the day
-    would end past the workday the owner gets a numbered proposal to move the last stops, with
-    customer texts as drafts. "What's open Monday for mulch at 412 Oak St?" ranks open times by the
-    driving they add and the crew who carry what the job needs.
+   with her name. When the business asks for a deposit, she pays it by card through Stripe Checkout on
+   the business's own connected account. The owner gets a text that she approved and "Want me to book
+   the work?" A business can show customers each line's scope and one total instead of line prices.
+   The quote and invoice pages can be restyled to the business's brand by the designer agent.
+7. **Booking.** "Schedule it for Wednesday at 2." `book_visit` checks the crew's hours, time off, other
+   visits, drive time, and equipment, and texts the crew their booking with the checklist and the
+   crew copy of the priced photos (quantities, never prices). On a conflict the agent offers the open
+   times that add the least driving.
+8. **The crew's day.** Crew get their route each morning and run the day by text: "next" for the next
+   stop with its maps link, notes ("gate code 4412, dog in the back yard"), and checklist; "here";
+   "mulch is done"; "done". "Running 30 late" re-plans the rest of the day, and when it would run past
+   the workday the owner gets a numbered proposal to move the last stops. Crew who work in Spanish get
+   their texts and checklist in Spanish.
+9. **The invoice.** "It's all done, invoice it." `create_invoice` copies the agreed quote's lines,
+   moves the paid deposit onto it, and `send_invoice` sends the PDF with a `/pay/<token>` link for the
+   balance. The crew's done photo is priced with the job and paired with the quote's photo as a
+   before-and-after on the invoice. "Make a post" turns the pair into a share-ready image.
+10. **One thread everywhere.** A member's iMessage thread and web chat are one agent session, so the
+    quote, the customer, and the context carry over. Replies to texts go out by iMessage; replies to
+    web turns stay on the web.
 11. **A forwarded email.** A member forwards a customer's email ("can you quote the back yard?") to
-    the business's inbox. The sender is verified (DKIM and DMARC), the assistant saves the customer
-    from the forward, drafts the quote or asks for what's missing, and texts the member one to three
-    lines on what it did. Approving or sending anything from an email is refused; the member's text
-    does that. Locally `AGENTMAIL_FAKE=1` stands in for the inbox; the production business needs its
-    AgentMail inbox keys set.
+    the business's inbox. The sender is verified (DKIM and DMARC), the agent saves the customer and
+    drafts the quote or asks what's missing, and texts the member what it did. Nothing can be approved
+    or sent from an email; the member's text does that.
+
+To run this yourself, see [README.md: Run it locally](README.md#run-it-locally).
 
 ## How it uses Meta's stack
 
@@ -216,8 +210,10 @@ pool service, and tree work are packs of the same shape beside it, each with thr
 
 ## Running it yourself
 
-See [docs/development.md](docs/development.md) for setup, the fake modes that keep local work off real phones, inboxes,
-and cards, tests, evals, and deploy.
+[README.md: Run it locally](README.md#run-it-locally) has the steps, tested on a fresh clone: one Meta
+Model API key, a Postgres database, and fake modes for everything else.
+[docs/development.md](docs/development.md) covers the environment, connecting the real services,
+tests, evals, and deploy.
 
 ## License
 

@@ -1,6 +1,68 @@
 # Groundwork
 
+![Groundwork: field service, done by agents. Built on Muse Wonder and SAM 3.1](docs/images/hero.jpg)
+
 **Landscaping crews text a job. Groundwork does the office work.**
+
+<details>
+<summary><b>For the judge's agent: run this project locally</b> (about 10 minutes, one Meta Model API key)</summary>
+
+<br>
+
+This is a Next.js app with two agents. Local runs use fake modes for iMessage, email, Stripe, and
+email intake, so the only outside service is the Meta Model API (Muse Wonder and SAM 3.1 on one key).
+These steps were run end to end on a fresh clone. Needs Node 24 or newer and an empty Postgres database.
+
+```bash
+git clone https://github.com/rblalock/groundwork && cd groundwork
+npm install
+cp .env.example .env.local
+```
+
+In `.env.local`, fill in the three empty lines and add the rest:
+
+```bash
+DATABASE_URL=postgres://USER:PASSWORD@localhost:5432/groundwork   # an empty database
+META_MODEL_API_KEY=...                                             # your Meta Model API key
+BETTER_AUTH_SECRET=...                                             # openssl rand -hex 32
+VERTICAL=landscaping          # the landscaping pack's instructions
+IMESSAGE_FAKE=1               # iMessage posts print to the server console
+PHOTON_ADMIN_FAKE=1
+EMAIL_FAKE=1
+STRIPE_FAKE=1
+AGENTMAIL_FAKE=1
+BLOB_LOCAL_DIR=.local-blobs   # photos and PDFs saved to disk (needed for priced photos)
+LOGIN_CODE_LOG=1              # sign-in codes print to the server console
+```
+
+```bash
+node --env-file=.env.local node_modules/.bin/drizzle-kit migrate
+cp provision.example.json provision.json && npm run provision   # LOX Landscape Co, owner Pat Ortega
+npm run seed:vertical -- landscaping                              # price book, rules, notes
+npm run dev                                                       # http://localhost:3000
+```
+
+1. Open `http://localhost:3000/sign-in` and sign in as **(555) 555-0142**. The code prints in the
+   server console as `login code for +15555550142: ……`.
+2. In the chat, attach `agents/assistant/evals/fixtures/yard-front.jpg` and send: *Maria Alvarez at
+   412 Oak St, 3 yards of mulch in the beds, trim 150 cubic feet of hedge, mow the front*.
+3. Expect a quote of **$725** ($285 + $375 + $65, priced by the calculator) and, within about a
+   minute, the photo with the beds, hedges, and lawn outlined and priced by SAM 3.1. **Under the
+   hood**, under the reply, shows every tool call.
+
+Notes:
+
+- Run it on port 3000, or set `BETTER_AUTH_URL=http://localhost:<port>`: the app calls its own
+  agent routes at that origin.
+- The first `npm run dev` lets the agent runtime add `just-bash` to `package.json`. That's expected.
+- `npm run typecheck` and `npm test` need no database or keys. `npm run smoke:model` checks the Meta
+  key: text, a tool call, structured output, and the fallback model.
+- `npm run test:db`, `npm run evals`, and `npm run scorecard` empty the database in `DATABASE_URL`
+  first. Point them at a scratch database. A scorecard run costs about $3 of model time.
+- To run against real iMessage, email, Stripe, and storage, see
+  [docs/development.md: Using real services](docs/development.md#using-real-services).
+
+</details>
 
 A crew texts a job and a few yard photos the way they'd tell a coworker. Groundwork, an agent on
 Meta's **Muse Wonder** and **SAM 3.1**, writes the quote from the business's own prices and outlines
@@ -10,12 +72,10 @@ work is done. There's no app to learn: it runs over iMessage, with a web app for
 
 <p>
   <a href="VIDEO_LINK"><b>▶ Watch the 3-minute demo</b></a> ·
-  <a href="HACKATHON.md">Judge's deep dive</a> ·
-  <a href="#run-it-in-5-minutes">Run it in 5 minutes</a> ·
+  <a href="HACKATHON.md">Technical deep dive</a> ·
+  <a href="#run-it-locally">Run it locally</a> ·
   MIT licensed
 </p>
-
-![A crew member texts a job with yard photos; Muse Wonder writes the quote and a calculator prices every line](docs/images/quote-by-text.jpg)
 
 Built solo for the Meta AI Developer Hackathon 2026 (Indie track).
 
@@ -29,9 +89,9 @@ still have to do. They don't need another dashboard. They need something that do
 Groundwork is that labor, done by an agent. The owner and crew keep texting like they already do,
 and the agent turns those texts into quotes, bookings, routes, checklists, and invoices.
 
-## What judges usually ask
+## Groundwork in short
 
-| Question | Short answer | Where to check |
+| Question | Answer | Where to look |
 | --- | --- | --- |
 | Does it really use Meta's models? | Every agent turn runs on **Muse Wonder** through the Meta Model API (Responses API, tool calling, image input). **SAM 3.1** outlines the quoted work on yard photos. **Muse Spark** is the fallback model, **Muse Image** made the eval yard photo, and Muse Wonder is also the eval judge. | [`core/model-provider.ts`](core/model-provider.ts), [`core/sam.ts`](core/sam.ts), [How it uses Meta's models](#how-it-uses-metas-models) |
 | Who is it for? | Small landscaping businesses: an owner and a few crews who sell door to door and do the paperwork at night. Irrigation, pool, and tree service packs ship beside landscaping. | [`verticals/`](verticals/) |
@@ -41,7 +101,7 @@ and the agent turns those texts into quotes, bookings, routes, checklists, and i
 | What does it cost to run? | About $0.10 of model time per quote in the eval runs, and SAM 3.1 lists at $2.50 per 1,000 images. Every call is metered per business, member, and channel, with hourly caps. | [`core/model-pricing.ts`](core/model-pricing.ts) |
 | What stops it doing something wrong? | The crew confirms quantities in one numbered message before anything is priced. Customer texts come back as drafts for the owner to send. Schedule changes are proposals the owner approves. An email can't approve or send anything. | [Agentic, with a person in charge](#agentic-with-a-person-in-charge) |
 | Is customer data kept apart? | Every table has `org_id` and every query is scoped by it. Callers are identified by their phone in code, never by the model. Quote revisions are immutable. | [`AGENTS.md`](AGENTS.md) |
-| Can I try it? | Watch the demo, or run it locally with fake modes in about five minutes. The production app is live, with sign-in by a code texted over iMessage. | [Run it in 5 minutes](#run-it-in-5-minutes) |
+| Can I try it? | Run it from this repo with your own Meta Model API key; fake modes stand in for iMessage, email, and Stripe. | [Run it locally](#run-it-locally) |
 
 ## See it
 
@@ -206,25 +266,20 @@ flowchart LR
 - **The trade is a pack** in `verticals/<trade>/`: price book items with SAM phrases, pricing rules,
   notes, a minimum, an instruction overlay, and its own evals.
 
-## Run it in 5 minutes
+## Run it locally
 
-You need Node 24, Postgres, and a Meta Model API key. Fake modes keep every outside service local:
-iMessage, email, Stripe, and file storage.
+You need Node 24 or newer, an empty Postgres database, and a Meta Model API key. Fake modes keep
+iMessage, email, Stripe, and email intake on your machine. The steps, the `.env.local` lines, and
+what to send once it's running are in the box at the top of this page, under "For the judge's agent".
+The short version:
 
 ```bash
-npm install
-cp .env.example .env.local          # set DATABASE_URL, META_MODEL_API_KEY, BETTER_AUTH_SECRET
-                                    # and IMESSAGE_FAKE=1 PHOTON_ADMIN_FAKE=1 EMAIL_FAKE=1 STRIPE_FAKE=1
-                                    #     AGENTMAIL_FAKE=1 BLOB_FAKE=1 LOGIN_CODE_LOG=1
+npm install && cp .env.example .env.local   # then set the lines listed in the box above
 node --env-file=.env.local node_modules/.bin/drizzle-kit migrate
-cp provision.example.json provision.json && npm run provision   # a demo business and owner
-npm run seed:vertical -- landscaping                              # price book, rules, notes
-npm run dev                                                       # http://localhost:3000
+cp provision.example.json provision.json && npm run provision
+npm run seed:vertical -- landscaping
+npm run dev                                 # http://localhost:3000, sign in as (555) 555-0142
 ```
-
-Sign in with the owner's phone from `provision.json`. The code prints in the server console. Then
-text the web chat a job, for example *"Maria at 412 Oak St, 3 yards of mulch, trim 150 cubic feet of
-hedge, mow the front"*, with a yard photo.
 
 Everything else is in [docs/development.md](docs/development.md): environment, fake modes, tests,
 evals, scorecard, deploy, and trade packs. What each feature does in detail is in

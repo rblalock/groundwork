@@ -26,7 +26,20 @@ cp .env.example .env.local
 
 Fill in `.env.local`: at least `DATABASE_URL`, `META_MODEL_API_KEY`, and `BETTER_AUTH_SECRET`
 (`openssl rand -hex 32`). For local work, turn on the fake modes below so nothing reaches a real
-phone, inbox, or card. Then:
+phone, inbox, or card, and save files to disk so photos can be priced:
+
+```bash
+VERTICAL=landscaping
+IMESSAGE_FAKE=1
+PHOTON_ADMIN_FAKE=1
+EMAIL_FAKE=1
+STRIPE_FAKE=1
+AGENTMAIL_FAKE=1
+BLOB_LOCAL_DIR=.local-blobs
+LOGIN_CODE_LOG=1
+```
+
+Then:
 
 ```bash
 node --env-file=.env.local node_modules/.bin/drizzle-kit migrate   # or: npm run db:migrate with DATABASE_URL set
@@ -42,6 +55,35 @@ designer at `/eve/designer/v1` (off unless `DESIGNER_ENABLED=1`). Members sign i
 the code is posted in their iMessage thread, and with `LOGIN_CODE_LOG=1` it also prints to the server
 console. Super admins are made with `npm run admin:create -- you@example.com` and must be listed in
 `SUPER_ADMIN_EMAILS`.
+
+The app reaches its own agent routes at `BETTER_AUTH_URL`, or `http://localhost:3000` when it's unset,
+so on another port set `BETTER_AUTH_URL=http://localhost:<port>`. With iMessage faked, the web chat is
+the way in: sign in, and the home page is the owner's thread.
+
+## Using real services
+
+Each outside service is optional and replaces one fake mode. Unset the fake switch when you set the
+real keys. Webhooks need a public HTTPS URL: a deployment, or a tunnel to this machine.
+
+- **Meta Model API** (required either way): `META_MODEL_API_KEY`. The same key runs Muse Wonder and
+  SAM 3.1. `npm run smoke:model` checks it.
+- **iMessage (Photon)**: a Photon project with a line. Set `IMESSAGE_PROJECT_ID` and
+  `IMESSAGE_PROJECT_SECRET`, drop `IMESSAGE_FAKE` and `PHOTON_ADMIN_FAKE`, and point the line's
+  webhook at `https://<host>/eve/assistant/v1/photon`:
+  `npm run photon:webhook -- add <url>` prints the signing secret for `IMESSAGE_WEBHOOK_SECRET`.
+  Locally, `scripts/photon-tunnel.sh up` gives a public URL for an agent run with `npm run dev:photon`.
+  Then `npm run provision` assigns members to the line, and their first text gets the welcome.
+- **File storage (Vercel Blob)**: `BLOB_READ_WRITE_TOKEN`, and unset `BLOB_LOCAL_DIR`. Customers' links
+  and texted PDFs need public URLs, so production uses Blob.
+- **Email out (Resend)**: `RESEND_API_KEY` and an `EMAIL_FROM` on a domain verified with Resend. Drop
+  `EMAIL_FAKE`.
+- **Payments (Stripe Connect)**: `STRIPE_SECRET_KEY` (test mode works) and a webhook to
+  `https://<host>/api/webhooks/stripe` whose secret is `STRIPE_WEBHOOK_SECRET`. Drop `STRIPE_FAKE`.
+  Each business connects its own account from Settings → Payments.
+- **Email in (AgentMail)**: `AGENTMAIL_API_KEY` and a webhook to `https://<host>/api/webhooks/agentmail`
+  whose secret is `AGENTMAIL_WEBHOOK_SECRET`. Drop `AGENTMAIL_FAKE`.
+- **Addresses and weather**: no keys. `PLACES_FAKE=0` uses the US Census geocoder and
+  `WEATHER_FAKE=0` uses api.weather.gov (`WEATHER_CONTACT` is the email its User-Agent gives).
 
 ## Trade packs
 
