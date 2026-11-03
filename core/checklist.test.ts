@@ -285,6 +285,13 @@ withTestDb("an owner sends a visit's crew the list and photos again; crew can't,
     },
   ]);
   await assert.rejects(resendToCrew(s.carlos, booked.visit.visitId, { now: MONDAY_7AM, post }), /NOT_PRIVILEGED/);
+
+  // Booking themselves, the owner has the reply and no text; asking to resend, they get it too.
+  const own = await bookVisit(s.pat, { quoteId: s.quote.quoteId, memberIds: [s.pat.memberId], day: "today", time: "13:00" }, { now: MONDAY_7AM, post });
+  posts = [];
+  assert.deepEqual((await resendToCrew(s.pat, own.visit.visitId, { now: MONDAY_7AM, post })).notified, ["Pat Ortega"]);
+  assert.deepEqual(posts.map((p) => p.memberId), [s.pat.memberId]);
+
   await changeVisitStatus(s.pat, { visitId: booked.visit.visitId, status: "cancelled" }, { now: MONDAY_7AM, post });
   await assert.rejects(resendToCrew(s.pat, booked.visit.visitId, { now: MONDAY_7AM, post }), /VISIT_NOT_OPEN/);
 });

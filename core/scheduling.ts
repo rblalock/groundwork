@@ -1875,7 +1875,7 @@ export async function resendToCrew(actor: Actor, visitId: string, deps?: Deps): 
   const { timeZone } = await getProfileWith(actor.orgId, db());
   const brief = await crewBrief(actor.orgId, visitId);
   const visit = await visitWithDrives(actor, visitId);
-  const notified = await tellCrew(actor, visit.crew.map((c) => c.memberId), (lang) => withChecklist(crewText.resent(actor.name, visit, timeZone, lang), brief, lang), deps, brief);
+  const notified = await tellCrew(actor, visit.crew.map((c) => c.memberId), (lang) => withChecklist(crewText.resent(actor.name, visit, timeZone, lang), brief, lang), deps, brief, { includeActor: true });
   return { visit, notified };
 }
 
@@ -1912,9 +1912,11 @@ async function tellCrew(
   text: (language: Language) => string,
   deps?: Deps,
   brief?: CrewChecklist | null,
+  options: { includeActor?: boolean } = {},
 ): Promise<string[]> {
   const out: string[] = [];
-  const ids = [...new Set(memberIds)].filter((id) => id !== actor.memberId);
+  // Whoever booked or moved the visit has the reply already; a resend asked for goes to everyone on it.
+  const ids = [...new Set(memberIds)].filter((id) => options.includeActor || id !== actor.memberId);
   if (ids.length === 0) return out;
   const rows = await db()
     .select()
