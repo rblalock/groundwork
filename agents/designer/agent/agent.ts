@@ -20,4 +20,7 @@ export default defineAgent({
   defaultTools: false,
   compaction: { thresholdPercent: 0.75 },
   limits: { sessionTimeoutMs: false },
+  // sharp (reached through the logo and PDF tools' core imports) loads a native binary, so it must stay a
+  // dependency of the hosted bundle instead of being compiled into it.
+  build: { externalDependencies: ["sharp"] },
 });
