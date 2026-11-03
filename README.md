@@ -77,7 +77,7 @@ books the visit, gives the crew a route and a checklist in their language, and i
 work is done. There's no app to learn: it runs over iMessage, with a web app for the office.
 
 <p>
-  <a href="VIDEO_LINK"><b>▶ Watch the 3-minute demo</b></a> ·
+  <a href="https://youtu.be/k6mf6J8wyB4"><b>▶ Watch the 3-minute demo</b></a> ·
   <a href="HACKATHON.md">Technical deep dive</a> ·
   <a href="#try-it-live">Try it live</a> ·
   <a href="#run-it-locally">Run it locally</a> ·

@@ -2,7 +2,7 @@
 
 Meta AI Developer Hackathon 2026, Indie Developer track. Built solo by Rick Blalock.
 
-Demo video: VIDEO_LINK · Overview and setup: [README.md](README.md)
+Demo video: https://youtu.be/k6mf6J8wyB4 · Overview and setup: [README.md](README.md)
 
 ## Why I built it
 
