@@ -87,9 +87,18 @@ export function readSamStream(sseText: string): { result: ImageSegmentationResul
   return { result: parser.finish(outcome).result, usage };
 }
 
-/** Moves an absolute M/L path from mask raster coordinates to image coordinates. */
-function translatePath(path: string, dx: number, dy: number): string {
-  return path.replace(/([ML])(-?[\d.]+) (-?[\d.]+)/g, (_, op: string, x: string, y: string) => `${op}${Number(x) + dx} ${Number(y) + dy}`);
+/** How far one raster pixel spans in the photo: SAM sends a large object's mask coarser than the box it covers. */
+function rasterScale(mask: { width: number; height: number }, bounds: SamObject["box"]): { x: number; y: number } {
+  return { x: (bounds.right - bounds.left) / mask.width, y: (bounds.bottom - bounds.top) / mask.height };
+}
+
+/** Moves an absolute M/L path from mask raster coordinates to image coordinates, scaled up when the raster is coarser than its box. */
+function placePath(path: string, bounds: SamObject["box"], scale: { x: number; y: number }): string {
+  const at = (value: number) => Math.round(value * 100) / 100;
+  return path.replace(
+    /([ML])(-?[\d.]+) (-?[\d.]+)/g,
+    (_, op: string, x: string, y: string) => `${op}${at(bounds.left + Number(x) * scale.x)} ${at(bounds.top + Number(y) * scale.y)}`,
+  );
 }
 
 /** The photo SAM saw, in pixels. */
@@ -106,12 +115,13 @@ export function samObjects(result: ImageSegmentationResult, size: SamSize): SamO
     .map((record) => {
       const { mask, bounds } = record;
       const box = boxes.get(record.objectId) ?? bounds;
+      const scale = rasterScale(mask, bounds);
       return {
         id: Number(record.objectId),
         box: { left: box.left, top: box.top, right: box.right, bottom: box.bottom },
-        areaPx: decodeMaskToRaster(mask).reduce((sum, bit) => sum + bit, 0),
+        areaPx: Math.round(decodeMaskToRaster(mask).reduce((sum, bit) => sum + bit, 0) * scale.x * scale.y),
         confidence: record.confidence ?? boxes.get(record.objectId)?.confidence ?? null,
-        svgPath: translatePath(decodeMaskToSVGPath(mask), bounds.left, bounds.top),
+        svgPath: placePath(decodeMaskToSVGPath(mask), bounds, scale),
         width: box.right - box.left,
         height: box.bottom - box.top,
       };

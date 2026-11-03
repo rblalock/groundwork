@@ -28,6 +28,26 @@ test("moves each mask path into image coordinates", () => {
   }
 });
 
+test("a mask coarser than its box is scaled up to the box, so a big lawn isn't cut off", () => {
+  // SAM sends a large object's raster smaller than the photo box it covers: the same raster over a box twice the size.
+  const { result } = readSamStream(LAWN);
+  const records = result.records.map((record) =>
+    record.kind === "mask" || record.kind === "box"
+      ? record.kind === "mask"
+        ? { ...record, bounds: { left: record.bounds.left * 2, top: record.bounds.top * 2, right: record.bounds.right * 2, bottom: record.bounds.bottom * 2 } }
+        : { ...record, left: record.left * 2, top: record.top * 2, right: record.right * 2, bottom: record.bottom * 2 }
+      : record,
+  );
+  const small = parseSamStream(LAWN, SIZE);
+  const big = samObjects({ ...result, records } as ImageSegmentationResult, { width: 2048, height: 2048 });
+  for (const object of big) {
+    const points = [...object.svgPath.matchAll(/[ML](-?[\d.]+) (-?[\d.]+)/g)].map((m) => ({ x: Number(m[1]), y: Number(m[2]) }));
+    assert.ok(Math.max(...points.map((p) => p.x)) > object.box.right - 4, "reaches the box's right edge");
+    assert.ok(Math.max(...points.map((p) => p.y)) > object.box.bottom - 4, "reaches the box's bottom edge");
+    assert.equal(object.areaPx, small.find((o) => o.id === object.id)!.areaPx * 4);
+  }
+});
+
 test("drops a mask larger than the photo without decoding it", () => {
   const { result } = readSamStream(LAWN);
   const real = result.records.find((record) => record.kind === "mask")!;
