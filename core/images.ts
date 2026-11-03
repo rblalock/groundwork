@@ -9,6 +9,8 @@ import jpeg from "jpeg-js";
 export const MAX_PIXELS = 16_000_000;
 /** What a PNG inflates to before it's turned into 8-bit RGBA: a 16-bit RGBA PNG is twice its RGBA size. */
 export const MAX_DECODED_BYTES = MAX_PIXELS * 4;
+/** Photos are bigger than logos: iPhones shoot 24 MP by default and 48 MP at full size, so texted and uploaded photos get room for that before they're scaled down. */
+export const PHOTO_MAX_PIXELS = 50_000_000;
 
 /** The model reads JPEG, PNG, WebP and GIF. iPhones send HEIC, which it rejects. */
 const HEIC = /^image\/hei[cf](-sequence)?$/i;
@@ -25,7 +27,7 @@ export function isHeic(mimeType: string): boolean {
  * own size limits stay at their defaults; callers bound the coded size beforehand where they can
  * (`heicSize` in core/logo.ts).
  */
-export async function decodeHeicBounded(bytes: Uint8Array): Promise<Rgba> {
+export async function decodeHeicBounded(bytes: Uint8Array, maxPixels = MAX_PIXELS): Promise<Rgba> {
   let images: Awaited<ReturnType<typeof heicImages>>;
   try {
     images = await heicImages({ buffer: bytes });
@@ -34,7 +36,7 @@ export async function decodeHeicBounded(bytes: Uint8Array): Promise<Rgba> {
   }
   try {
     if (images.length === 0 || images.some((image) => image.width === 0 || image.height === 0)) throw new Error("IMAGE_UNREADABLE");
-    if (images.some((image) => image.width * image.height > MAX_PIXELS)) throw new Error("IMAGE_TOO_LARGE");
+    if (images.some((image) => image.width * image.height > maxPixels)) throw new Error("IMAGE_TOO_LARGE");
     return await images[0].decode().catch(() => {
       throw new Error("IMAGE_UNREADABLE");
     });
@@ -43,9 +45,9 @@ export async function decodeHeicBounded(bytes: Uint8Array): Promise<Rgba> {
   }
 }
 
-/** Decodes a HEIC photo (bounded, `decodeHeicBounded`) and re-encodes it as a JPEG, scaled down so its long side is at most 2048 px. */
+/** Decodes a HEIC photo (bounded by `PHOTO_MAX_PIXELS`) and re-encodes it as a JPEG, scaled down so its long side is at most 2048 px. */
 export async function heicToJpeg(bytes: Uint8Array): Promise<Uint8Array> {
-  const image = await decodeHeicBounded(bytes);
+  const image = await decodeHeicBounded(bytes, PHOTO_MAX_PIXELS);
   const scaled = shrink(image, MAX_SIDE);
   return new Uint8Array(jpeg.encode({ ...scaled, data: Buffer.from(scaled.data) }, 85).data);
 }

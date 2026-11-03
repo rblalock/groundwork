@@ -11,6 +11,7 @@ import {
   handleInbound,
   handleReaction,
   logWebInbound,
+  PHOTO_UNREAD,
   markTurnStarted,
   resolveInboundAttachments,
   toInbound,
@@ -374,10 +375,10 @@ withTestDb("an attachment over 25 MB is skipped, by declared size or by actual b
     const declared = photoNode({ size: 26 * 1024 * 1024, read: async () => (reads++, JPEG) });
     await handleInbound(photonMessage(declared), deps);
     assert.equal(reads, 0, "a declared oversize file is never read");
-    assert.equal(sends[0][0], "(photo)");
+    assert.equal(sends[0][0], PHOTO_UNREAD);
     const actual = photoNode({ size: undefined, read: async () => Buffer.alloc(25 * 1024 * 1024 + 1) });
     await handleInbound(photonMessage(actual), deps);
-    assert.equal(sends[1][0], "(photo)");
+    assert.equal(sends[1][0], PHOTO_UNREAD);
   } finally {
     restore();
   }
@@ -385,7 +386,7 @@ withTestDb("an attachment over 25 MB is skipped, by declared size or by actual b
   assert.ok(rows.every((r) => r.attachments.length === 0));
 });
 
-withTestDb("an attachment with no readable bytes still dispatches \"(photo)\" and warns with its keys only", async () => {
+withTestDb("an attachment with no readable bytes still dispatches, saying it wasn't seen, and warns with its keys only", async () => {
   await owner({ verified: true });
   const { sends, deps } = recorder();
   const { warnings, restore } = captureWarnings();
@@ -396,7 +397,7 @@ withTestDb("an attachment with no readable bytes still dispatches \"(photo)\" an
     restore();
   }
   assert.equal(sends.length, 1);
-  assert.equal(sends[0][0], "(photo)");
+  assert.equal(sends[0][0], PHOTO_UNREAD);
   assert.equal(warnings.length, 1);
   const logged = JSON.stringify(warnings[0]);
   assert.match(logged, /"id","mimeType","name","type"/);
@@ -421,7 +422,7 @@ withTestDb("an attachment node with an http(s) downloadUrl is fetched", async ()
   }
   assert.deepEqual(fetched, ["https://cdn.example.test/a"]);
   assert.ok(Array.isArray(sends[0][0]) && sends[0][0].some((part) => part.type === "file"));
-  assert.equal(sends[1][0], "(photo)");
+  assert.equal(sends[1][0], PHOTO_UNREAD);
 });
 
 withTestDb("a Chat SDK attachment with fetchData is used when the raw tree has no reader", async () => {

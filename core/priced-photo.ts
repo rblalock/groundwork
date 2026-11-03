@@ -21,7 +21,7 @@ import { checklistItems, members, pricedPhotos, quoteAttachments, quoteRevisions
 import type { PricedBox, PricedCandidate, PricedRegion } from "../schema/types";
 import { deleteBlob, readStoredFile, storeInboundAttachment } from "./blob";
 import { db, newId } from "./db";
-import { MAX_PIXELS } from "./images";
+import { PHOTO_MAX_PIXELS } from "./images";
 import { sniffImage } from "./logo";
 import type { Language } from "./language";
 import type { Caller } from "./members";
@@ -749,7 +749,7 @@ export async function preparePhoto(url: string): Promise<Photo | null> {
   try {
     const stored = await readStoredFile(url);
     if (!stored) return null;
-    const { data, info } = await sharp(stored, { limitInputPixels: MAX_PIXELS })
+    const { data, info } = await sharp(stored, { limitInputPixels: PHOTO_MAX_PIXELS })
       .rotate()
       .resize({ width: MAX_SIDE, height: MAX_SIDE, fit: "inside", withoutEnlargement: true })
       .jpeg({ quality: 90 })

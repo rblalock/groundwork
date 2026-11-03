@@ -129,6 +129,8 @@ export interface AttachmentSource {
 export const ATTACHMENT_LIMIT_BYTES = 25 * 1024 * 1024;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const PHOTO_TEXT = "(photo)";
+/** Said instead of the photo when it couldn't be read, so the model never answers as if it saw it. */
+export const PHOTO_UNREAD = "(a photo was sent but couldn't be opened, so you haven't seen it: ask them to send it again)";
 
 export const PHOTON = "photon-imessage";
 
@@ -414,7 +416,7 @@ export async function loadSource(
   source: AttachmentSource,
   store: NonNullable<DispatchDeps["storeAttachment"]>,
 ): Promise<Loaded> {
-  const fallback: Loaded = { attachment: null, file: null, note: source.type === "image" ? PHOTO_TEXT : `(${source.type})` };
+  const fallback: Loaded = { attachment: null, file: null, note: source.type === "image" ? PHOTO_UNREAD : `(${source.type})` };
   if (source.size !== null && source.size > ATTACHMENT_LIMIT_BYTES) {
     console.warn("photon: inbound attachment over the 25 MB limit, skipped", { size: source.size });
     return source.type === "file" ? { ...fallback, note: unreadNote(source.name, "too_large") } : fallback;
