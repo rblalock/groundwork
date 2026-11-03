@@ -215,7 +215,8 @@ Model API key and a Postgres database. The agent and both Meta models run for re
 emails, and payments on your machine. The production app runs everything live, iMessage included:
 [README.md: Try it live](README.md#try-it-live).
 [docs/development.md](docs/development.md) covers the environment, connecting the real services,
-tests, evals, and deploy.
+tests, evals, and deploy, and [docs/production.md](docs/production.md) sets up production with real
+iMessage, storage, email, and payments.
 
 ## License
 

@@ -60,12 +60,13 @@ Notes:
 - Run it on port 3000, or set `BETTER_AUTH_URL=http://localhost:<port>`: the app calls its own
   agent routes at that origin.
 - The first `npm run dev` lets the agent runtime add `just-bash` to `package.json`. That's expected.
-- `npm run typecheck` and `npm test` need no database or keys. `npm run smoke:model` checks the Meta
+- `npm run typecheck` and `npm test` need no keys. `npm test` skips the database tests unless
+  `DATABASE_URL` is set in your shell, and then it empties that database, so run it without. `npm run smoke:model` checks the Meta
   key: text, a tool call, structured output, and the fallback model.
 - `npm run test:db`, `npm run evals`, and `npm run scorecard` empty the database in `DATABASE_URL`
   first. Point them at a scratch database. A scorecard run costs about $3 of model time.
-- To run against real iMessage, email, Stripe, and storage, see
-  [docs/development.md: Using real services](docs/development.md#using-real-services).
+- To run it in production with real iMessage, storage, email, and payments (Photon, Vercel, the
+  webhooks, adding a business), follow [docs/production.md](docs/production.md).
 
 </details>
 
@@ -277,9 +278,12 @@ flowchart LR
 Groundwork runs in production at
 [groundwork-rb-sideprojects.vercel.app](https://groundwork-rb-sideprojects.vercel.app), with a real
 iMessage line, Muse Wonder, and SAM 3.1. There's no public sign-up: a business's owner adds each
-member by phone, and sign-in codes arrive over iMessage. To try it, send your phone number to
-INVITE_CONTACT and I'll add you to the demo business. You'll get a text from the line, and then you can
-text it jobs and photos from your phone and see the same thread in the web app.
+member by phone, and sign-in codes arrive over iMessage. To try it, DM me on X at
+[@rblalock](https://x.com/rblalock) with your phone number and something that shows you're judging,
+and I'll add you to the demo business. Text the line once, and then you can text it jobs and photos
+from your phone and see the same thread in the web app.
+
+To run your own production deployment, see [docs/production.md](docs/production.md).
 
 ## Run it locally
 
@@ -296,8 +300,9 @@ npm run seed:vertical -- landscaping
 npm run dev                                 # http://localhost:3000, sign in as (555) 555-0142
 ```
 
-Everything else is in [docs/development.md](docs/development.md): environment, connecting the real
-services, running without them, tests,
+Production setup (Photon, Vercel, webhooks, adding a business) is in
+[docs/production.md](docs/production.md). Everything else is in [docs/development.md](docs/development.md):
+environment, running without outside services, tests,
 evals, scorecard, deploy, and trade packs. What each feature does in detail is in
 [docs/features.md](docs/features.md), and what's next is in [ROADMAP.md](ROADMAP.md).
 
@@ -311,7 +316,7 @@ evals, scorecard, deploy, and trade packs. What each feature does in detail is i
 | `verticals/` | Trade packs: landscaping, irrigation, pool, tree |
 | `app/`, `components/`, `lib/` | The Next.js app and the customer pages |
 | `schema/` | Drizzle schema and migrations |
-| `docs/` | Features, development, evals scorecard, post-training |
+| `docs/` | Features, development, production setup, evals scorecard, post-training |
 
 ## License
 

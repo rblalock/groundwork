@@ -62,7 +62,8 @@ the way in: sign in, and the home page is the owner's thread.
 
 ## Using real services
 
-Each outside service is optional and replaces one `*_FAKE` switch. Unset the switch when you set the
+The full production setup, step by step, is in [production.md](production.md). In short: each outside
+service is optional and replaces one `*_FAKE` switch. Unset the switch when you set the
 real keys. Webhooks need a public HTTPS URL: a deployment, or a tunnel to this machine.
 
 - **Meta Model API** (required either way): `META_MODEL_API_KEY`. The same key runs Muse Wonder and
@@ -203,7 +204,8 @@ phones, and emails replaced. `evals:capture` writes the same from the evals that
 
 ## Deploy
 
-Groundwork runs as one Vercel project for every business, with a Neon Postgres and a Vercel Blob
+The full setup, from an empty Vercel project to a business texting its line, is in
+[production.md](production.md). Groundwork runs as one Vercel project for every business, with a Neon Postgres and a Vercel Blob
 store.
 
 1. Set the environment on the project: everything in `.env.example` that production needs, none of
