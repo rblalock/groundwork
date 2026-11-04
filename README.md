@@ -4,6 +4,9 @@
 
 **Landscaping crews text a job. Groundwork does the office work.**
 
+[Operations handbook](docs/handbook/README.md): four Apollo-style sheets explaining the system,
+quotes and priced photos, dispatch, and operating limits. [Download the PDF](docs/handbook/groundwork-handbook.pdf).
+
 <details>
 <summary><b>For the judge's agent: run this project locally</b> (about 10 minutes, one Meta Model API key)</summary>
 
